@@ -175,7 +175,7 @@ an unpinned binary download duplicating what push protection does.
 site/index.html              the entire dashboard
 scripts/perf_eval/
   normalize.py               metric registry, AMD filter, event normalizers
-  store.py                   events.jsonl: atomic writes, retention, budgets
+  store.py                   events.jsonl: atomic writes, 14-day retention
   collect_artifacts.py       Buildkite REST -> canonical events
   aggregate.py               events.jsonl -> perf_eval.json
   merge_events.py            identity-based merge of two stores
@@ -345,7 +345,7 @@ deliberately pass non-boolean values to prove only a literal `True` counts.
     }]
   }],
   "summary":   { "models": 1, "amd_devices": ["mi355x"], "nightlies": 12, "perf_points": 96, "accuracy_points": 12 },
-  "retention": { "display_window_days": 14, "event_history_days": 30, "artifact_identity_days": 45, "max_bytes": 8388608 }
+  "retention": { "display_window_days": 14 }
 }
 ```
 
@@ -458,10 +458,7 @@ If you add palette colours, keep them out of the 0–20° hue range.
 
 The view shows a trailing **14 days**, anchored to *now* rather than to the
 newest run. If the nightly stops reporting, the dashboard goes empty and says
-how stale the data is rather than quietly presenting month-old numbers as
-current — a dashboard that looks healthy because it is showing stale data is
-worse than one that looks broken. The empty state names the problem and links
-to the pipeline; it deliberately offers no way to widen the window.
+so, with a link to the pipeline, rather than presenting old numbers as current.
 
 **The window can be narrowed, never widened.** Two weeks is short enough that
 everything on screen predates the same handful of image bumps. The window
@@ -522,9 +519,9 @@ takes every config in that workload with it.
 
 ### Nightly identity
 
-A nightly is identified by its vLLM commit, falling back to build number and
-then date. The perf-eval repo's own commit (`build_commit`) is deliberately
-not a fallback: it stays the same across many nightlies. That means **a nightly re-run on the same commit folds into one
+A nightly is identified by its vLLM commit, falling back to build number. The
+perf-eval repo's own commit (`build_commit`) is deliberately not a fallback:
+it stays the same across many nightlies. That means **a nightly re-run on the same commit folds into one
 data point** rather than appearing twice, which is the intended behaviour: it
 is one nightly that happened to be executed twice.
 
@@ -547,8 +544,8 @@ Three passes is insurance against not knowing when that is. Recent nightlies
 have mostly finished between about 10:30 and 13:00 UTC, so the 17:17 pass is
 the one that usually picks up the new night.
 
-Each run scans the last 14 days of finished `main` builds (1–30 configurable
-via the dispatch input). The window is a safety net for a nightly that landed
+Each run scans the last 14 days of finished `main` builds (1–14 via the
+dispatch input; 14 is the most the store keeps). The window is a safety net for a nightly that landed
 late, or for backfilling after a failed run.
 
 **Backfilling a build that is already ingested** needs the `recheck_builds`
@@ -642,22 +639,21 @@ direction is one redundant deploy rather than a silently unpublished update.
 
 ## Retention
 
-Fixed rules, never size-driven. Both files are written atomically, so a crash
-mid-write cannot leave a truncated file.
+One number, `WINDOW_DAYS = 14` in `scripts/perf_eval/__init__.py`. The page
+shows the last 14 days, so that is all anything keeps:
 
-| File | Keeps | Ceiling |
-|---|---|---|
-| `data/events.jsonl` | 30 days, plus the 2 newest nightlies whatever their age | 24 MiB |
-| `data/perf_eval.json` | The 14-day display window, plus the newest nightly | 8 MiB |
+- `data/events.jsonl` keeps nightly results from the last 14 days, the newest
+  recipe snapshot, and the IDs of artifacts downloaded in that time.
+- `data/perf_eval.json` publishes the nightlies from the last 14 days.
+- The collector looks back at most 14 days, so it never re-lists a build
+  whose results have already been dropped.
 
-The event log keeps 30 days because the collector can re-scan up to 30 days of
-builds; dropping results sooner would let a backfill download them again. The
-payload publishes only what the page shows. The newest nightly is always kept
-so that, if the nightly stops, the page can still say how old the last run is.
+Both files are written atomically (temp file, then rename), so a crash
+mid-write cannot leave a truncated file. There are no size limits: 14 days of
+the log is about half a megabyte, far below anything GitHub cares about.
 
-The ceilings are far above normal use (30 days of the log is about 1 MB). A
-write that would exceed one **fails** and leaves the previous file in place;
-nothing is dropped to make it fit.
+If nothing has run in 14 days, the store and the payload hold no results and
+the page says so, with a link to the pipeline.
 
 The `dashboard-state` branch is an ordinary branch in this repository: it is
 unpublished (Pages serves `gh-pages` only), but anyone who can read the

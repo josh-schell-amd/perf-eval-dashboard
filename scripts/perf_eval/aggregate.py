@@ -32,7 +32,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from perf_eval import BUILDKITE_ORG, BUILDKITE_PIPELINE_SLUG, PIPELINE_URL  # noqa: E402
+from perf_eval import (  # noqa: E402
+    BUILDKITE_ORG,
+    BUILDKITE_PIPELINE_SLUG,
+    PIPELINE_URL,
+    WINDOW_DAYS,
+)
 from perf_eval.normalize import (  # noqa: E402
     ACCURACY_DIRECTION,
     LM_EVAL_BACKENDS,
@@ -41,14 +46,9 @@ from perf_eval.normalize import (  # noqa: E402
     score_rows,
 )
 from perf_eval.store import (  # noqa: E402
-    ARTIFACT_IDENTITY_DAYS,
     EXPECTED_CONFIGS_EVENT,
-    PERF_EVAL_HISTORY_DAYS,
     RESULT_EVENTS,
-    SUMMARY_MAX_BYTES,
-    encoded_json,
-    enforced_byte_budget,
-    event_datetime,
+    event_time,
     nightly_identity,
     read_events_strict,
     write_json_atomic,
@@ -84,10 +84,6 @@ DEFAULT_OUTPUT = ROOT / "data" / "perf_eval.json"
 # sits just above it.
 PERF_REL_THRESHOLD = 0.005
 ACCURACY_ABS_THRESHOLD = 0.01
-
-# Days the dashboard shows, and so the days the payload publishes. The page
-# reads it from the payload, so the two cannot drift apart.
-DISPLAY_WINDOW_DAYS = 14
 
 # The regression model, published so the page labels it from data rather than
 # hard-coding the rule. A list of one, because the structure makes adding a
@@ -137,7 +133,7 @@ def _parse_ts(event: dict) -> datetime:
     are logged: a silently mis-ordered series is far harder to notice than a
     warning in the collector output.
     """
-    parsed = event_datetime(event)
+    parsed = event_time(event)
     if parsed is None:
         log.warning(
             "perf-eval event has no parseable timestamp; sorting it oldest "
@@ -524,58 +520,26 @@ def aggregate(events: list[dict], *, generated_at: datetime | None = None) -> di
     }
 
 
-def bounded_aggregate(
-    events: list[dict],
-    *,
-    generated_at: datetime | None = None,
-    max_bytes: int = SUMMARY_MAX_BYTES,
-    display_window_days: int = DISPLAY_WINDOW_DAYS,
-) -> dict:
-    """Build the payload from the nightlies the page can show.
+def build_payload(events: list[dict], *, generated_at: datetime | None = None) -> dict:
+    """The published payload: the nightlies from the last WINDOW_DAYS.
 
-    Publishes the nightlies inside the display window, plus the newest one
-    whatever its age, so a stalled nightly still tells the page how old the
-    last run is. Older history stays in the event store; the page never reads
-    it. Fails rather than trimming if even that exceeds the byte ceiling.
+    A nightly is in if its latest result is inside the window, so a nightly
+    is never split across the edge.
     """
-    max_bytes = enforced_byte_budget(max_bytes, cap=SUMMARY_MAX_BYTES)
     timestamp = (generated_at or datetime.now(UTC)).astimezone(UTC)
-    nightly_latest: dict[str, datetime] = {}
+    window_start = timestamp - timedelta(days=WINDOW_DAYS)
+    latest: dict[str, datetime] = {}
     for event in events:
-        if not _is_in_scope(event):
-            continue
-        identity = nightly_identity(event)
-        observed_at = _parse_ts(event)
-        nightly_latest[identity] = max(nightly_latest.get(identity, observed_at), observed_at)
+        if _is_in_scope(event):
+            identity = nightly_identity(event)
+            latest[identity] = max(latest.get(identity, _EPOCH), _parse_ts(event))
+    published = {identity for identity, last in latest.items() if last >= window_start}
 
-    window_start = timestamp - timedelta(days=display_window_days)
-    published = {
-        identity for identity, last_seen in nightly_latest.items() if last_seen >= window_start
-    }
-    if nightly_latest:
-        published.add(
-            max(nightly_latest, key=lambda identity: (nightly_latest[identity], identity))
-        )
-
-    selected = [
-        event for event in events if not _is_in_scope(event) or nightly_identity(event) in published
-    ]
-    payload = aggregate(selected, generated_at=timestamp)
-    # Nothing here derives from the clock, so an unchanged store publishes an
-    # unchanged block and the deploy check can skip.
-    payload["retention"] = {
-        "display_window_days": display_window_days,
-        "event_history_days": PERF_EVAL_HISTORY_DAYS,
-        "artifact_identity_days": ARTIFACT_IDENTITY_DAYS,
-        "max_bytes": max_bytes,
-    }
-    size = len(encoded_json(payload))
-    if size > max_bytes:
-        raise RuntimeError(
-            f"perf_eval.json needs {size} bytes for the {len(published)} nightlies in the "
-            f"{display_window_days}-day display window, over the {max_bytes} byte ceiling. "
-            "Raise SUMMARY_MAX_BYTES or narrow DISPLAY_WINDOW_DAYS; nothing is trimmed to fit."
-        )
+    payload = aggregate(
+        [e for e in events if not _is_in_scope(e) or nightly_identity(e) in published],
+        generated_at=timestamp,
+    )
+    payload["retention"] = {"display_window_days": WINDOW_DAYS}
     return payload
 
 
@@ -586,7 +550,7 @@ def main() -> int:
     args = parser.parse_args()
 
     events = read_events_strict(Path(args.store))
-    payload = bounded_aggregate(events, generated_at=datetime.now(UTC))
+    payload = build_payload(events, generated_at=datetime.now(UTC))
     out = Path(args.output)
     write_json_atomic(out, payload)
     log.info(

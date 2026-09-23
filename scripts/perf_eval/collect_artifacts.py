@@ -53,6 +53,7 @@ from perf_eval import (  # noqa: E402
     BUILDKITE_API_BASE,
     BUILDKITE_ORG,
     BUILDKITE_PIPELINE_SLUG,
+    WINDOW_DAYS,
     WORKLOAD_REPO,
 )
 from perf_eval.normalize import (  # noqa: E402
@@ -66,7 +67,6 @@ from perf_eval.normalize import (  # noqa: E402
 from perf_eval.store import (  # noqa: E402
     ARTIFACT_MARKER_EVENT,
     EXPECTED_CONFIGS_EVENT,
-    MAX_ARTIFACT_LOOKBACK_DAYS,
     RESULT_EVENTS,
     append_events,
     artifact_key,
@@ -817,10 +817,10 @@ def collect(
     work there is — but nothing is downloaded and nothing is written. Use it to
     see a run's exact request cost before committing to it.
     """
-    if not 1 <= days <= MAX_ARTIFACT_LOOKBACK_DAYS:
-        raise ValueError(
-            f"perf-eval artifact lookback must be between 1 and {MAX_ARTIFACT_LOOKBACK_DAYS} days"
-        )
+    # No further back than the store keeps: anything older would be dropped
+    # at the next write, and its artifacts are no longer marked as downloaded.
+    if not 1 <= days <= WINDOW_DAYS:
+        raise ValueError(f"perf-eval artifact lookback must be between 1 and {WINDOW_DAYS} days")
     budget = budget if budget is not None else RequestBudget()
     existing = read_events_strict(store_path)
     seen = {event_key(e) for e in existing if e.get("event") in RESULT_EVENTS}
@@ -969,9 +969,7 @@ def collect(
             }
         )
 
-    # Always rewrite through the bounded atomic store, even when every artifact
-    # was already known, so a legacy unbounded log gets migrated without
-    # changing the Buildkite/GitHub request plan.
+    # Rewrite even with nothing new, so results that aged out are dropped.
     append_events(store_path, pending_events)
     log.info(
         "Appended %d new result events and %d artifact markers (%d existing records). "
@@ -988,7 +986,10 @@ def collect(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--days", type=int, default=14, help="Lookback window in days (default: 14)"
+        "--days",
+        type=int,
+        default=WINDOW_DAYS,
+        help=f"Lookback window in days, 1-{WINDOW_DAYS} (default: {WINDOW_DAYS})",
     )
     parser.add_argument("--store", default=str(DEFAULT_STORE), help="Path to events.jsonl")
     parser.add_argument(

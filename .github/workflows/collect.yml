@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       days:
-        description: 'Days of Buildkite history to scan (1-30)'
+        description: 'Days of Buildkite history to scan (1-14)'
         required: false
         default: '14'
       recheck_builds:
@@ -87,8 +87,8 @@ jobs:
           if ! printf '%s' "$DAYS" | grep -Eq '^[1-9][0-9]?$'; then
             echo "::error::days must be a positive integer" && exit 1
           fi
-          if [ "$DAYS" -gt 30 ]; then
-            echo "::error::days must be 30 or fewer" && exit 1
+          if [ "$DAYS" -gt 14 ]; then
+            echo "::error::days must be 14 or fewer" && exit 1
           fi
           echo "COLLECT_DAYS=$DAYS" >> "$GITHUB_ENV"
           if [ -n "${RAW_RECHECK:-}" ]; then

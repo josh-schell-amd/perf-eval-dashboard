@@ -15,7 +15,7 @@ def payload(**overrides):
         "generated_at": "2026-01-01T00:00:00Z",
         "models": [{"model": "m", "nightly_count": 3}],
         "summary": {"models": 1, "nightlies": 3},
-        "retention": {"display_window_days": 14, "event_history_days": 30},
+        "retention": {"display_window_days": 14},
     }
     base.update(overrides)
     return base
@@ -49,7 +49,7 @@ class TestMaterialChanges:
         assert pc.payload_changed(old, new) is True
 
     def test_a_retention_change_is_a_change(self):
-        new = payload(retention={"display_window_days": 7, "event_history_days": 30})
+        new = payload(retention={"display_window_days": 7})
         assert pc.payload_changed(payload(), new) is True
 
     def test_key_order_is_not_a_change(self):
@@ -136,8 +136,8 @@ class TestAgainstRealAggregateOutput:
         # No nightly crosses the window edge, so nothing new to publish.
         when = datetime(2026, 2, 1, tzinfo=UTC)
         events = self._nights([1, 3, 8], when)
-        today = agg.bounded_aggregate(events, generated_at=when)
-        tomorrow = agg.bounded_aggregate(events, generated_at=when + timedelta(days=1))
+        today = agg.build_payload(events, generated_at=when)
+        tomorrow = agg.build_payload(events, generated_at=when + timedelta(days=1))
         assert pc.payload_changed(today, tomorrow) is False
 
     def test_a_nightly_leaving_the_window_is_a_change(self):
@@ -145,8 +145,8 @@ class TestAgainstRealAggregateOutput:
         # per nightly that ages out.
         when = datetime(2026, 2, 1, tzinfo=UTC)
         events = self._nights([1, 3, 13.5], when)
-        today = agg.bounded_aggregate(events, generated_at=when)
-        tomorrow = agg.bounded_aggregate(events, generated_at=when + timedelta(days=1))
+        today = agg.build_payload(events, generated_at=when)
+        tomorrow = agg.build_payload(events, generated_at=when + timedelta(days=1))
         assert pc.payload_changed(today, tomorrow) is True
 
     def test_two_runs_over_the_same_events_differ_only_by_timestamp(self):

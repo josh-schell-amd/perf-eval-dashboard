@@ -53,11 +53,6 @@ class TestStrictRead:
         path.write_text('\n{"event": "build"}\n\n', encoding="utf-8")
         assert len(store.read_events_strict(path)) == 1
 
-    def test_lenient_read_skips_instead_of_raising(self, tmp_path):
-        path = tmp_path / "events.jsonl"
-        path.write_text('{"event": "build"}\nnot json\n', encoding="utf-8")
-        assert len(store.read_events(path)) == 1
-
     def test_non_canonical_artifact_index_raises(self, tmp_path):
         path = tmp_path / "events.jsonl"
         path.write_text(
@@ -137,7 +132,7 @@ class TestCompaction:
         index = [e for e in compacted if e["event"] == store.ARTIFACT_INDEX_EVENT]
         assert len(index) == 1
         assert index[0]["schema_version"] == store.ARTIFACT_INDEX_SCHEMA_VERSION
-        assert ("id", "artifact-1") in store.artifact_keys_from_event(index[0])
+        assert store.artifact_keys_from_event(index[0]) == ("artifact-1",)
 
     def test_identity_carried_on_a_result_is_not_duplicated_into_the_index(self):
         event = perf_result()
@@ -145,36 +140,26 @@ class TestCompaction:
         compacted = store.compact_events([event], now=NOW)
         assert not [e for e in compacted if e["event"] == store.ARTIFACT_INDEX_EVENT]
 
-    def test_history_beyond_the_window_is_dropped(self):
-        old = perf_result(
-            commit="c" * 40,
-            date="2020-01-01 00:00:00",
-            received_at="2020-01-01T00:00:00Z",
-            build_number=2,
-        )
-        recent = perf_result(commit="d" * 40, date="2026-01-09 00:00:00", build_number=3)
-        # min_nightlies protection is what keeps the old one alive by default,
-        # so exercise the tightest policy directly.
-        compacted = store._compact_events_once(
-            [old, recent], NOW, history_days=14, min_nightlies=1, auxiliary_days=14
-        )
-        commits = {e["vllm_commit"] for e in compacted if e["event"] == "perf_result"}
-        assert commits == {"d" * 40}
+    def test_rewriting_an_unchanged_store_changes_nothing(self):
+        # A timestamp stamped on every write would commit the state branch on
+        # every run even with no new data.
+        marker = {
+            "event": store.ARTIFACT_MARKER_EVENT,
+            "received_at": "2026-01-09T00:00:00Z",
+            "buildkite_artifact_id": "artifact-1",
+        }
+        once = store.compact_events([perf_result(date="2026-01-09 00:00:00"), marker], now=NOW)
+        later = NOW + datetime.timedelta(hours=8)
+        assert store.compact_events(once, now=later) == once
 
-    def test_recent_nightlies_are_protected_from_pruning(self):
-        old = perf_result(
-            commit="c" * 40,
-            date="2020-01-01 00:00:00",
-            received_at="2020-01-01T00:00:00Z",
-        )
-        compacted = store._compact_events_once(
-            [old], NOW, history_days=14, min_nightlies=30, auxiliary_days=14
-        )
-        assert len([e for e in compacted if e["event"] == "perf_result"]) == 1
+    def test_unknown_and_non_nightly_events_are_dropped(self):
+        events = [{"event": "build", "received_at": "2026-01-09T00:00:00Z"}]
+        events.append(perf_result(nightly=False, date="2026-01-09 00:00:00"))
+        assert store.compact_events(events, now=NOW) == []
 
 
-class TestRetentionPolicy:
-    def _night(self, days_ago: int, n: int) -> dict:
+class TestRetention:
+    def _night(self, days_ago: float, n: int) -> dict:
         day = NOW - datetime.timedelta(days=days_ago)
         return perf_result(
             commit=f"{n:040x}",
@@ -183,29 +168,23 @@ class TestRetentionPolicy:
             build_number=n,
         )
 
-    def test_history_covers_the_collector_lookback(self):
-        # Shorter than the lookback, a backfill would re-download pruned results.
-        assert store.PERF_EVAL_HISTORY_DAYS >= store.MAX_ARTIFACT_LOOKBACK_DAYS
-
-    def test_thirty_days_are_kept_and_older_results_dropped(self):
-        events = [self._night(1, 1), self._night(2, 2), self._night(20, 3), self._night(40, 4)]
+    def test_results_inside_the_window_are_kept_and_older_ones_dropped(self):
+        events = [self._night(1, 1), self._night(13.5, 2), self._night(14.5, 3), self._night(40, 4)]
         compacted = store.compact_events(events, now=NOW)
-        kept = {e["build_number"] for e in compacted if e["event"] == "perf_result"}
-        assert kept == {1, 2, 3}
+        assert {e["build_number"] for e in compacted if e["event"] == "perf_result"} == {1, 2}
 
-    def test_the_newest_nightlies_survive_however_old(self):
-        # A stalled nightly must still let the page say how old the last run is.
-        events = [self._night(90, 1), self._night(100, 2)]
-        compacted = store.compact_events(events, now=NOW)
-        assert len([e for e in compacted if e["event"] == "perf_result"]) == 2
+    def test_the_window_matches_the_dashboard(self):
+        # One number: the dashboard shows it, the store keeps it, and the
+        # collector looks back no further.
+        assert store.WINDOW_DAYS == 14
 
-    def test_over_the_ceiling_fails_instead_of_dropping_history(self):
-        events = [self._night(1, 1), self._night(2, 2), self._night(20, 3)]
-        # Enough for the two newest nights alone, not for all three: an older
-        # design would have dropped night 3 to fit.
-        fits_without_oldest = len(store.encoded_events(store.compact_events(events[:2], now=NOW)))
-        with pytest.raises(RuntimeError, match="Nothing was written"):
-            store.compact_events(events, now=NOW, max_bytes=fits_without_oldest)
+    def test_artifact_ids_expire_with_the_results(self):
+        old = {
+            "event": store.ARTIFACT_MARKER_EVENT,
+            "received_at": "2025-12-01T00:00:00Z",
+            "buildkite_artifact_id": "old",
+        }
+        assert store.compact_events([old], now=NOW) == []
 
 
 class TestExpectedConfigsSnapshot:
@@ -245,9 +224,7 @@ class TestExpectedConfigsSnapshot:
     def test_an_old_snapshot_is_not_aged_out(self):
         # Far outside every retention cutoff, but still the current recipes.
         events = [self._snapshot("2020-01-01T00:00:00Z", "ancient")]
-        compacted = store._compact_events_once(
-            events, NOW, history_days=14, min_nightlies=1, auxiliary_days=14
-        )
+        compacted = store.compact_events(events, now=NOW)
         assert [e for e in compacted if e["event"] == store.EXPECTED_CONFIGS_EVENT]
 
     def test_it_survives_a_round_trip_alongside_results(self, tmp_path):
@@ -260,34 +237,18 @@ class TestExpectedConfigsSnapshot:
         assert any(e["event"] == "perf_result" for e in events)
 
 
-class TestByteBudget:
-    def test_oversized_payload_leaves_the_previous_file_intact(self, tmp_path):
-        path = tmp_path / "events.jsonl"
-        store.append_events(path, [perf_result()], now=NOW)
-        before = path.read_bytes()
-        with pytest.raises(RuntimeError):
-            # 1 byte cannot hold a single record under any retention policy.
-            store.write_events_atomic(path, [perf_result()], now=NOW, max_bytes=1)
-        assert path.read_bytes() == before
-
+class TestAtomicWrite:
     def test_no_temp_files_are_left_behind(self, tmp_path):
         path = tmp_path / "events.jsonl"
         store.append_events(path, [perf_result()], now=NOW)
         assert [p.name for p in tmp_path.iterdir()] == ["events.jsonl"]
 
-    def test_budget_cannot_exceed_the_hard_cap(self):
-        assert store.enforced_byte_budget(10**12, cap=store.EVENTS_MAX_BYTES) == (
-            store.EVENTS_MAX_BYTES
-        )
-
-    @pytest.mark.parametrize("requested", [0, -1])
-    def test_non_positive_budget_rejected(self, requested):
-        with pytest.raises(ValueError, match="must be positive"):
-            store.enforced_byte_budget(requested, cap=store.EVENTS_MAX_BYTES)
-
-    def test_published_summary_budget_is_tighter_than_the_event_log(self):
-        # The summary is downloaded by every browser; the log never is.
-        assert store.SUMMARY_MAX_BYTES < store.EVENTS_MAX_BYTES
+    def test_a_malformed_store_is_not_overwritten(self, tmp_path):
+        path = tmp_path / "events.jsonl"
+        path.write_text("not json\n", encoding="utf-8")
+        with pytest.raises(ValueError):
+            store.append_events(path, [perf_result()], now=NOW)
+        assert path.read_text(encoding="utf-8") == "not json\n"
 
 
 class TestIdentities:
@@ -312,37 +273,26 @@ class TestIdentities:
         right = store.result_identity(perf_result(build_number=2))
         assert left == right
 
-    def test_artifact_key_prefers_id(self):
-        assert store.artifact_key({"buildkite_artifact_id": "x"}) == ("id", "x")
-
-    def test_artifact_key_metadata_fallback(self):
-        key = store.artifact_key(
-            {
-                "build_number": 3,
-                "buildkite_artifact_job_id": "job",
-                "buildkite_artifact_path": "./results/a/bench-b.json",
-                "buildkite_artifact_sha1": "ABC",
-            }
-        )
-        assert key == ("metadata", 3, "job", "results/a/bench-b.json", "abc")
-
-    def test_artifact_key_requires_a_complete_fallback(self):
+    def test_artifact_key_is_the_buildkite_artifact_id(self):
+        assert store.artifact_key({"buildkite_artifact_id": " x "}) == "x"
         assert store.artifact_key({"build_number": 3}) is None
 
 
-class TestEventDatetime:
-    def test_prefers_run_date_over_ingestion_time(self):
-        parsed = store.event_datetime(
-            {"date": "2026-01-01 00:00:00", "received_at": "2026-06-01T00:00:00Z"}
+class TestEventTime:
+    def test_a_result_is_timed_by_when_its_nightly_finished(self):
+        event = perf_result(date="2026-01-01 00:00:00", received_at="2026-06-01T00:00:00Z")
+        assert store.event_time(event) == datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+
+    def test_other_events_are_timed_by_when_they_were_recorded(self):
+        marker = {"event": store.ARTIFACT_MARKER_EVENT, "received_at": "2026-01-02T03:04:05Z"}
+        assert store.event_time(marker) == datetime.datetime(
+            2026, 1, 2, 3, 4, 5, tzinfo=datetime.UTC
         )
-        assert parsed is not None
-        assert parsed.year == 2026
-        assert parsed.month == 1
 
     def test_unparseable_returns_none(self):
-        assert store.event_datetime({"date": "not-a-date"}) is None
+        assert store.parse_time("not-a-date") is None
 
     def test_naive_timestamps_are_treated_as_utc(self):
-        parsed = store.event_datetime({"date": "2026-01-01 00:00:00"})
+        parsed = store.parse_time("2026-01-01 00:00:00")
         assert parsed is not None
         assert parsed.tzinfo is datetime.UTC

@@ -25,7 +25,8 @@ def nightly_build(number: int) -> dict:
     commit = f"{number:040x}"
     # Dated relative to today: collect() compacts the store against the real
     # clock, so fixed dates would age out of retention as the calendar moves.
-    day = (datetime.now(UTC) - timedelta(days=15 - (number - 1000))).strftime("%Y-%m-%d")
+    finished = datetime.now(UTC) - timedelta(hours=6 * (40 - (number - 1000)))
+    day = finished.strftime("%Y-%m-%d")
     return {
         "number": number,
         "branch": "main",
@@ -34,8 +35,8 @@ def nightly_build(number: int) -> dict:
         "source": "schedule",
         "web_url": f"https://buildkite.com/vllm/perf-eval/builds/{number}",
         "commit": "f" * 40,
-        "created_at": f"{day}T02:00:00Z",
-        "finished_at": f"{day}T05:00:00Z",
+        "created_at": (finished - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "finished_at": finished.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "env": {},
     }
 

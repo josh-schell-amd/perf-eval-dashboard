@@ -373,8 +373,8 @@ class TestWhatCountsAsANightly:
         assert agg.aggregate(events, generated_at=NOW)["summary"]["nightlies"] == 3
 
 
-class TestBoundedAggregate:
-    """The payload publishes the display window plus the newest nightly."""
+class TestBuildPayload:
+    """The payload publishes the nightlies from the last WINDOW_DAYS."""
 
     def _nights(self, days_ago: list[int]):
         return [
@@ -387,44 +387,16 @@ class TestBoundedAggregate:
         ]
 
     def test_only_nightlies_inside_the_window_are_published(self):
-        payload = agg.bounded_aggregate(self._nights([1, 5, 13, 20, 29]), generated_at=NOW)
+        payload = agg.build_payload(self._nights([1, 5, 13, 20, 29]), generated_at=NOW)
         assert len(_metric(payload)["series"]) == 3
 
-    def test_a_stalled_nightly_still_publishes_its_newest_run(self):
-        # The page needs it to say how old the last run is.
-        payload = agg.bounded_aggregate(self._nights([40, 25]), generated_at=NOW)
-        series = _metric(payload)["series"]
-        assert [point["build_number"] for point in series] == [1001]
-
-    def test_an_unfittable_window_raises_rather_than_under_delivering(self):
-        with pytest.raises(RuntimeError, match="display window"):
-            agg.bounded_aggregate([perf_result()], generated_at=NOW, max_bytes=10)
-
-    def test_the_failure_says_which_knob_to_turn(self):
-        with pytest.raises(RuntimeError) as excinfo:
-            agg.bounded_aggregate([perf_result()], generated_at=NOW, max_bytes=10)
-        message = str(excinfo.value)
-        assert "SUMMARY_MAX_BYTES" in message
-        assert "DISPLAY_WINDOW_DAYS" in message
-
-    def test_retention_block_is_published(self):
-        payload = agg.bounded_aggregate([perf_result()], generated_at=NOW)
-        retention = payload["retention"]
-        assert retention["display_window_days"] == agg.DISPLAY_WINDOW_DAYS
-        assert retention["event_history_days"] == 30
-        assert retention["max_bytes"] > 0
-
-    def test_no_retention_field_is_derived_from_the_clock(self):
-        # A clock-derived field would change daily with no new results and
-        # defeat the deploy check.
-        events = self._nights([1, 3])
-        today = agg.bounded_aggregate(events, generated_at=NOW)
-        tomorrow = agg.bounded_aggregate(events, generated_at=NOW + timedelta(days=1))
-        assert today["retention"] == tomorrow["retention"]
+    def test_nothing_in_the_window_publishes_no_models(self):
+        payload = agg.build_payload(self._nights([40, 25]), generated_at=NOW)
+        assert payload["models"] == []
 
     def test_the_window_is_published_so_the_page_cannot_drift(self):
-        payload = agg.bounded_aggregate([perf_result()], generated_at=NOW)
-        assert payload["retention"]["display_window_days"] == 14
+        payload = agg.build_payload([perf_result()], generated_at=NOW)
+        assert payload["retention"] == {"display_window_days": agg.WINDOW_DAYS}
 
 
 class TestExpectedIsPublished:

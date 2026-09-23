@@ -438,8 +438,6 @@ function fmtDate(ms) {
   return isNaN(d) ? '—' : d.toISOString().slice(0, 10);
 }
 
-function daysAgo(ms) { return Math.floor((Date.now() - ms) / 86400000); }
-
 // Drawn: the ↗ glyph renders inconsistently. aria-hidden because the
 // link text already says where it goes.
 const EXT_ARROW = '<svg class="ext-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
@@ -896,15 +894,6 @@ function nightliesInWindow() {
   return builds.size;
 }
 
-// Newest point in all of history; the stale-data notice reports it.
-function newestOverall() {
-  let best = null;
-  CONFIGS.forEach(c => Object.keys(c.metrics).forEach(mk => {
-    (c.metrics[mk] || []).forEach(p => { if (!best || p.t > best.t) best = p; });
-  }));
-  return best;
-}
-
 /* ================================================================
    6. CONTROLS
    ================================================================ */
@@ -913,17 +902,9 @@ function renderNotice() {
   // Unfiltered: an empty filter combination is not a stalled nightly.
   const inWindow = CONFIGS.some(hasPointsInWindow);
   if (inWindow) { host.innerHTML = ''; return; }
-  const newest = newestOverall();
-  if (!newest) {
-    host.innerHTML = '<div class="notice"><span><strong>No runs in this payload.</strong> '
-      + 'The collector has not ingested any AMD nightly results yet.</span></div>';
-    return;
-  }
-  // No option to widen the window: old numbers shown as current are worse.
-  host.innerHTML = '<div class="notice"><span><strong>No runs in the last '
+  host.innerHTML = '<div class="notice"><span><strong>No AMD nightly results in the last '
     + WINDOW_DAYS + ' days.</strong> '
-    + 'The most recent run is ' + integer(daysAgo(newest.t)) + ' days old (' + esc(fmtDate(newest.t)) + '), '
-    + 'so the nightly has probably stopped reporting. '
+    + 'The nightly or the collector may have stopped. '
     + 'Check the <a id="notice-pipeline" target="_blank" rel="noopener noreferrer">perf-eval pipeline</a>.'
     + '</span></div>';
   const link = document.getElementById('notice-pipeline');

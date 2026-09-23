@@ -15,3 +15,8 @@ PIPELINE_URL = f"https://buildkite.com/{BUILDKITE_ORG}/{BUILDKITE_PIPELINE_SLUG}
 # Public repo holding the workload recipes (device / tp / precision / bench
 # sizes). Read anonymously or with the workflow's built-in GITHUB_TOKEN.
 WORKLOAD_REPO = "vllm-project/perf-eval"
+
+# Days of nightlies the dashboard shows. Also how far back the collector looks
+# and how long the event store and the payload keep results: nothing older is
+# ever shown, so nothing older is kept.
+WINDOW_DAYS = 14

@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
 """Atomically merge a local and a published perf-eval event store.
 
-A remote store may be newer while containing *fewer* lines, because bounded
-compaction folds duplicate results and artifact markers. This helper therefore
-merges canonical event identities instead of comparing line counts.
+Stores are merged by result identity, not line count: compaction folds
+duplicates, so a newer store can hold fewer lines. Duplicate results are
+ordered by when they were recorded, and two conflicting results recorded at
+the same moment fail the merge rather than one silently winning. The store's
+own writer then compacts the result. With only --local, this just validates
+and compacts that store.
 
-Inputs are strict JSONL: a malformed or non-object line aborts before the
-local store is replaced. Duplicate stable results are ordered by validated
-ingestion generation (falling back to run time), not by source branch, and
-equal-generation conflicts fail closed rather than picking a winner. The
-shared writer then applies the byte cap, complete-nightly retention, and the
-exact artifact identity index.
-
-This is a local git-data operation. It performs no Buildkite or GitHub
-requests.
+No network requests.
 """
 
 from __future__ import annotations
@@ -28,15 +23,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from perf_eval.store import (  # noqa: E402
-    EVENTS_MAX_BYTES,
     RESULT_EVENTS,
-    event_datetime,
+    event_time,
+    parse_time,
     read_events_strict,
     result_identity,
     write_events_atomic,
 )
 
-_TIMESTAMP_FIELDS = frozenset({"date", "finished_at", "created_at", "received_at", "generated_at"})
+_TIMESTAMP_FIELDS = frozenset({"date", "received_at"})
 _ARTIFACT_FIELDS = frozenset(
     {
         "buildkite_artifact_id",
@@ -52,20 +47,15 @@ def _canonical_event(event: dict) -> str:
 
 
 def _revision_timestamp(event: dict) -> datetime:
-    """Prefer ingestion generation, falling back to the result's run time."""
-    revisions = []
-    for field in ("received_at", "generated_at"):
-        if not event.get(field):
-            continue
-        parsed = event_datetime({field: event[field]})
+    """When a result was recorded (`received_at`), else when its nightly ran."""
+    if event.get("received_at"):
+        parsed = parse_time(event["received_at"])
         if parsed is None:
-            raise ValueError(f"perf-eval result has invalid {field}: {event[field]!r}")
-        revisions.append(parsed)
-    if revisions:
-        return max(revisions)
-    parsed = event_datetime(event)
+            raise ValueError(f"perf-eval result has invalid received_at: {event['received_at']!r}")
+        return parsed
+    parsed = event_time(event)
     if parsed is None:
-        raise ValueError("perf-eval result has no valid timestamp or generation")
+        raise ValueError("perf-eval result has no valid received_at or date")
     return parsed
 
 
@@ -161,7 +151,6 @@ def merge_event_files(
     remote_path: Path | None = None,
     *,
     now: datetime | None = None,
-    max_bytes: int = EVENTS_MAX_BYTES,
 ) -> int:
     """Merge remote history into local, replacing local only after validation."""
     local_events = read_events_strict(local_path)
@@ -169,12 +158,7 @@ def merge_event_files(
     if remote_path is not None and not remote_events:
         raise ValueError(f"invalid perf-eval remote store {remote_path}: no events")
 
-    return write_events_atomic(
-        local_path,
-        reconcile_events(local_events, remote_events),
-        now=now,
-        max_bytes=max_bytes,
-    )
+    return write_events_atomic(local_path, reconcile_events(local_events, remote_events), now=now)
 
 
 def main() -> int:
@@ -184,7 +168,7 @@ def main() -> int:
     args = parser.parse_args()
 
     count = merge_event_files(args.local, args.remote)
-    print(f"Merged perf-eval event store: {count} bounded records -> {args.local}")
+    print(f"Merged perf-eval event store: {count} records -> {args.local}")
     return 0
 
 

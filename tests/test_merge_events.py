@@ -11,6 +11,9 @@ from conftest import accuracy_result, perf_result
 from perf_eval import merge_events as me
 from perf_eval import store
 
+# Just after the fixtures' default date, so the 14-day retention keeps them.
+NOW = datetime(2026, 1, 5, tzinfo=UTC)
+
 
 def write_store(path, events):
     path.write_text(
@@ -62,7 +65,7 @@ class TestReconcile:
         event = perf_result()
         event.pop("received_at")
         event.pop("date")
-        with pytest.raises(ValueError, match="no valid timestamp"):
+        with pytest.raises(ValueError, match="no valid received_at or date"):
             me.reconcile_events([event], [])
 
     def test_invalid_received_at_is_rejected(self):
@@ -75,7 +78,7 @@ class TestMergeEventFiles:
     def test_merges_remote_history_into_local(self, tmp_path):
         local = write_store(tmp_path / "local.jsonl", [perf_result(commit="a" * 40)])
         remote = write_store(tmp_path / "remote.jsonl", [perf_result(commit="b" * 40)])
-        count = me.merge_event_files(local, remote)
+        count = me.merge_event_files(local, remote, now=NOW)
         assert count == 2
         assert len(store.read_events_strict(local)) == 2
 
@@ -87,7 +90,7 @@ class TestMergeEventFiles:
                 perf_result(metrics={"mean_ttft": 0.25}),
             ],
         )
-        assert me.merge_event_files(local) == 1
+        assert me.merge_event_files(local, now=NOW) == 1
 
     def test_empty_remote_leaves_local_untouched(self, tmp_path):
         local = write_store(tmp_path / "local.jsonl", [perf_result()])
