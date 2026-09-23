@@ -553,9 +553,10 @@ otherwise silently override a newer one.
 
 ## Collection cadence
 
-`collect.yml` runs on a schedule once a day at 17:17 UTC (about noon US
-Central), plus on a manual dispatch, on a push that touches `site/`, and on a
-`repository_dispatch` of type `perf_eval_build_finished`.
+`collect.yml` collects from Buildkite once a day at 17:17 UTC (about noon US
+Central), and on a manual dispatch. A push that touches `site/`,
+`scripts/build_site.py` or the workflow only rebuilds and redeploys the page
+from the stored data; it never calls Buildkite.
 
 The upstream nightly's schedule lives in the Buildkite UI rather than in the
 `perf-eval` repo, and a nightly sweeping a dozen models runs for hours, so its
@@ -627,11 +628,10 @@ intentions:
 - The store is written only after the whole scan completes, so an abort leaves
   the previous state intact.
 
-`repository_dispatch` is wired to receive but nothing currently sends it. In
-`vllm-ci-dashboard` that came from a hosted Buildkite webhook bridge, which is
-deliberately not ported here since it needs a running endpoint. So today cron
-is the only automatic trigger, and worst case a nightly appears about a day
-after it finishes.
+There is no build-finished trigger: `vllm-ci-dashboard` gets one from a hosted
+Buildkite webhook bridge, which needs a running endpoint. So the schedule is the
+only automatic collection, and worst case a nightly appears about a day after
+it finishes.
 
 ### Redundant deploys are suppressed
 
@@ -648,10 +648,8 @@ so a failed or skipped deploy would count as published and leave the site
 stale. The collector likewise records a recipe snapshot only for a new recipe
 commit, since its timestamp is published and a fresh one every run would make
 every payload look changed. The skip applies **only to scheduled runs** — a push to
-`site/`, a manual dispatch or a build-finished dispatch always republishes,
-because the page itself may have changed even though the data did not. That is
-also why `collect.yml` triggers on pushes touching `site/`: without it a UI
-edit would wait for the next scheduled run and then be skipped as unchanged.
+`site/` or a manual dispatch always republishes, because the page itself may
+have changed even though the data did not.
 
 A missing or unreadable previous payload counts as changed, so the failure
 direction is one redundant deploy rather than a silently unpublished update.

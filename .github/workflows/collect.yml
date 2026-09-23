@@ -12,17 +12,14 @@ on:
     # Once a day, around noon US Central, after the nightly (recent ones
     # finished 10:30-13:00 UTC; its schedule lives in the Buildkite UI).
     - cron: '17 17 * * *'
-  # A change to the page itself has to be able to reach production. Without
-  # this, a UI edit would wait for the next scheduled run and then be skipped
-  # by the unchanged-payload check below, because the data did not move.
+  # A page change redeploys from the stored data; only the schedule and a
+  # manual run collect from Buildkite.
   push:
     branches: [main]
     paths:
       - 'site/**'
       - 'scripts/build_site.py'
       - '.github/workflows/collect.yml'
-  repository_dispatch:
-    types: [perf_eval_build_finished]
   workflow_dispatch:
     inputs:
       days:
@@ -149,14 +146,11 @@ jobs:
       - name: Validate and bound the event store
         run: python scripts/perf_eval/merge_events.py --local data/events.jsonl
 
-      # The only step that receives the Buildkite token.
-      #
-      # Request cost per run: one builds listing, three artifact listings per
-      # nightly still inside the re-check window, and one download per new
-      # artifact. Already-ingested older builds are not re-listed, so steady
-      # state is single digits plus the new nightly's artifacts. The ceiling
-      # aborts rather than hammering the API if that ever stops being true.
+      # The only step that receives the Buildkite token; skipped on a push.
+      # Steady state is a few listings plus the new nightly's downloads; the
+      # ceiling aborts if that ever stops being true.
       - name: Ingest Buildkite artifacts
+        if: github.event_name != 'push'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -211,7 +205,9 @@ jobs:
             --current data/perf_eval.json \
             --previous /tmp/previous_perf_eval.json
 
+      # Nothing new was collected on a push, so there is nothing to persist.
       - name: Persist the event store
+        if: github.event_name != 'push'
         env:
           STATE_BRANCH: dashboard-state
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -258,10 +254,8 @@ jobs:
       - name: Build the site
         run: python scripts/build_site.py
 
-      # Skip only on the scheduled runs, which are the churn worth avoiding.
-      # Any other trigger is a deliberate act — a push to site/, a manual
-      # dispatch, a finished-build dispatch — and should republish even if the
-      # numbers are identical, since the page itself may have changed.
+      # Scheduled runs deploy only when the data changed. A push or manual run
+      # always deploys, since the page itself may have changed.
       - name: Deploy to GitHub Pages
         if: >-
           (steps.changed.outputs.changed == 'true' || github.event_name != 'schedule') &&
