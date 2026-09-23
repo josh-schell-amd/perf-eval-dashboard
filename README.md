@@ -521,9 +521,15 @@ they report which config happens to be largest and barely move night to night.
 | Accuracy overnight | Models whose headline accuracy dropped at least 1 point in the newest nightly; opens the Accuracy tab |
 | Coverage | Perf configs reporting in the newest build vs those defined in the perf-eval recipes, and accuracy results reporting vs models with accuracy in the window |
 
-Every card, Coverage included, follows the Device, Model, Precision, ISL/OSL
-and Concurrency filters. Accuracy has no shape, precision or concurrency, so
-only the Device and Model filters narrow it.
+Every card except *Latest nightly*, Coverage included, follows the Device,
+Model, Precision, ISL/OSL and Concurrency filters. *Latest nightly* names the
+build the rest of the row describes, so it ignores them. Accuracy has no shape,
+precision or concurrency, so only the Device and Model filters narrow it.
+
+When nothing could be compared — no configuration has both a run in the newest
+nightly and an earlier one in the window — the regression panel says *Nothing
+to compare* rather than showing a green *No regressions*. The legend selection
+is kept in the URL as `show=`, so a copied link shows the same configurations.
 
 The overnight cards only count configs that reported in the newest
 nightly. A config that skipped tonight still has two earlier points, but its

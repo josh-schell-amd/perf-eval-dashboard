@@ -177,6 +177,7 @@ td.clickable:focus-visible{outline:2px solid var(--ui);outline-offset:-2px}
 .reg-panel{border:1px solid var(--accent-red);border-radius:var(--radius);padding:var(--gap-md);
            margin-bottom:var(--gap-lg);background:var(--bg-secondary)}
 .reg-panel.clean{border-color:var(--accent-green)}
+.reg-panel.unknown{border-color:var(--border)}
 .reg-head{display:flex;align-items:center;gap:9px;margin-bottom:10px;flex-wrap:wrap}
 .reg-head h3{font-size:13px;color:var(--text-primary);font-weight:600}
 .reg-head .reg-count{font-size:11px;color:var(--text-tertiary)}
@@ -394,13 +395,12 @@ footer{padding:12px 0;border-top:1px solid var(--border);display:flex;justify-co
 // be a healthy series that happened to be assigned red.
 const PALETTE = ['#6aa6ed','#6dbf80','#c49af5','#4fc3c3','#ddb040','#8899b8','#9ad06a',
                  '#7c83f0','#5fc9a0','#c8b06a','#79c0ff','#d0a3e8','#4fa3a3','#a3c46a'];
-// One red, matching --accent-red everywhere else. Applied per metric: a series
-// is red on a chart only if it regressed on that chart's metric, and keeps its
-// identity colour on the metrics where it is healthy. Painting it red on all
-// twelve would claim a regression the data does not show.
+// One red, read from --accent-red at draw time so it follows the theme; this
+// is only the fallback. Applied per metric: a series is red on a chart only if
+// it regressed on that chart's metric, and keeps its identity colour on the
+// metrics where it is healthy. Painting it red on all twelve would claim a
+// regression the data does not show.
 const REG_COLOR = '#f25c4e';
-// Orange is warning severity, used on chips and row borders, never on a line.
-const WARN_COLOR = '#eda06a';
 
 // Fixed trailing window, anchored to now rather than to the newest run: if the
 // nightly stops reporting the dashboard goes empty and says so, rather than
@@ -433,6 +433,12 @@ const FACETS = [
 // everything interpolated into markup goes through esc().
 function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;')
   .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+// URLs from the payload become hrefs and window.open targets, where HTML
+// escaping alone would still let a javascript: URL run. Only http(s) passes.
+function safeUrl(v){
+  const url=String(v||'').trim();
+  return /^https?:\/\//i.test(url)?url:'';
+}
 function integer(v){return Number(v||0).toLocaleString('en-US');}
 function fmt(v,d){return v==null||!isFinite(v)?'—':Number(v).toFixed(d==null?1:d);}
 function shortModel(m){return String(m||'').split('/').pop();}
@@ -469,11 +475,25 @@ function activatable(el,label,handler){
   if(label)el.setAttribute('aria-label',label);
   el.addEventListener('click',handler);
   el.addEventListener('keydown',event=>{
+    // A key pressed on a link or control inside this element belongs to that
+    // control: cancelling it here would stop Enter from following a build
+    // link in a clickable row.
+    if(event.target!==el&&event.target.closest&&
+       event.target.closest('a,button,input,select,textarea'))return;
     if(event.key==='Enter'||event.key===' '){
       event.preventDefault();
       handler(event);
     }
   });
+}
+// Every render replaces the controls, so whatever had keyboard focus is gone
+// afterwards. Put it back on the matching new element.
+function focusAfterRender(selector){
+  const el=document.querySelector(selector);
+  if(el)el.focus();
+}
+function cssEscape(value){
+  return window.CSS&&CSS.escape?CSS.escape(String(value)):String(value).replace(/["\\]/g,'\\$&');
 }
 function median(nums){
   if(!nums.length)return null;
@@ -537,7 +557,7 @@ function buildConfigs(payload){
         const pts=((cfg.metrics[mk]||{}).series||[])
           .map(p=>({t:parseTime(p.date),value:Number(p.value),date:p.date,
                     vllm_commit:p.vllm_commit,image:p.image,
-                    build_url:p.build_url,build_number:p.build_number}))
+                    build_url:safeUrl(p.build_url),build_number:p.build_number}))
           .filter(p=>p.t>0&&Number.isFinite(p.value))
           .sort((a,b)=>a.t-b.t);
         if(!pts.length)return;
@@ -579,7 +599,7 @@ function buildAccuracy(payload){
       const pts=(task.series||[])
         .map(p=>({t:parseTime(p.date),value:Number(p.value),date:p.date,
                   vllm_commit:p.vllm_commit,image:p.image,
-                  build_url:p.build_url,build_number:p.build_number}))
+                  build_url:safeUrl(p.build_url),build_number:p.build_number}))
         .filter(p=>p.t>0&&Number.isFinite(p.value))
         .sort((a,b)=>a.t-b.t);
       if(!pts.length)return;
@@ -630,7 +650,6 @@ const state={
   selected:{},                 // facet key -> Set of allowed values (empty = all)
   hidden:new Set(),            // config keys toggled off in the shared legend
   chartDays:null,              // trend chart window in days; null = the full window
-  sort:{col:'config',dir:1},
 };
 FACETS.forEach(f=>state.selected[f.key]=new Set());
 
@@ -652,19 +671,31 @@ function chartDays(){
 // nightly lands mid-morning UTC, so "last day" anchored to now would be empty
 // for most of the following day. The axis still ends at now, so a nightly that
 // stopped reporting shows as a gap on the right.
+//
+// Computed once per render and reused by every point lookup and tick label;
+// renderAll clears it.
+let _chartBounds=null;
 function chartBounds(){
+  if(_chartBounds)return _chartBounds;
   const now=Date.now(), days=chartDays();
-  if(days>=WINDOW_DAYS)return {min:now-WINDOW_DAYS*86400000,max:now};
-  const newest=latestRun();
-  const anchor=newest?newest.t:now;
-  return {min:Math.max(anchor-days*86400000,now-WINDOW_DAYS*86400000),max:now};
+  if(days>=WINDOW_DAYS)return (_chartBounds={min:now-WINDOW_DAYS*86400000,max:now});
+  // The newest nightly overall, not under the filters, so every narrowed
+  // chart counts back from the same night the KPI row describes.
+  const build=latestNightlyBuild();
+  let anchor=0;
+  CONFIGS.forEach(c=>{const t=c.builds.get(build);if(t>anchor)anchor=t;});
+  if(!anchor)anchor=now;
+  return (_chartBounds={min:Math.max(anchor-days*86400000,now-WINDOW_DAYS*86400000),max:now});
 }
 function chartPointsIn(cfg,metricKey){
   const min=chartBounds().min;
   return pointsIn(cfg,metricKey).filter(p=>p.t>=min);
 }
+// Only metrics the shown series have points for, so isolating a config that
+// skipped the chart window leaves no empty chart cards behind.
 function chartedMetrics(){
-  return METRICS.filter(m=>visibleConfigs().some(c=>chartPointsIn(c,m.key).length>0));
+  const shown=seriesList().filter(s=>!state.hidden.has(s.key));
+  return METRICS.filter(m=>shown.some(s=>chartPointsIn(s.config,m.key).length>0));
 }
 
 // Points inside the window, for one config and metric.
@@ -885,9 +916,12 @@ function coverage(){
   };
 }
 
+// Unfiltered, like every other card that names tonight's build: narrowing to
+// a device that skipped tonight would otherwise show the previous build here
+// beside a coverage panel naming tonight's.
 function latestRun(){
   let best=null;
-  visibleConfigs().forEach(c=>Object.keys(c.metrics).forEach(mk=>{
+  CONFIGS.forEach(c=>Object.keys(c.metrics).forEach(mk=>{
     pointsIn(c,mk).forEach(p=>{if(!best||p.t>best.t)best=p;});
   }));
   return best;
@@ -919,7 +953,9 @@ function newestOverall(){
    ==========================================================================*/
 function renderNotice(){
   const host=document.getElementById('notice-host');
-  const inWindow=visibleConfigs().length;
+  // Unfiltered: a filter combination that matches nothing is not a stalled
+  // nightly, and the main area already says the filters match no runs.
+  const inWindow=CONFIGS.some(hasPointsInWindow);
   if(inWindow){host.innerHTML='';return;}
   const newest=newestOverall();
   if(!newest){
@@ -937,7 +973,7 @@ function renderNotice(){
     'Check the <a id="notice-pipeline" target="_blank" rel="noopener noreferrer">perf-eval pipeline</a>.'+
     '</span></div>';
   const link=document.getElementById('notice-pipeline');
-  if(link)link.href=(DATA.pipeline||{}).url||'https://buildkite.com/vllm/perf-eval';
+  if(link)link.href=safeUrl((DATA.pipeline||{}).url)||'https://buildkite.com/vllm/perf-eval';
 }
 
 function renderControls(){
@@ -952,7 +988,11 @@ function renderControls(){
   // active filters, which is why a count can read 0.
   html+='<div class="controls-row"><div class="facet-grid">';
   FACETS.forEach(f=>{
-    const values=[...new Set(CONFIGS.map(f.get))].filter(v=>v!==undefined&&v!=='');
+    // Selected values are listed even when no config has them, as happens
+    // with a shared link naming a model that has since been renamed: an
+    // option that is not drawn could never be unticked.
+    const values=[...new Set([...CONFIGS.map(f.get),...state.selected[f.key]])]
+      .filter(v=>v!==undefined&&v!=='');
     values.sort(f.key==='conc'?(a,b)=>(+a)-(+b):(a,b)=>String(a).localeCompare(String(b)));
     // Chosen from the data rather than hard-coded to Model, so any facet that
     // grows long gets the same treatment.
@@ -965,7 +1005,8 @@ function renderControls(){
       // A selected option stays usable at zero, or it could never be cleared.
       const unavailable=count===0&&!on;
       html+='<div class="facet-opt'+(on?' on':'')+(unavailable?' unavailable':'')+
-            '" data-facet="'+esc(f.key)+'" data-value="'+esc(v)+'"'+
+            '" data-facet="'+esc(f.key)+'" data-value="'+esc(v)+'" role="checkbox"'+
+            ' aria-checked="'+(on?'true':'false')+'"'+
             (unavailable?' aria-disabled="true"':'')+'>'+
             '<span class="facet-box"></span>'+
             '<span class="facet-label" title="'+esc(v)+'">'+esc(v)+'</span>'+
@@ -980,17 +1021,25 @@ function renderControls(){
   const activeFilters=FACETS.reduce((n,f)=>n+state.selected[f.key].size,0);
   if(activeFilters||state.hidden.size){
     html+='<div class="facet-reset"><button class="btn" id="reset-facets">'+
-          'Clear '+activeFilters+(activeFilters===1?' filter':' filters')+'</button></div>';
+          (activeFilters
+            ? 'Clear '+activeFilters+(activeFilters===1?' filter':' filters')
+            : 'Reset view')+'</button></div>';
   }
   html+='</div></div>';
   host.innerHTML=html;
 
-  host.querySelectorAll('.facet-opt:not(.unavailable)').forEach(el=>el.addEventListener('click',()=>{
+  host.querySelectorAll('.facet-opt:not(.unavailable)').forEach(el=>{
     const k=el.getAttribute('data-facet'), v=el.getAttribute('data-value');
-    const sel=state.selected[k];
-    if(sel.has(v))sel.delete(v); else sel.add(v);
-    invalidateScan();syncToHash();renderAll();
-  }));
+    activatable(el,null,()=>{
+      const sel=state.selected[k];
+      if(sel.has(v))sel.delete(v); else sel.add(v);
+      // A legend selection names configs; after the filters change it would
+      // mostly name hidden ones and could leave nothing to plot.
+      state.hidden.clear();
+      invalidateScan();syncToHash();renderAll();
+      focusAfterRender('.facet-opt[data-facet="'+cssEscape(k)+'"][data-value="'+cssEscape(v)+'"]');
+    });
+  });
   const reset=document.getElementById('reset-facets');
   if(reset)reset.addEventListener('click',()=>{
     FACETS.forEach(f=>state.selected[f.key].clear());
@@ -1197,12 +1246,19 @@ const TABS=[
 ];
 function renderTabs(){
   const regs=visibleConfigs().length?regressionsOf(state.baseline).length:0;
-  document.getElementById('tabs-host').innerHTML=TABS.map(t=>
-    '<div class="tab'+(state.tab===t.id?' on':'')+'" data-tab="'+t.id+'">'+esc(t.label)+
+  const host=document.getElementById('tabs-host');
+  host.setAttribute('role','tablist');
+  host.innerHTML=TABS.map(t=>
+    '<div class="tab'+(state.tab===t.id?' on':'')+'" data-tab="'+t.id+'" role="tab"'+
+    ' aria-selected="'+(state.tab===t.id?'true':'false')+'">'+esc(t.label)+
     (t.id==='trends'&&regs?'<span class="tab-badge">'+regs+'</span>':'')+'</div>').join('');
-  document.querySelectorAll('.tab').forEach(el=>el.addEventListener('click',()=>{
-    state.tab=el.getAttribute('data-tab');syncToHash();renderAll();
-  }));
+  host.querySelectorAll('.tab').forEach(el=>{
+    const id=el.getAttribute('data-tab');
+    activatable(el,null,()=>{
+      state.tab=id;syncToHash();renderAll();
+      focusAfterRender('.tab[data-tab="'+id+'"]');
+    });
+  });
 }
 
 /* ============================================================================
@@ -1230,10 +1286,20 @@ function renderRegressionPanel(){
   const thresholdNote=' · counting drops of <b>'+thresholdLabel(active)+' or more</b>'+
     (below?' · '+integer(below)+' smaller drop'+(below===1?'':'s')+' not counted':'');
   if(!regs.length){
+    // Counted from what was actually compared, not from what is on screen: a
+    // config with no previous run in the window, or none tonight, was never
+    // checked, and a green panel must not claim it passed.
+    const compared=new Set(scan(state.baseline).map(d=>d.configKey)).size;
+    if(!compared){
+      return '<div class="reg-panel unknown"><div class="reg-head">'+
+        '<h3>Nothing to compare</h3><span class="reg-count">no configuration has both a run in '+
+        'build #'+esc(latestNightlyBuild()||'?')+' and an earlier run in the last '+
+        integer(WINDOW_DAYS)+' days</span></div></div>';
+    }
     return '<div class="reg-panel clean"><div class="reg-head">'+
       '<h3>No regressions</h3><span class="reg-count">'+esc(active.label)+
-      ', across '+integer(visibleConfigs().length)+' configurations'+thresholdNote+
-      '</span></div></div>';
+      ', across '+integer(compared)+' compared configuration'+(compared===1?'':'s')+
+      thresholdNote+'</span></div></div>';
   }
   const groups=new Map();
   regs.forEach(d=>{
@@ -1303,12 +1369,14 @@ function renderSeriesBar(){
   return '<div class="series-bar"><span class="bar-label">Configurations</span>'+
     series.map(s=>
       '<span class="series-chip'+(state.hidden.has(s.key)?' off':'')+
-      (s.regressed?' regressed':'')+'" data-series="'+esc(s.key)+
+      (s.regressed?' regressed':'')+'" role="button" aria-pressed="'+
+      (state.hidden.has(s.key)?'false':'true')+'" data-series="'+esc(s.key)+
       '" title="'+esc(s.label)+(s.regressed?' — regressed on at least one metric':'')+
       '\nClick to select · click others to add them">'+
       '<span class="swatch" style="background:'+esc(s.color)+'"></span>'+esc(s.label)+'</span>').join('')+
     '<div class="spacer"></div>'+
-    (anyReg?'<button class="btn'+(onlyRegressedSelected(series)?' on':'')+'" id="only-reg">Only regressed</button>':'')+
+    (anyReg?'<button class="btn'+(onlyRegressedSelected(series)?' on':'')+'" id="only-reg"'+
+      ' aria-pressed="'+(onlyRegressedSelected(series)?'true':'false')+'">Only regressed</button>':'')+
     '<button class="btn" id="show-all-series">Show all</button></div>';
 }
 
@@ -1329,7 +1397,8 @@ function renderWindowBar(){
   const presets=[...new Set([1,3,7,WINDOW_DAYS].filter(d=>d<=WINDOW_DAYS))];
   return '<div class="window-bar"><span class="bar-label">Chart window</span>'+
     '<div class="segmented">'+presets.map(d=>
-      '<button class="'+(d===days?'on':'')+'" data-days="'+d+'">'+d+'d</button>').join('')+
+      '<button class="'+(d===days?'on':'')+'" data-days="'+d+'" aria-pressed="'+
+      (d===days?'true':'false')+'" aria-label="Last '+d+' day'+(d===1?'':'s')+'">'+d+'d</button>').join('')+
     '</div>'+
     '<input type="range" id="chart-days" min="1" max="'+WINDOW_DAYS+'" step="1" value="'+days+'"'+
     ' aria-label="Chart window in days">'+
@@ -1380,6 +1449,9 @@ function drawTrendChart(metric){
 
   const theme=chartTheme();
   const bounds=chartBounds();
+  const regColor=cssVar('--accent-red')||REG_COLOR;
+  // The ring contrasts with the page, so it is the text colour, not white.
+  const ringColor=cssVar('--text-primary')||'#fff';
   const regForMetric=regressedKeysForMetric(state.baseline,metric.key);
   const datasets=seriesList()
     .filter(s=>!state.hidden.has(s.key))
@@ -1389,10 +1461,10 @@ function drawTrendChart(metric){
       // Red only where it actually moved, so a chart where nothing regressed
       // shows no red at all.
       const isReg=regForMetric.has(s.key);
-      const color=isReg?REG_COLOR:s.color;
+      const color=isReg?regColor:s.color;
       const last=pts.length-1;
       return {
-        label:s.label,
+        label:s.label, _key:s.key,
         data:pts.map(p=>({x:p.t,y:display(p.value,metric),_p:p})),
         borderColor:color, backgroundColor:color,
         borderWidth:isReg?2.75:1.6,
@@ -1402,7 +1474,7 @@ function drawTrendChart(metric){
         pointRadius:ctx=>(isReg&&ctx.dataIndex===last)?6:2.5,
         pointHoverRadius:7,
         pointBackgroundColor:color,
-        pointBorderColor:ctx=>(isReg&&ctx.dataIndex===last)?'#fff':color,
+        pointBorderColor:ctx=>(isReg&&ctx.dataIndex===last)?ringColor:color,
         pointBorderWidth:ctx=>(isReg&&ctx.dataIndex===last)?2:0,
       };
     }).filter(Boolean);
@@ -1428,7 +1500,7 @@ function drawTrendChart(metric){
             const dataset=chart.data.datasets[hit.datasetIndex];
             const point=dataset.data[hit.index];
             return point&&point._p
-              ? {label:dataset.label,color:dataset.borderColor,point:point._p,
+              ? {label:dataset.label,key:dataset._key,color:dataset.borderColor,point:point._p,
                  value:point.y,metric:metric}
               : null;
           })
@@ -1480,7 +1552,7 @@ function renderTrendsTab(){
     '<div class="card-hint">One chart per metric so a regression that only moves TTFT is '+
     'visible without hunting through a dropdown. A red line means that configuration regressed '+
     'by <b>'+thresholdLabel(BASELINE_BY_ID[state.baseline])+' or more</b> on <em>that</em> metric; '+
-    'the newest point is ringed. Click any point to open its build. '+
+    'the newest point is ringed. Click any point for its history and build. '+
     'Click a configuration to show only it, then click others to add them; '+
     '<em>Show all</em> resets.</div>'+
     renderWindowBar()+renderSeriesBar()+renderTrendCharts()+'</div>';
@@ -1489,15 +1561,21 @@ function renderTrendsTab(){
     state.chartDays=days>=WINDOW_DAYS?null:days;
     syncToHash();renderAll();
   };
-  host.querySelectorAll('[data-days]').forEach(el=>el.addEventListener('click',()=>
-    setDays(Number(el.getAttribute('data-days')))));
+  host.querySelectorAll('[data-days]').forEach(el=>el.addEventListener('click',()=>{
+    const days=Number(el.getAttribute('data-days'));
+    setDays(days);
+    focusAfterRender('[data-days="'+days+'"]');
+  }));
   const slider=document.getElementById('chart-days');
   if(slider){
     // The label follows the drag; the charts redraw once, on release.
     slider.addEventListener('input',()=>{
       document.getElementById('chart-days-label').textContent=daysLabel(Number(slider.value));
     });
-    slider.addEventListener('change',()=>setDays(Number(slider.value)));
+    slider.addEventListener('change',()=>{
+      setDays(Number(slider.value));
+      focusAfterRender('#chart-days');
+    });
   }
 
   chartedMetrics().forEach(drawTrendChart);
@@ -1505,28 +1583,35 @@ function renderTrendsTab(){
   // With everything showing, a click isolates that configuration; once a
   // selection exists, clicks add to it or remove from it. Removing the last
   // one shows everything again, so the chart is never left empty.
-  host.querySelectorAll('.series-chip').forEach(el=>el.addEventListener('click',()=>{
+  host.querySelectorAll('.series-chip').forEach(el=>{
     const k=el.getAttribute('data-series');
-    const keys=seriesList().map(s=>s.key);
-    if(keys.every(key=>!state.hidden.has(key))){
-      state.hidden.clear();
-      keys.filter(key=>key!==k).forEach(key=>state.hidden.add(key));
-    }else{
-      if(state.hidden.has(k))state.hidden.delete(k); else state.hidden.add(k);
-      if(keys.every(key=>state.hidden.has(key)))state.hidden.clear();
-    }
-    renderAll();
-  }));
+    activatable(el,null,()=>{
+      const keys=seriesList().map(s=>s.key);
+      if(keys.every(key=>!state.hidden.has(key))){
+        state.hidden.clear();
+        keys.filter(key=>key!==k).forEach(key=>state.hidden.add(key));
+      }else{
+        if(state.hidden.has(k))state.hidden.delete(k); else state.hidden.add(k);
+        if(keys.every(key=>state.hidden.has(key)))state.hidden.clear();
+      }
+      syncToHash();renderAll();
+      focusAfterRender('.series-chip[data-series="'+cssEscape(k)+'"]');
+    });
+  });
   const only=document.getElementById('only-reg');
   if(only)only.addEventListener('click',()=>{
     const series=seriesList();
     const wasOn=onlyRegressedSelected(series);
     state.hidden.clear();
     if(!wasOn)series.filter(s=>!s.regressed).forEach(s=>state.hidden.add(s.key));
-    renderAll();
+    syncToHash();renderAll();
+    focusAfterRender('#only-reg');
   });
   const all=document.getElementById('show-all-series');
-  if(all)all.addEventListener('click',()=>{state.hidden.clear();renderAll();});
+  if(all)all.addEventListener('click',()=>{
+    state.hidden.clear();syncToHash();renderAll();
+    focusAfterRender('#show-all-series');
+  });
 }
 
 /* ============================================================================
@@ -1560,9 +1645,13 @@ function renderAccuracyTab(){
     '<th class="num">Previous nightly</th><th class="num">Change</th><th>Status</th>'+
     '<th>Other scores</th><th class="num">Runs</th><th>Build</th>'+
     '</tr></thead><tbody>';
+  const tonight=latestNightlyBuild();
   groups.forEach((g,i)=>{
     const s=g.primary, v=s.verdict, newest=s.windowed[s.windowed.length-1];
-    const cls=!v||!v.counted?'neutral':(v.improved?'good':'bad');
+    // Judged only when the newest result is tonight's, as the Accuracy
+    // overnight card is: an older change must not read as tonight's.
+    const current=reportedTonight(s.windowed,tonight);
+    const cls=!v||!v.counted||!current?'neutral':(v.improved?'good':'bad');
     html+='<tr class="clickable" data-acc="'+i+'">'+
       '<td class="config">'+esc(g.shortModel)+'</td>'+
       '<td>'+esc(g.device||'—')+'</td>'+
@@ -1571,7 +1660,8 @@ function renderAccuracyTab(){
         '<br><span class="neutral" style="font-size:11px">'+esc(accuracyMetricLabel(s.metric))+'</span></td>'+
       '<td class="num">'+(v?esc(accuracyPercent(v.base)):'—')+'</td>'+
       '<td class="num '+cls+' mono">'+(v?esc(accuracyPoints(v.delta,true)):'—')+'</td>'+
-      '<td>'+(!v?'<span class="pill">first run</span>':
+      '<td>'+(!current?'<span class="pill">not in #'+esc(tonight)+'</span>':
+              !v?'<span class="pill">first run</span>':
               v.severity!=='ok'?'<span class="pill alert">regressed</span>':
               v.counted?'<span class="pill ok">improved</span>':
               '<span class="pill">within '+esc(threshold)+'</span>')+'</td>'+
@@ -1635,13 +1725,16 @@ function renderConfigsTab(){
 
   let html='<div class="card"><h3>Latest value per configuration</h3>'+
     '<div class="card-hint">Newest run in the window, with its change against the '+
-    'previous nightly. Changes under <b>'+thresholdLabel(baseline)+'</b> stay grey. '+
+    'previous nightly. Changes under <b>'+thresholdLabel(baseline)+'</b> stay grey, and so '+
+    'does any cell whose newest run is not from build #'+esc(latestNightlyBuild()||'?')+
+    ', since that change happened on an earlier night. '+
     'Click a cell for that metric\'s history.'+
     '</div><div class="table-scroll"><table><thead><tr>'+
     '<th>Configuration</th><th class="num">Runs</th>'+
     present.map(m=>'<th class="num">'+esc(m.label)+'<br><span class="neutral">'+esc(unitOf(m))+'</span></th>').join('')+
     '</tr></thead><tbody>';
 
+  const tonight=latestNightlyBuild();
   configs.forEach((c,ci)=>{
     const runs=Math.max(...present.map(m=>pointsIn(c,m.key).length),0);
     html+='<tr><td class="config">'+esc(c.label)+'</td><td class="num">'+runs+'</td>';
@@ -1649,11 +1742,15 @@ function renderConfigsTab(){
       const pts=pointsIn(c,m.key);
       if(!pts.length){html+='<td class="num neutral">—</td>';return;}
       const v=verdict(pts.map(p=>p.value),m,baseline);
-      const cls=!v?'neutral':(v.severity==='alert'?'bad':v.severity==='warn'?'warnc':
+      const cls=(!v||!reportedTonight(pts,tonight))?'neutral':
+        (v.severity==='alert'?'bad':v.severity==='warn'?'warnc':
         (v.improved&&v.magnitude>=baseline.warn)?'good':'neutral');
       html+='<td class="num clickable" data-cfg="'+ci+'" data-metric="'+esc(m.key)+'">'+
         esc(fmt(display(pts[pts.length-1].value,m),m.digits))+
-        (v?' <span class="'+cls+'" style="font-size:11px">'+pct(v.ratio,1)+'</span>':'')+'</td>';
+        // Two decimals near the threshold, so a 0.46% drop cannot display as
+        // "0.5%" while not being counted.
+        (v?' <span class="'+cls+'" style="font-size:11px">'+
+          pct(v.ratio,Math.abs(v.ratio)<0.01?2:1)+'</span>':'')+'</td>';
     });
     html+='</tr>';
   });
@@ -1752,12 +1849,13 @@ function openHistory(title,subtitle,metric,points,v){
       },
     },
   });
-  document.getElementById('overlay').classList.add('open');
+  showOverlay();
 }
 // Open the full history for one clicked series, resolved back to its config so
 // the overlay shows the whole trend rather than just the point that was hit.
 function openSeriesHistory(candidate){
-  const config=visibleConfigs().filter(c=>c.label===candidate.label)[0];
+  // By key, not label: labels leave out TP, precision and the model's org.
+  const config=visibleConfigs().filter(c=>c.key===candidate.key)[0];
   const metric=candidate.metric;
   if(!config){
     // No matching config (a stale render); fall back to the single point so
@@ -1799,12 +1897,26 @@ function openPointChooser(metric,candidates){
       if(candidate)openSeriesHistory(candidate);
     }));
 
-  document.getElementById('overlay').classList.add('open');
+  showOverlay();
 }
 
+// A modal takes focus when it opens and gives it back when it closes, so a
+// keyboard user is neither left behind the dialog nor dropped at the top of
+// the page afterwards.
+let overlayOpener=null;
+function showOverlay(){
+  const overlay=document.getElementById('overlay');
+  if(!overlay.classList.contains('open'))overlayOpener=document.activeElement;
+  overlay.classList.add('open');
+  document.getElementById('overlay-close').focus();
+}
 function closeHistory(){
-  document.getElementById('overlay').classList.remove('open');
+  const overlay=document.getElementById('overlay');
+  const wasOpen=overlay.classList.contains('open');
+  overlay.classList.remove('open');
   if(historyChart){historyChart.destroy();historyChart=null;}
+  if(wasOpen&&overlayOpener&&document.contains(overlayOpener))overlayOpener.focus();
+  if(wasOpen)overlayOpener=null;
 }
 
 /* ============================================================================
@@ -1820,6 +1932,10 @@ function syncToHash(){
     const sel=[...state.selected[f.key]];
     if(sel.length)parts.push(f.key+'='+sel.map(encodeURIComponent).join(','));
   });
+  if(state.hidden.size){
+    const shown=seriesList().map(s=>s.key).filter(k=>!state.hidden.has(k));
+    if(shown.length)parts.push('show='+shown.map(encodeURIComponent).join(','));
+  }
   suppressHash=true;
   window.location.hash=parts.join('&');
   setTimeout(()=>{suppressHash=false;},0);
@@ -1830,6 +1946,7 @@ function readFromHash(){
   state.baseline=DATA.default_baseline||'previous';
   state.chartDays=null;
   FACETS.forEach(f=>state.selected[f.key].clear());
+  const shown=new Set();
   raw.split('&').forEach(chunk=>{
     const i=chunk.indexOf('=');
     if(i<0)return;
@@ -1837,15 +1954,24 @@ function readFromHash(){
     if(k==='tab'&&TABS.some(t=>t.id===v))state.tab=v;
     else if(k==='base'&&BASELINE_BY_ID[v])state.baseline=v;
     else if(k==='days'&&/^\d+$/.test(v))state.chartDays=Number(v);
+    else if(k==='show')v.split(',').map(safeDecode).filter(Boolean).forEach(key=>shown.add(key));
     else{
       const facet=FACETS.find(f=>f.key===k);
       if(facet){
-        v.split(',').map(decodeURIComponent).filter(Boolean)
+        v.split(',').map(safeDecode).filter(Boolean)
           .forEach(val=>state.selected[k].add(val));
       }
     }
   });
+  // The legend selection is stored as the configs shown, which is short when
+  // isolating one; everything else is hidden.
+  state.hidden.clear();
+  if(shown.size)CONFIGS.forEach(c=>{if(!shown.has(c.key))state.hidden.add(c.key);});
   invalidateScan();
+}
+// A truncated or hand-edited link must not take the page down with it.
+function safeDecode(value){
+  try{return decodeURIComponent(value);}catch(_e){return '';}
 }
 
 /* ============================================================================
@@ -1855,6 +1981,7 @@ function renderAll(){
   // Any change of filter, window or baseline invalidates an open drill-down:
   // leaving it up would show one configuration's history over another's page.
   closeHistory();
+  _chartBounds=null;
   renderNotice();
   renderControls();
   renderKpis();
@@ -1867,7 +1994,7 @@ function renderAll(){
 
 function renderChrome(){
   document.getElementById('generated-at').textContent='Generated '+(DATA.generated_at||'unknown');
-  const url=(DATA.pipeline||{}).url||'https://buildkite.com/vllm/perf-eval';
+  const url=safeUrl((DATA.pipeline||{}).url)||'https://buildkite.com/vllm/perf-eval';
   document.getElementById('pipeline-link').href=url;
   document.getElementById('pipeline-link-footer').href=url;
   // Report what the viewer is actually looking at. The payload's retention is
