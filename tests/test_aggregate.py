@@ -267,9 +267,7 @@ class TestAccuracyGrouping:
             {"task": "gsm8k", "metric": "exact_match,strict-match", "value": 0.9, "primary": False}
         )
         tasks = _only_model(agg.aggregate([event], generated_at=NOW))["accuracy_tasks"]
-        assert [(t["metric"], t["primary"]) for t in tasks] == [
-            ("exact_match,strict-match", True)
-        ]
+        assert [(t["metric"], t["primary"]) for t in tasks] == [("exact_match,strict-match", True)]
 
     def test_a_backend_name_is_resolved_from_the_recipe_expectation(self):
         # Events stored before the collector read the model from the recipe
