@@ -9,10 +9,9 @@ name: Collect and Deploy
 #   main             source only
 on:
   schedule:
-    # The upstream nightly's schedule lives in the Buildkite UI, not in the
-    # perf-eval repo, so there is nothing in code to derive this from. These
-    # hours are a hedge against not knowing; run scripts/dev_build_times.py
-    # with a Buildkite token to replace them with measured finish times.
+    # The nightly's schedule lives in the Buildkite UI, so these hours are a
+    # hedge. Recent nightlies mostly finished 10:30-13:00 UTC; 17:17 usually
+    # picks the new one up.
     - cron: '17 1,9,17 * * *'
   # A change to the page itself has to be able to reach production. Without
   # this, a UI edit would wait for the next scheduled run and then be skipped
@@ -244,7 +243,9 @@ jobs:
 
           mkdir -p "$WORKTREE/data"
           cp data/events.jsonl "$WORKTREE/data/events.jsonl"
-          cp data/perf_eval.json "$WORKTREE/data/perf_eval.json"
+          # Only the event store: the payload is derived from it, and the deploy
+          # check reads the live copy on gh-pages.
+          git -C "$WORKTREE" rm -q --ignore-unmatch data/perf_eval.json
           git -C "$WORKTREE" add data
           if git -C "$WORKTREE" diff --cached --quiet; then
             echo "Event store unchanged; nothing to persist."

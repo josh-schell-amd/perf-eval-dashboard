@@ -4,7 +4,7 @@ Scope, stated once here and repeated in every module that enforces it: this
 dashboard covers **AMD (MI-series) workloads from scheduled nightly builds
 only**. NVIDIA workloads (H200/B200/A100) run in the same upstream
 ``vllm/perf-eval`` pipeline and are deliberately excluded, as are ad-hoc and
-pull-request builds. See ``README.md`` for the rationale. NOTE: come back to this *josh*
+pull-request builds. See ``README.md`` for the rationale.
 """
 
 BUILDKITE_ORG = "vllm"

@@ -134,8 +134,8 @@ Three guards keep it that way, all enforced in CI:
 - **Secret scanning**, in two layers, on every push and pull request. See
   below.
 - `tests/test_token_safety.py` pins the Buildkite org to `vllm`, asserts only
-  `collect_artifacts.py` and `dev_build_times.py` can read the token, and
-  asserts neither issues a write.
+  `collect_artifacts.py` can read the token, and asserts it never issues a
+  write.
 - Pushing checkouts use `persist-credentials: false`.
 
 ### Secret scanning
@@ -181,7 +181,6 @@ scripts/perf_eval/
   merge_events.py            identity-based merge of two stores
   secrets_scan.py
 scripts/build_site.py        site/ + perf_eval.json -> _site/
-scripts/dev_sample.py        synthetic store for local UI work
 data/                        generated; lives on dashboard-state, gitignored here
 tests/
 .github/workflows/           collect.yml, ci.yml, secrets-scan.yml
@@ -203,32 +202,13 @@ runtime packages (`requests`, `PyYAML`, `truststore`), since it runs next to
 the Buildkite and write tokens. Actions are pinned to commit SHAs, matching
 `vllm-ci-dashboard`.
 
-### Previewing the page without credentials
-
-`dev_sample.py` writes a deterministic synthetic event store, so you can work
-on the UI without a Buildkite token:
-
-```bash
-python scripts/dev_sample.py
-python scripts/perf_eval/aggregate.py
-python scripts/build_site.py
-python -m http.server --directory _site 8000
-```
-
-The sample deliberately includes one NVIDIA run and one ad-hoc run. Neither
-may appear on the rendered page — if either does, the scope filter has
-regressed.
-
 ### Working with real data
 
 You can run the entire pipeline locally, with no GitHub involved — it is the
-same sequence the workflow runs, minus the branch commits.
+same sequence the workflow runs, minus the branch commits. Ingest appends to
+`data/events.jsonl`, so re-running only adds what is new.
 
 ```bash
-# Clear any synthetic data first: real ingest APPENDS, so a leftover sample
-# store would mix fake and real points in the same charts.
-rm -f data/events.jsonl
-
 export BUILDKITE_TOKEN=bkua_...          # read-only: Read Builds + Read Artifacts
 export GITHUB_TOKEN="$(gh auth token)"   # optional, but see below
 
@@ -563,17 +543,9 @@ UTC, plus on a manual dispatch, on a push that touches `site/`, and on a
 schedule lives in the Buildkite UI rather than in the `perf-eval` repo, so
 there is nothing in code to derive it from, and a nightly sweeping a dozen
 models across several GPU types runs for hours, so its finish time drifts.
-Three passes is insurance against not knowing when that is.
-
-Replace the guess with data once you have a token:
-
-```bash
-BUILDKITE_TOKEN=bkua_... python scripts/dev_build_times.py --days 30
-```
-
-It lists recent nightlies with their finish times and durations, summarises
-the spread, and prints a suggested cron — likely one pass plus a retry rather
-than three blind ones.
+Three passes is insurance against not knowing when that is. Recent nightlies
+have mostly finished between about 10:30 and 13:00 UTC, so the 17:17 pass is
+the one that usually picks up the new night.
 
 Each run scans the last 14 days of finished `main` builds (1–30 configurable
 via the dispatch input). The window is a safety net for a nightly that landed

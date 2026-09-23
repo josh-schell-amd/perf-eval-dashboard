@@ -20,15 +20,11 @@ SCRIPTS = ROOT / "scripts"
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 TOKEN_NAMES = ("BUILDKITE_TOKEN", "BUILDKITE_API_TOKEN")
-# The only modules permitted to read the Buildkite token. Adding an entry here
-# should be a deliberate decision: every one widens where a credential can
-# reach. Both of these are read-only and pinned to the vllm org.
-TOKEN_ENTRYPOINTS = {
-    "perf_eval/collect_artifacts.py",  # the collector, run by CI
-    "dev_build_times.py",  # local tool that lists build finish times
-}
+# The only modules permitted to read the Buildkite token. Adding one widens
+# where a credential can reach, so it should be a deliberate decision.
+TOKEN_ENTRYPOINTS = {"perf_eval/collect_artifacts.py"}
 # Read-only by construction: these must never issue a write.
-READ_ONLY_MODULES = ("perf_eval/collect_artifacts.py", "dev_build_times.py")
+READ_ONLY_MODULES = ("perf_eval/collect_artifacts.py",)
 
 
 class TestOrgIsPinned:
