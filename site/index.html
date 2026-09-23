@@ -1,335 +1,299 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Perf Eval Dashboard — AMD nightly</title>
-<!-- The same AMD mark perf-eval shows on its AMD Buildkite steps (the :amd:
-     emoji), vendored like Chart.js. See site/vendor/README.md. -->
-<link rel="icon" type="image/png" href="vendor/amd.png" />
-<!-- Applied before first paint so a light-mode reload does not flash dark. -->
-<script>if(localStorage.getItem('perf-eval-theme')==='light')document.documentElement.setAttribute('data-theme','light');</script>
-<style>
-:root {
-  --bg-primary:#0b0c10; --bg-secondary:#141519; --bg-tertiary:#1c1d24;
-  --border:#303140; --border-light:#262733;
-  --text-primary:#eef0f6; --text-secondary:#bfc1d0; --text-tertiary:#7e8094;
-  --brand:#6aa6ed;
-  --ui:#8899b8; --ui-bright:#a4b3ce; --ui-dim:rgba(136,153,184,0.12);
-  --accent-green:#6dbf80; --accent-red:#f25c4e; --accent-orange:#eda06a;
-  --accent-yellow:#e3c75a;
-  --accent-purple:#c49af5; --accent-blue:#6aa6ed;
-  --table-stripe:rgba(255,255,255,0.02);
-  --gap-sm:8px; --gap-md:16px; --gap-lg:24px; --radius:8px;
-}
-[data-theme="light"] {
-  --bg-primary:#f5f6fa; --bg-secondary:#ffffff; --bg-tertiary:#ebedf3;
-  --border:#d0d3dc; --border-light:#e2e4eb;
-  --text-primary:#1a1c24; --text-secondary:#4a4d5e; --text-tertiary:#7e8094;
-  --brand:#2f6fb8;
-  --ui:#5a6d8a; --ui-bright:#3d5278; --ui-dim:rgba(90,109,138,0.10);
-  --accent-green:#2e8b47; --accent-red:#d63a2f; --accent-orange:#c47a30;
-  --accent-yellow:#9a7b0a;
-  --accent-purple:#8b5ec0; --accent-blue:#2f6fb8;
-  --table-stripe:rgba(0,0,0,0.03);
-}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-     background:var(--bg-primary);color:var(--text-secondary);font-size:13px}
-.container{max-width:1440px;margin:0 auto;padding:var(--gap-lg)}
-a{color:var(--ui-bright);text-decoration:none}
-a:hover{text-decoration:underline}
-code{font-family:"SF Mono",Consolas,monospace;font-size:11px;background:var(--bg-tertiary);padding:2px 6px;border-radius:4px}
-.mono{font-family:"SF Mono",Consolas,monospace}
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Perf Eval Dashboard — AMD nightly</title>
+  <link rel="icon" type="image/png" href="vendor/amd.png" />
+  <script>if(localStorage.getItem('perf-eval-theme')==='light')document.documentElement.setAttribute('data-theme','light');</script>
+  <style>
+    /* ============================================================
+       CSS VARIABLES & RESET
+       ============================================================ */
+    :root {
+      --bg-primary: #0b0c10; --bg-secondary: #141519; --bg-tertiary: #1c1d24;
+      --border: #303140; --border-light: #262733;
+      --text-primary: #eef0f6; --text-secondary: #bfc1d0; --text-tertiary: #7e8094;
+      --brand: #6aa6ed;
+      --ui: #8899b8; --ui-bright: #a4b3ce; --ui-dim: rgba(136,153,184,0.12);
+      --accent-green: #6dbf80; --accent-red: #f25c4e; --accent-orange: #eda06a;
+      --accent-yellow: #e3c75a;
+      --accent-purple: #c49af5; --accent-blue: #6aa6ed;
+      --table-stripe: rgba(255,255,255,0.02);
+      --gap-sm: 8px; --gap-md: 16px; --gap-lg: 24px; --radius: 8px;
+    }
+    [data-theme="light"] {
+      --bg-primary: #f5f6fa; --bg-secondary: #ffffff; --bg-tertiary: #ebedf3;
+      --border: #d0d3dc; --border-light: #e2e4eb;
+      --text-primary: #1a1c24; --text-secondary: #4a4d5e; --text-tertiary: #7e8094;
+      --brand: #2f6fb8;
+      --ui: #5a6d8a; --ui-bright: #3d5278; --ui-dim: rgba(90,109,138,0.10);
+      --accent-green: #2e8b47; --accent-red: #d63a2f; --accent-orange: #c47a30;
+      --accent-yellow: #9a7b0a;
+      --accent-purple: #8b5ec0; --accent-blue: #2f6fb8;
+      --table-stripe: rgba(0,0,0,0.03);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg-primary); color: var(--text-secondary); font-size: 13px; }
+    .container { max-width: 1440px; margin: 0 auto; padding: var(--gap-lg); }
+    a { color: var(--ui-bright); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { font-family: "SF Mono", Consolas, monospace; font-size: 11px; background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; }
+    .mono { font-family: "SF Mono", Consolas, monospace; }
 
-header{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:var(--gap-md);
-       padding-bottom:var(--gap-md);border-bottom:2px solid var(--brand);margin-bottom:var(--gap-lg)}
-h1{font-size:19px;color:var(--text-primary);font-weight:600;display:flex;align-items:center;gap:9px}
-.brand-logo{width:22px;height:22px;flex:none}
-.scope-note{font-size:12px;color:var(--text-secondary);margin-top:5px;line-height:1.5}
-.scope-note strong{color:var(--text-primary)}
-.meta{font-size:11px;color:var(--text-tertiary);margin-top:4px}
-.header-right{display:flex;align-items:center;gap:var(--gap-sm)}
-.btn{background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border);
-     border-radius:6px;padding:5px 11px;cursor:pointer;font-size:11px;font-family:inherit;white-space:nowrap}
-.btn:hover{color:var(--text-primary);background:var(--bg-tertiary)}
-.theme-toggle{position:relative;width:28px;height:14px;background:var(--border);border:none;
-              border-radius:7px;cursor:pointer;flex:none;padding:0}
-.theme-toggle::after{content:'';position:absolute;top:2px;left:2px;width:10px;height:10px;
-                     background:var(--text-primary);border-radius:50%;transition:transform 0.2s}
-[data-theme="light"] .theme-toggle::after{transform:translateX(14px)}
+    header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--gap-md); padding-bottom: var(--gap-md); border-bottom: 2px solid var(--brand); margin-bottom: var(--gap-lg); }
+    h1 { font-size: 19px; color: var(--text-primary); font-weight: 600; display: flex; align-items: center; gap: 9px; }
+    .brand-logo { width: 22px; height: 22px; flex: none; }
+    .scope-note { font-size: 12px; color: var(--text-secondary); margin-top: 5px; line-height: 1.5; }
+    .scope-note strong { color: var(--text-primary); }
+    .meta { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; }
+    .header-right { display: flex; align-items: center; gap: var(--gap-sm); }
+    .btn { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; cursor: pointer; font-size: 11px; font-family: inherit; white-space: nowrap; }
+    .btn:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+    .theme-toggle { position: relative; width: 28px; height: 14px; background: var(--border); border: none; border-radius: 7px; cursor: pointer; flex: none; padding: 0; }
+    .theme-toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; background: var(--text-primary); border-radius: 50%; transition: transform 0.2s; }
+    [data-theme="light"] .theme-toggle::after { transform: translateX(14px); }
 
-/* ---- stale-data notice ---------------------------------------------------- */
-.notice{display:flex;align-items:center;gap:var(--gap-md);background:var(--bg-secondary);
-        border:1px solid var(--accent-orange);border-radius:var(--radius);
-        padding:12px 14px;margin-bottom:var(--gap-lg);font-size:12px;line-height:1.5}
-.notice strong{color:var(--text-primary)}
-.notice .btn{margin-left:auto}
+    /* ============================================================
+       STALE-DATA NOTICE
+       ============================================================ */
+    .notice { display: flex; align-items: center; gap: var(--gap-md); background: var(--bg-secondary); border: 1px solid var(--accent-orange); border-radius: var(--radius); padding: 12px 14px; margin-bottom: var(--gap-lg); font-size: 12px; line-height: 1.5; }
+    .notice strong { color: var(--text-primary); }
+    .notice .btn { margin-left: auto; }
 
-/* ---- controls ------------------------------------------------------------- */
-.controls{background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);
-          padding:var(--gap-md);margin-bottom:var(--gap-lg)}
-.controls-row{display:flex;align-items:center;gap:var(--gap-sm);flex-wrap:wrap}
-.controls-row + .controls-row{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-light)}
-.ctl-label{font-size:10px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-tertiary);
-           font-weight:600;margin-right:2px}
-/* A stated value, not a control: the window is fixed. */
-.ctl-fixed{font-size:12px;color:var(--text-secondary);background:var(--bg-tertiary);
-           border:1px solid var(--border);border-radius:6px;padding:5px 11px}
-.segmented{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
-.segmented button{background:var(--bg-tertiary);color:var(--text-tertiary);border:none;
-                  border-right:1px solid var(--border);padding:5px 12px;font-size:11px;cursor:pointer;
-                  font-family:inherit;white-space:nowrap}
-.segmented button:last-child{border-right:none}
-.segmented button:hover{color:var(--text-primary)}
-.segmented button.on{background:var(--ui);color:#fff}
-.spacer{flex:1}
-.baseline-note{font-size:11px;color:var(--text-tertiary);line-height:1.5;margin-top:8px;max-width:900px}
-.baseline-note b{color:var(--text-secondary);font-weight:600}
+    /* ============================================================
+       CONTROLS
+       ============================================================ */
+    .controls { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-md); margin-bottom: var(--gap-lg); }
+    .controls-row { display: flex; align-items: center; gap: var(--gap-sm); flex-wrap: wrap; }
+    .controls-row + .controls-row { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-light); }
+    .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .segmented button { background: var(--bg-tertiary); color: var(--text-tertiary); border: none; border-right: 1px solid var(--border); padding: 5px 12px; font-size: 11px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .segmented button:last-child { border-right: none; }
+    .segmented button:hover { color: var(--text-primary); }
+    .segmented button.on { background: var(--ui); color: #fff; }
+    .spacer { flex: 1; }
+    /* Faceted filters: every value visible and one click from toggling, rather
+       than hidden behind dropdowns. */
+    .facet-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(165px,1fr)); gap: var(--gap-md); width: 100%; }
+    .facet-col { min-width: 0; }
+    /* A facet with many values (in practice, Model) takes two grid tracks and
+       flows its options into two columns, instead of one tall column that sets
+       the height of the whole filter panel. */
+    .facet-col.wide { grid-column: span 2; }
+    .facet-col.wide .facet-opts { columns: 2; column-gap: var(--gap-md); }
+    .facet-opt { break-inside: avoid; }
+    @media (max-width: 600px) {
+      .facet-col.wide { grid-column: auto; }
+      .facet-col.wide .facet-opts { columns: 1; }
+    }
+    .facet-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-tertiary); font-weight: 600; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border-light); }
+    .facet-opt { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--text-secondary); user-select: none; min-width: 0; }
+    .facet-opt:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+    .facet-opt.on { color: var(--text-primary); }
+    /* Not ".empty": that name belongs to the page-wide empty-state rule, whose
+       centring and 60px padding leaked into these rows and shifted the columns.
+       The box is hidden rather than removed so the label stays aligned. */
+    .facet-opt.unavailable { opacity: 0.4; cursor: default; }
+    .facet-opt.unavailable:hover { background: none; color: var(--text-secondary); }
+    .facet-opt.unavailable .facet-box { visibility: hidden; }
+    .facet-box { width: 12px; height: 12px; border: 1px solid var(--border); border-radius: 3px; flex: none; position: relative; }
+    .facet-opt.on .facet-box { background: var(--ui); border-color: var(--ui); }
+    .facet-opt.on .facet-box::after { content: ''; position: absolute; left: 3.5px; top: 1px; width: 3px; height: 6px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+    .facet-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .facet-count { margin-left: auto; font-size: 10px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; padding-left: 6px; }
+    .facet-reset { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-light); }
 
-/* Faceted filters: every value visible and one click from toggling, rather
-   than hidden behind dropdowns. */
-.facet-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:var(--gap-md);width:100%}
-.facet-col{min-width:0}
-/* A facet with many values (in practice, Model) takes two grid tracks and
-   flows its options into two columns, instead of one tall column that sets
-   the height of the whole filter panel. */
-.facet-col.wide{grid-column:span 2}
-.facet-col.wide .facet-opts{columns:2;column-gap:var(--gap-md)}
-.facet-opt{break-inside:avoid}
-@media(max-width:600px){.facet-col.wide{grid-column:auto}.facet-col.wide .facet-opts{columns:1}}
-.facet-head{font-size:10px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-tertiary);
-            font-weight:600;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border-light)}
-.facet-opt{display:flex;align-items:center;gap:7px;padding:3px 4px;border-radius:4px;cursor:pointer;
-           font-size:12px;color:var(--text-secondary);user-select:none;min-width:0}
-.facet-opt:hover{background:var(--bg-tertiary);color:var(--text-primary)}
-.facet-opt.on{color:var(--text-primary)}
-/* Not ".empty": that name belongs to the page-wide empty-state rule, whose
-   centring and 60px padding leaked into these rows and shifted the columns.
-   The box is hidden rather than removed so the label stays aligned. */
-.facet-opt.unavailable{opacity:0.4;cursor:default}
-.facet-opt.unavailable:hover{background:none;color:var(--text-secondary)}
-.facet-opt.unavailable .facet-box{visibility:hidden}
-.facet-box{width:12px;height:12px;border:1px solid var(--border);border-radius:3px;flex:none;position:relative}
-.facet-opt.on .facet-box{background:var(--ui);border-color:var(--ui)}
-.facet-opt.on .facet-box::after{content:'';position:absolute;left:3.5px;top:1px;width:3px;height:6px;
-                                border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
-.facet-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.facet-count{margin-left:auto;font-size:10px;color:var(--text-tertiary);font-variant-numeric:tabular-nums;padding-left:6px}
-.facet-reset{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-light)}
+    /* ============================================================
+       KPI ROW
+       ============================================================ */
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); gap: var(--gap-md); margin-bottom: var(--gap-lg); }
+    .kpi-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-md); }
+    .kpi-card.alert { border-color: var(--accent-red); }
+    .kpi-card.ok { border-color: rgba(109,191,128,0.45); }
+    .kpi-card.good { border-color: var(--accent-green); }
+    .kpi-card.linked { display: block; text-decoration: none; color: inherit; position: relative; }
+    .kpi-card.linked:hover { background: var(--bg-tertiary); border-color: var(--ui); text-decoration: none; }
+    .kpi-card[data-goto-tab] { cursor: pointer; }
+    /* Keep the label clear of the corner arrow. */
+    .kpi-card.linked .kpi-label { padding-right: 22px; }
+    .kpi-ext { position: absolute; top: 10px; right: 11px; display: inline-flex; color: var(--ui-bright); opacity: 0.85; }
+    .kpi-ext .ext-icon { width: 17px; height: 17px; }
+    .kpi-card.linked:hover .kpi-ext { opacity: 1; transform: translate(1px,-1px); }
 
-/* ---- KPI row -------------------------------------------------------------- */
-.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--gap-md);margin-bottom:var(--gap-lg)}
-.kpi-card{background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:var(--gap-md)}
-.kpi-card.alert{border-color:var(--accent-red)}
-.kpi-card.warn{border-color:var(--accent-orange)}
-.kpi-card.ok{border-color:rgba(109,191,128,0.45)}
-.kpi-card.good{border-color:var(--accent-green)}
-.kpi-card.linked{display:block;text-decoration:none;color:inherit;position:relative}
-.kpi-card.linked:hover{background:var(--bg-tertiary);border-color:var(--ui);text-decoration:none}
-.kpi-card[data-goto-tab]{cursor:pointer}
-/* Keep the label clear of the corner arrow. */
-.kpi-card.linked .kpi-label{padding-right:22px}
-.kpi-ext{position:absolute;top:10px;right:11px;display:inline-flex;color:var(--ui-bright);opacity:0.85}
-.kpi-ext .ext-icon{width:17px;height:17px}
-.kpi-card.linked:hover .kpi-ext{opacity:1;transform:translate(1px,-1px)}
+    /* External-link affordance. A drawn arrow rather than the ↗ glyph, which
+       renders thin and inconsistently across platforms at this size. */
+    .ext-icon { width: 14px; height: 14px; display: block; }
+    .ext-inline { display: inline-flex; vertical-align: -2px; margin-left: 4px; opacity: 0.7; transition: transform 0.12s, opacity 0.12s; }
+    .kpi-ext { transition: transform 0.12s, opacity 0.12s; }
+    a:hover .ext-inline, .reg-item.linked:hover .ext-inline { opacity: 1; transform: translate(1px,-1px); }
+    /* Anything activatable gets a visible focus ring, so the keyboard path is not
+       worse than the mouse path. */
+    .kpi-card.linked:focus-visible, .reg-item.linked:focus-visible, tr.clickable:focus-visible, td.clickable:focus-visible { outline: 2px solid var(--ui); outline-offset: -2px; }
+    .kpi-label { font-size: 10px; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 5px; }
+    .kpi-value { font-size: 25px; font-weight: 700; color: var(--text-primary); font-family: "SF Mono", Consolas, monospace; line-height: 1.1; }
+    .kpi-value.up { color: var(--accent-green); }
+    .kpi-value.down { color: var(--accent-red); }
+    .kpi-value.stacked { font-size: 19px; line-height: 1.35; display: grid; grid-template-columns: auto auto auto 1fr; column-gap: 8px; align-items: baseline; }
+    .kpi-value.stacked .num { text-align: right; }
+    .kpi-value .up { color: var(--accent-green); }
+    .kpi-value .down { color: var(--accent-red); }
+    .kpi-unit { font-size: 12px; color: var(--text-tertiary); font-weight: 400; }
+    .kpi-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
+    .kpi-sub b, .reg-count b, .card-hint b { color: var(--text-secondary); font-weight: 600; }
 
-/* External-link affordance. A drawn arrow rather than the ↗ glyph, which
-   renders thin and inconsistently across platforms at this size. */
-.ext-icon{width:14px;height:14px;display:block}
-.ext-inline{display:inline-flex;vertical-align:-2px;margin-left:4px;opacity:0.7;
-            transition:transform 0.12s,opacity 0.12s}
-.kpi-ext{transition:transform 0.12s,opacity 0.12s}
-a:hover .ext-inline,.reg-item.linked:hover .ext-inline{opacity:1;transform:translate(1px,-1px)}
-/* Anything activatable gets a visible focus ring, so the keyboard path is not
-   worse than the mouse path. */
-.kpi-card.linked:focus-visible,
-.reg-item.linked:focus-visible,
-tr.clickable:focus-visible,
-td.clickable:focus-visible{outline:2px solid var(--ui);outline-offset:-2px}
-.kpi-label{font-size:10px;color:var(--text-primary);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:5px}
-.kpi-value{font-size:25px;font-weight:700;color:var(--text-primary);font-family:"SF Mono",Consolas,monospace;line-height:1.1}
-.kpi-value.up{color:var(--accent-green)}
-.kpi-value.down{color:var(--accent-red)}
-.kpi-value.stacked{font-size:19px;line-height:1.35;display:grid;
-                   grid-template-columns:auto auto auto 1fr;column-gap:8px;align-items:baseline}
-.kpi-value.stacked .num{text-align:right}
-.kpi-value .up{color:var(--accent-green)}
-.kpi-value .down{color:var(--accent-red)}
-.kpi-unit{font-size:12px;color:var(--text-tertiary);font-weight:400}
-.kpi-sub{font-size:11px;color:var(--text-tertiary);margin-top:6px;line-height:1.45;overflow-wrap:anywhere}
-.kpi-sub b,.reg-count b,.card-hint b{color:var(--text-secondary);font-weight:600}
-/* ---- tabs ----------------------------------------------------------------- */
-.tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:var(--gap-lg);overflow-x:auto}
-.tab{padding:8px 16px;font-size:13px;font-weight:600;color:var(--text-tertiary);cursor:pointer;
-     border-bottom:2px solid transparent;user-select:none;white-space:nowrap}
-.tab:hover{color:var(--text-secondary)}
-.tab.on{color:var(--text-primary);border-bottom-color:var(--ui)}
-.tab-badge{display:inline-block;margin-left:5px;font-size:10px;font-weight:600;padding:0 5px;
-           border-radius:8px;background:rgba(242,92,78,0.2);color:var(--accent-red)}
-.card{background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);
-      padding:var(--gap-md);margin-bottom:var(--gap-lg)}
-.card h3{font-size:13px;color:var(--text-primary);font-weight:600;margin-bottom:4px}
-.card-hint{font-size:11px;color:var(--text-tertiary);margin-bottom:var(--gap-md);line-height:1.5}
-.empty{text-align:center;padding:60px 20px;color:var(--text-tertiary);font-size:14px}
+    /* ============================================================
+       TABS
+       ============================================================ */
+    .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: var(--gap-lg); overflow-x: auto; }
+    .tab { padding: 8px 16px; font-size: 13px; font-weight: 600; color: var(--text-tertiary); cursor: pointer; border-bottom: 2px solid transparent; user-select: none; white-space: nowrap; }
+    .tab:hover { color: var(--text-secondary); }
+    .tab.on { color: var(--text-primary); border-bottom-color: var(--ui); }
+    .tab-badge { display: inline-block; margin-left: 5px; font-size: 10px; font-weight: 600; padding: 0 5px; border-radius: 8px; background: rgba(242,92,78,0.2); color: var(--accent-red); }
+    .card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-md); margin-bottom: var(--gap-lg); }
+    .card h3 { font-size: 13px; color: var(--text-primary); font-weight: 600; margin-bottom: 4px; }
+    .card-hint { font-size: 11px; color: var(--text-tertiary); margin-bottom: var(--gap-md); line-height: 1.5; }
+    .empty { text-align: center; padding: 60px 20px; color: var(--text-tertiary); font-size: 14px; }
 
-/* ---- regression panel ----------------------------------------------------- */
-.reg-panel{border:1px solid var(--accent-red);border-radius:var(--radius);padding:var(--gap-md);
-           margin-bottom:var(--gap-lg);background:var(--bg-secondary)}
-.reg-panel.clean{border-color:var(--accent-green)}
-.reg-panel.unknown{border-color:var(--border)}
-.reg-head{display:flex;align-items:center;gap:9px;margin-bottom:10px;flex-wrap:wrap}
-.reg-head h3{font-size:13px;color:var(--text-primary);font-weight:600}
-.reg-head .reg-count{font-size:11px;color:var(--text-tertiary)}
-.reg-list{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto}
-.reg-item{display:grid;grid-template-columns:minmax(220px,330px) minmax(0,1fr) auto;gap:14px;align-items:center;
-          padding:11px 12px;background:var(--bg-primary);border-radius:6px;
-          border-left:3px solid var(--accent-orange);font-size:13px;text-decoration:none}
-.reg-item.minor{border-left-color:var(--accent-yellow)}
-.reg-item.major{border-left-color:var(--accent-red)}
-.reg-item.linked:hover{background:var(--bg-tertiary);text-decoration:none}
-/* Never truncated: without the concurrency suffix the row names no
-   configuration at all, so it wraps instead of ellipsing. */
-.reg-config{color:var(--text-primary);font-weight:500;line-height:1.4;overflow-wrap:anywhere}
-.reg-metrics{display:flex;flex-wrap:wrap;gap:7px}
-.reg-chip{display:inline-flex;align-items:baseline;gap:6px;font-size:12px;padding:4px 10px;border-radius:6px;
-          background:rgba(237,160,106,0.16);color:var(--accent-orange);white-space:nowrap;
-          border:1px solid rgba(237,160,106,0.3)}
-.reg-chip.minor{background:rgba(227,199,90,0.14);color:var(--accent-yellow);border-color:rgba(227,199,90,0.35)}
-.reg-chip.major{background:rgba(242,92,78,0.18);color:var(--accent-red);border-color:rgba(242,92,78,0.4)}
-.tier-key{display:inline-flex;gap:10px;margin-left:6px}
-.tier-key span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;
-                       margin-right:4px;background:currentColor}
-.tier-key .minor{color:var(--accent-yellow)}
-.tier-key .moderate{color:var(--accent-orange)}
-.tier-key .major{color:var(--accent-red)}
-.reg-chip b{font-family:"SF Mono",Consolas,monospace;font-weight:700}
+    /* ============================================================
+       REGRESSION PANEL
+       ============================================================ */
+    .reg-panel { border: 1px solid var(--accent-red); border-radius: var(--radius); padding: var(--gap-md); margin-bottom: var(--gap-lg); background: var(--bg-secondary); }
+    .reg-panel.clean { border-color: var(--accent-green); }
+    .reg-panel.unknown { border-color: var(--border); }
+    .reg-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; flex-wrap: wrap; }
+    .reg-head h3 { font-size: 13px; color: var(--text-primary); font-weight: 600; }
+    .reg-head .reg-count { font-size: 11px; color: var(--text-tertiary); }
+    .reg-list { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+    .reg-item { display: grid; grid-template-columns: minmax(220px,330px) minmax(0,1fr) auto; gap: 14px; align-items: center; padding: 11px 12px; background: var(--bg-primary); border-radius: 6px; border-left: 3px solid var(--accent-orange); font-size: 13px; text-decoration: none; }
+    .reg-item.minor { border-left-color: var(--accent-yellow); }
+    .reg-item.major { border-left-color: var(--accent-red); }
+    .reg-item.linked:hover { background: var(--bg-tertiary); text-decoration: none; }
+    /* Never truncated: without the concurrency suffix the row names no
+       configuration at all, so it wraps instead of ellipsing. */
+    .reg-config { color: var(--text-primary); font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+    .reg-metrics { display: flex; flex-wrap: wrap; gap: 7px; }
+    .reg-chip { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 6px; background: rgba(237,160,106,0.16); color: var(--accent-orange); white-space: nowrap; border: 1px solid rgba(237,160,106,0.3); }
+    .reg-chip.minor { background: rgba(227,199,90,0.14); color: var(--accent-yellow); border-color: rgba(227,199,90,0.35); }
+    .reg-chip.major { background: rgba(242,92,78,0.18); color: var(--accent-red); border-color: rgba(242,92,78,0.4); }
+    .tier-key { display: inline-flex; gap: 10px; margin-left: 6px; }
+    .tier-key span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; background: currentColor; }
+    .tier-key .minor { color: var(--accent-yellow); }
+    .tier-key .moderate { color: var(--accent-orange); }
+    .tier-key .major { color: var(--accent-red); }
+    .reg-chip b { font-family: "SF Mono", Consolas, monospace; font-weight: 700; }
 
-/* ---- coverage panel ------------------------------------------------------- */
-/* Grouped by workload, and outside the KPI card on purpose. A Buildkite step
-   that dies takes every config it owns with it, so absences arrive in blocks:
-   listed flat inside the card they stretched the whole KPI row and pushed the
-   charts off-screen. Grouping also separates "never ran" from "ran, one shape
-   absent", which are different failures with different owners. */
-.cov-panel{border:1px solid var(--accent-red);border-radius:var(--radius);padding:var(--gap-md);
-           margin-bottom:var(--gap-lg);background:var(--bg-secondary)}
-.cov-head{display:flex;align-items:center;gap:9px;margin-bottom:10px;flex-wrap:wrap}
-.cov-head h3{font-size:13px;color:var(--text-primary);font-weight:600}
-.cov-head .cov-count{font-size:11px;color:var(--text-tertiary)}
-.cov-list{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto}
-.cov-item{display:grid;grid-template-columns:minmax(200px,300px) minmax(0,1fr) auto;gap:14px;
-          align-items:baseline;padding:10px 12px;background:var(--bg-primary);border-radius:6px;
-          border-left:3px solid var(--accent-orange);font-size:13px}
-.cov-item.whole{border-left-color:var(--accent-red)}
-.cov-name{color:var(--text-primary);font-weight:500;line-height:1.4;overflow-wrap:anywhere}
-.cov-shapes{display:flex;flex-wrap:wrap;gap:7px}
-.cov-shape{font-size:12px;padding:4px 10px;border-radius:6px;white-space:nowrap;
-           font-family:"SF Mono",Consolas,monospace;
-           background:rgba(237,160,106,0.16);color:var(--accent-orange);
-           border:1px solid rgba(237,160,106,0.3)}
-.cov-tag{font-size:11px;font-weight:600;color:var(--accent-red);white-space:nowrap}
-/* Gap between the direction triangle and the number: at this size the glyph
-   otherwise crowds the first digit. */
-.reg-chip .dir{margin-right:5px}
-.reg-build{font-size:12px;color:var(--text-tertiary);white-space:nowrap}
+    /* ============================================================
+       COVERAGE PANEL
+       ============================================================ */
+    /* Grouped by workload, and outside the KPI card on purpose. A Buildkite step
+       that dies takes every config it owns with it, so absences arrive in blocks:
+       listed flat inside the card they stretched the whole KPI row and pushed the
+       charts off-screen. Grouping also separates "never ran" from "ran, one shape
+       absent", which are different failures with different owners. */
+    .cov-panel { border: 1px solid var(--accent-red); border-radius: var(--radius); padding: var(--gap-md); margin-bottom: var(--gap-lg); background: var(--bg-secondary); }
+    .cov-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; flex-wrap: wrap; }
+    .cov-head h3 { font-size: 13px; color: var(--text-primary); font-weight: 600; }
+    .cov-head .cov-count { font-size: 11px; color: var(--text-tertiary); }
+    .cov-list { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+    .cov-item { display: grid; grid-template-columns: minmax(200px,300px) minmax(0,1fr) auto; gap: 14px; align-items: baseline; padding: 10px 12px; background: var(--bg-primary); border-radius: 6px; border-left: 3px solid var(--accent-orange); font-size: 13px; }
+    .cov-item.whole { border-left-color: var(--accent-red); }
+    .cov-name { color: var(--text-primary); font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+    .cov-shapes { display: flex; flex-wrap: wrap; gap: 7px; }
+    .cov-shape { font-size: 12px; padding: 4px 10px; border-radius: 6px; white-space: nowrap; font-family: "SF Mono", Consolas, monospace; background: rgba(237,160,106,0.16); color: var(--accent-orange); border: 1px solid rgba(237,160,106,0.3); }
+    .cov-tag { font-size: 11px; font-weight: 600; color: var(--accent-red); white-space: nowrap; }
+    /* Gap between the direction triangle and the number: at this size the glyph
+       otherwise crowds the first digit. */
+    .reg-chip .dir { margin-right: 5px; }
+    .reg-build { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
 
-/* ---- shared legend -------------------------------------------------------- */
-.window-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:var(--gap-md)}
-.window-bar input[type=range]{width:160px;accent-color:var(--ui)}
-.window-value{font-size:12px;color:var(--text-primary);font-variant-numeric:tabular-nums;min-width:86px}
-.window-note{font-size:11px;color:var(--text-tertiary)}
-.series-bar{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:var(--gap-md);
-            padding-bottom:var(--gap-md);border-bottom:1px solid var(--border-light)}
-.series-chip{display:inline-flex;align-items:center;gap:6px;background:var(--bg-tertiary);
-             border:1px solid var(--border);border-radius:12px;padding:3px 10px;font-size:11px;
-             cursor:pointer;color:var(--text-secondary);user-select:none}
-.series-chip:hover{color:var(--text-primary)}
-.series-chip.off{opacity:0.35}
-.series-chip .swatch{width:9px;height:9px;border-radius:2px;flex:none}
-/* Outline rather than a badge: the chip carries "regressed somewhere", while a
-   red line means "regressed on this metric". */
-.series-chip.regressed{border-color:var(--accent-red);border-width:2px;padding:2px 9px;
-                       background:rgba(242,92,78,0.10);color:var(--text-primary)}
-.series-bar .bar-label,.window-bar .bar-label{font-size:10px;text-transform:uppercase;letter-spacing:0.6px;
-                       color:var(--text-tertiary);font-weight:600;margin-right:2px}
-.series-bar .btn.on{background:var(--accent-red);border-color:var(--accent-red);color:#fff}
+    /* ============================================================
+       SHARED LEGEND
+       ============================================================ */
+    .window-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: var(--gap-md); }
+    .window-bar input[type=range] { width: 160px; accent-color: var(--ui); }
+    .window-value { font-size: 12px; color: var(--text-primary); font-variant-numeric: tabular-nums; min-width: 86px; }
+    .window-note { font-size: 11px; color: var(--text-tertiary); }
+    .series-bar { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-bottom: var(--gap-md); padding-bottom: var(--gap-md); border-bottom: 1px solid var(--border-light); }
+    .series-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 12px; padding: 3px 10px; font-size: 11px; cursor: pointer; color: var(--text-secondary); user-select: none; }
+    .series-chip:hover { color: var(--text-primary); }
+    .series-chip.off { opacity: 0.35; }
+    .series-chip .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+    /* Outline rather than a badge: the chip carries "regressed somewhere", while a
+       red line means "regressed on this metric". */
+    .series-chip.regressed { border-color: var(--accent-red); border-width: 2px; padding: 2px 9px; background: rgba(242,92,78,0.10); color: var(--text-primary); }
+    .series-bar .bar-label, .window-bar .bar-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-tertiary); font-weight: 600; margin-right: 2px; }
+    .series-bar .btn.on { background: var(--accent-red); border-color: var(--accent-red); color: #fff; }
 
-/* ---- stacked trend charts ------------------------------------------------- */
-/* One full-width chart per metric. Trading vertical scroll for resolution: at
-   container width every nightly is a distinguishable point, not a smudge. */
-.mini-grid{display:flex;flex-direction:column;gap:var(--gap-md)}
-.mini-card{background:var(--bg-primary);border:1px solid var(--border-light);border-radius:var(--radius);
-           padding:12px 14px 8px}
-.mini-card.has-reg{border-color:var(--accent-red)}
-.mini-head{display:flex;align-items:baseline;gap:7px;margin-bottom:8px;flex-wrap:wrap}
-.mini-title{font-size:13px;font-weight:600;color:var(--text-primary)}
-.mini-unit{font-size:11px;color:var(--text-tertiary)}
-.mini-dir{font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px}
-.mini-reg{margin-left:auto;font-size:10px;font-weight:600;color:var(--accent-red);
-          background:rgba(242,92,78,0.15);border-radius:9px;padding:1px 8px}
-.mini-wrap{position:relative;height:300px}
-/* Says "this is interactive" before the tooltip gets a chance to. */
-.mini-wrap canvas{cursor:pointer}
-@media(max-width:760px){.mini-wrap{height:230px}}
+    /* ============================================================
+       STACKED TREND CHARTS
+       ============================================================ */
+    /* One full-width chart per metric. Trading vertical scroll for resolution: at
+       container width every nightly is a distinguishable point, not a smudge. */
+    .mini-grid { display: flex; flex-direction: column; gap: var(--gap-md); }
+    .mini-card { background: var(--bg-primary); border: 1px solid var(--border-light); border-radius: var(--radius); padding: 12px 14px 8px; }
+    .mini-card.has-reg { border-color: var(--accent-red); }
+    .mini-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 8px; flex-wrap: wrap; }
+    .mini-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .mini-unit { font-size: 11px; color: var(--text-tertiary); }
+    .mini-dir { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; }
+    .mini-reg { margin-left: auto; font-size: 10px; font-weight: 600; color: var(--accent-red); background: rgba(242,92,78,0.15); border-radius: 9px; padding: 1px 8px; }
+    .mini-wrap { position: relative; height: 300px; }
+    /* Says "this is interactive" before the tooltip gets a chance to. */
+    .mini-wrap canvas { cursor: pointer; }
+    @media (max-width: 760px) {
+      .mini-wrap { height: 230px; }
+    }
 
-/* Disambiguation list, shown when several series sit on the same point. */
-.pick-list{display:flex;flex-direction:column;gap:6px}
-.pick-item{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:10px;align-items:center;
-           padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);
-           border-radius:6px;cursor:pointer;font-size:13px;text-align:left;
-           color:var(--text-secondary);font-family:inherit}
-.pick-item:hover{background:var(--bg-tertiary);border-color:var(--ui);color:var(--text-primary)}
-.pick-item:focus-visible{outline:2px solid var(--ui);outline-offset:2px}
-.pick-swatch{width:10px;height:10px;border-radius:2px}
-.pick-label{overflow-wrap:anywhere}
-.pick-value{font-family:"SF Mono",Consolas,monospace;color:var(--text-primary);white-space:nowrap}
+    /* Disambiguation list, shown when several series sit on the same point. */
+    .pick-list { display: flex; flex-direction: column; gap: 6px; }
+    .pick-item { display: grid; grid-template-columns: 12px minmax(0,1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 13px; text-align: left; color: var(--text-secondary); font-family: inherit; }
+    .pick-item:hover { background: var(--bg-tertiary); border-color: var(--ui); color: var(--text-primary); }
+    .pick-item:focus-visible { outline: 2px solid var(--ui); outline-offset: 2px; }
+    .pick-swatch { width: 10px; height: 10px; border-radius: 2px; }
+    .pick-label { overflow-wrap: anywhere; }
+    .pick-value { font-family: "SF Mono", Consolas, monospace; color: var(--text-primary); white-space: nowrap; }
 
-/* ---- tables --------------------------------------------------------------- */
-.table-scroll{overflow:auto;max-height:640px}
-table{width:100%;border-collapse:collapse;font-size:12px}
-th{text-align:left;padding:8px 10px;border-bottom:2px solid var(--border);color:var(--text-tertiary);
-   font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;
-   position:sticky;top:0;background:var(--bg-secondary);z-index:1}
-th.num,td.num{text-align:right}
-th.sortable{cursor:pointer;user-select:none}
-th.sortable:hover{color:var(--text-secondary)}
-td{padding:7px 10px;border-bottom:1px solid var(--border-light)}
-td.num{font-family:"SF Mono",Consolas,monospace}
-td.config{color:var(--text-primary);font-weight:500;overflow-wrap:anywhere}
-tbody tr:nth-child(even){background:var(--table-stripe)}
-tbody tr:hover{background:var(--bg-tertiary)}
-tbody tr.clickable{cursor:pointer}
-.good{color:var(--accent-green)}
-.bad{color:var(--accent-red)}
-.warnc{color:var(--accent-orange)}
-.neutral{color:var(--text-tertiary)}
-.pill{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;background:var(--bg-tertiary);
-      color:var(--text-tertiary);border:1px solid var(--border);white-space:nowrap}
-.pill.alert{border-color:var(--accent-red);color:var(--accent-red);background:rgba(242,92,78,0.12)}
-.pill.warn{border-color:var(--accent-orange);color:var(--accent-orange);background:rgba(237,160,106,0.12)}
-.pill.ok{border-color:rgba(109,191,128,0.5);color:var(--accent-green);background:rgba(109,191,128,0.10)}
+    /* ============================================================
+       TABLES
+       ============================================================ */
+    .table-scroll { overflow: auto; max-height: 640px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--border); color: var(--text-tertiary); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; position: sticky; top: 0; background: var(--bg-secondary); z-index: 1; }
+    th.num, td.num { text-align: right; }
+    td { padding: 7px 10px; border-bottom: 1px solid var(--border-light); }
+    td.num { font-family: "SF Mono", Consolas, monospace; }
+    td.config { color: var(--text-primary); font-weight: 500; overflow-wrap: anywhere; }
+    tbody tr:nth-child(even) { background: var(--table-stripe); }
+    tbody tr:hover { background: var(--bg-tertiary); }
+    tbody tr.clickable { cursor: pointer; }
+    .good { color: var(--accent-green); }
+    .bad { color: var(--accent-red); }
+    .warnc { color: var(--accent-orange); }
+    .neutral { color: var(--text-tertiary); }
+    .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 10px; background: var(--bg-tertiary); color: var(--text-tertiary); border: 1px solid var(--border); white-space: nowrap; }
+    .pill.alert { border-color: var(--accent-red); color: var(--accent-red); background: rgba(242,92,78,0.12); }
+    .pill.warn { border-color: var(--accent-orange); color: var(--accent-orange); background: rgba(237,160,106,0.12); }
+    .pill.ok { border-color: rgba(109,191,128,0.5); color: var(--accent-green); background: rgba(109,191,128,0.10); }
 
-/* ---- history overlay ------------------------------------------------------ */
-.overlay{display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.55)}
-.overlay.open{display:flex;align-items:center;justify-content:center}
-.overlay-panel{position:relative;background:var(--bg-secondary);border:1px solid var(--border);
-               border-radius:var(--radius);padding:var(--gap-lg);max-width:940px;width:92vw;
-               max-height:86vh;overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,0.6)}
-.overlay-panel h3{color:var(--text-primary);font-size:15px;margin-bottom:4px;padding-right:32px}
-.overlay-close{position:absolute;top:10px;right:14px;background:none;border:none;color:var(--text-tertiary);
-               font-size:22px;cursor:pointer;line-height:1}
-.overlay-close:hover{color:var(--text-primary)}
-.overlay-sub{font-size:12px;color:var(--text-tertiary);margin-bottom:var(--gap-md)}
-.overlay-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:var(--gap-sm);
-                 margin-bottom:var(--gap-md)}
-.overlay-summary .item{background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:8px 10px}
-.overlay-summary .item .k{font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px}
-.overlay-summary .item .v{font-size:15px;color:var(--text-primary);font-family:"SF Mono",Consolas,monospace;font-weight:600}
-.chart-wrap{position:relative;height:270px;margin-bottom:var(--gap-md)}
+    /* ============================================================
+       HISTORY OVERLAY
+       ============================================================ */
+    .overlay { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.55); }
+    .overlay.open { display: flex; align-items: center; justify-content: center; }
+    .overlay-panel { position: relative; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-lg); max-width: 940px; width: 92vw; max-height: 86vh; overflow-y: auto; box-shadow: 0 16px 48px rgba(0,0,0,0.6); }
+    .overlay-panel h3 { color: var(--text-primary); font-size: 15px; margin-bottom: 4px; padding-right: 32px; }
+    .overlay-close { position: absolute; top: 10px; right: 14px; background: none; border: none; color: var(--text-tertiary); font-size: 22px; cursor: pointer; line-height: 1; }
+    .overlay-close:hover { color: var(--text-primary); }
+    .overlay-sub { font-size: 12px; color: var(--text-tertiary); margin-bottom: var(--gap-md); }
+    .overlay-summary { display: grid; grid-template-columns: repeat(auto-fit,minmax(115px,1fr)); gap: var(--gap-sm); margin-bottom: var(--gap-md); }
+    .overlay-summary .item { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+    .overlay-summary .item .k { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; }
+    .overlay-summary .item .v { font-size: 15px; color: var(--text-primary); font-family: "SF Mono", Consolas, monospace; font-weight: 600; }
+    .chart-wrap { position: relative; height: 270px; margin-bottom: var(--gap-md); }
 
-footer{padding:12px 0;border-top:1px solid var(--border);display:flex;justify-content:space-between;
-       align-items:center;font-size:11px;color:var(--text-tertiary);flex-wrap:wrap;gap:var(--gap-sm)}
-</style>
+    footer { padding: 12px 0; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-tertiary); flex-wrap: wrap; gap: var(--gap-sm); }
+  </style>
 </head>
 <body>
 <div class="container">
@@ -383,18 +347,19 @@ footer{padding:12px 0;border-top:1px solid var(--border);display:flex;justify-co
 <script src="vendor/chart.umd.min.js"></script>
 <script>
 'use strict';
-(function () {
+(function() {
 
-/* ============================================================================
+/* ================================================================
    1. COLOUR SEMANTICS
-   ==========================================================================*/
+   ================================================================ */
 // Colour carries meaning here, so it is allocated rather than picked.
 //
 // PALETTE contains no red and no pink — pink reads as a light red on a 2px
 // line — so a red line on a chart always means "this regressed" and can never
 // be a healthy series that happened to be assigned red.
-const PALETTE = ['#6aa6ed','#6dbf80','#c49af5','#4fc3c3','#ddb040','#8899b8','#9ad06a',
-                 '#7c83f0','#5fc9a0','#c8b06a','#79c0ff','#d0a3e8','#4fa3a3','#a3c46a'];
+const PALETTE = ['#6aa6ed', '#6dbf80', '#c49af5', '#4fc3c3', '#ddb040', '#8899b8', '#9ad06a',
+  '#7c83f0', '#5fc9a0', '#c8b06a', '#79c0ff', '#d0a3e8', '#4fa3a3', '#a3c46a'
+];
 // One red, read from --accent-red at draw time so it follows the theme; this
 // is only the fallback. Applied per metric: a series is red on a chart only if
 // it regressed on that chart's metric, and keeps its identity colour on the
@@ -419,31 +384,38 @@ let WINDOW_DAYS = 14;
 // The headline metric for the night-over-night card.
 const PRIMARY_METRIC = 'output_tput_per_gpu';
 const FACETS = [
-  {key:'device',    label:'Device',      get:c => c.device},
-  {key:'model',     label:'Model',       get:c => c.shortModel},
-  {key:'precision', label:'Precision',   get:c => c.precision || '—'},
-  {key:'shape',     label:'ISL/OSL',     get:c => c.isl + '/' + c.osl},
-  {key:'conc',      label:'Concurrency', get:c => String(c.conc)},
+  { key: 'device', label: 'Device', get: c => c.device },
+  { key: 'model', label: 'Model', get: c => c.shortModel },
+  { key: 'precision', label: 'Precision', get: c => c.precision || '—' },
+  { key: 'shape', label: 'ISL/OSL', get: c => c.isl + '/' + c.osl },
+  { key: 'conc', label: 'Concurrency', get: c => String(c.conc) },
 ];
 
-/* ============================================================================
+/* ================================================================
    2. HELPERS
-   ==========================================================================*/
+   ================================================================ */
 // Model ids, images and task names come from upstream YAML and artifacts, so
 // everything interpolated into markup goes through esc().
-function esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;')
-  .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function esc(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 // URLs from the payload become hrefs and window.open targets, where HTML
 // escaping alone would still let a javascript: URL run. Only http(s) passes.
-function safeUrl(v){
-  const url=String(v||'').trim();
-  return /^https?:\/\//i.test(url)?url:'';
+function safeUrl(v) {
+  const url = String(v || '').trim();
+  return /^https?:\/\//i.test(url) ? url : '';
 }
-function integer(v){return Number(v||0).toLocaleString('en-US');}
-function fmt(v,d){return v==null||!isFinite(v)?'—':Number(v).toFixed(d==null?1:d);}
-function shortModel(m){return String(m||'').split('/').pop();}
-function shortSha(s){return s?String(s).slice(0,8):'—';}
-function pct(r,d){return r==null?'—':(r>0?'+':'')+(r*100).toFixed(d==null?1:d)+'%';}
+
+function integer(v) { return Number(v || 0).toLocaleString('en-US'); }
+
+function fmt(v, d) { return v == null || !isFinite(v) ? '—' : Number(v).toFixed(d == null ? 1 : d); }
+
+function shortModel(m) { return String(m || '').split('/').pop(); }
+
+function shortSha(s) { return s ? String(s).slice(0, 8) : '—'; }
+
+function pct(r, d) { return r == null ? '—' : (r > 0 ? '+' : '') + (r * 100).toFixed(d == null ? 1 : d) + '%'; }
 // A triangle for which way the value moved, then the unsigned magnitude.
 //
 // This is the *raw direction of the number*, not the verdict: a latency
@@ -454,13 +426,14 @@ function pct(r,d){return r==null?'—':(r>0?'+':'')+(r*100).toFixed(d==null?1:d)
 // Direction and magnitude are separate elements so a gap can sit between
 // them — CSS margin rather than a Unicode thin space, which survives font
 // substitution and is visible in the source.
-function pctDirection(r,d){
-  if(r==null)return '—';
-  const arrow=r>0?'▲':(r<0?'▼':'');
-  return (arrow?'<span class="dir">'+arrow+'</span>':'')+
-         Math.abs(r*100).toFixed(d==null?1:d)+'%';
+function pctDirection(r, d) {
+  if (r == null) return '—';
+  const arrow = r > 0 ? '▲' : (r < 0 ? '▼' : '');
+  return (arrow ? '<span class="dir">' + arrow + '</span>' : '')
+    + Math.abs(r * 100).toFixed(d == null ? 1 : d) + '%';
 }
-function cssVar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 
 // Give a clickable non-link element the keyboard path a button would have. A
 // row you can click but cannot tab to is unreachable for anyone not using a
@@ -470,17 +443,17 @@ function cssVar(n){return getComputedStyle(document.documentElement).getProperty
 // overriding the role would break the table structure for screen readers,
 // which is a regression dressed up as an improvement. An aria-label carries
 // the intent instead.
-function activatable(el,label,handler){
-  el.setAttribute('tabindex','0');
-  if(label)el.setAttribute('aria-label',label);
-  el.addEventListener('click',handler);
-  el.addEventListener('keydown',event=>{
+function activatable(el, label, handler) {
+  el.setAttribute('tabindex', '0');
+  if (label) el.setAttribute('aria-label', label);
+  el.addEventListener('click', handler);
+  el.addEventListener('keydown', event => {
     // A key pressed on a link or control inside this element belongs to that
     // control: cancelling it here would stop Enter from following a build
     // link in a clickable row.
-    if(event.target!==el&&event.target.closest&&
-       event.target.closest('a,button,input,select,textarea'))return;
-    if(event.key==='Enter'||event.key===' '){
+    if (event.target !== el && event.target.closest
+      && event.target.closest('a,button,input,select,textarea')) return;
+    if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       handler(event);
     }
@@ -488,94 +461,119 @@ function activatable(el,label,handler){
 }
 // Every render replaces the controls, so whatever had keyboard focus is gone
 // afterwards. Put it back on the matching new element.
-function focusAfterRender(selector){
-  const el=document.querySelector(selector);
-  if(el)el.focus();
+function focusAfterRender(selector) {
+  const el = document.querySelector(selector);
+  if (el) el.focus();
 }
-function cssEscape(value){
-  return window.CSS&&CSS.escape?CSS.escape(String(value)):String(value).replace(/["\\]/g,'\\$&');
+
+function cssEscape(value) {
+  return window.CSS && CSS.escape ? CSS.escape(String(value)) : String(value).replace(/["\\]/g, '\\$&');
 }
-function median(nums){
-  if(!nums.length)return null;
-  const s=[...nums].sort((a,b)=>a-b), mid=s.length>>1;
-  return s.length%2?s[mid]:(s[mid-1]+s[mid])/2;
+
+function median(nums) {
+  if (!nums.length) return null;
+  const s = [...nums].sort((a, b) => a - b),
+    mid = s.length >> 1;
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 // Dates are written as UTC "YYYY-MM-DD HH:MM:SS"; Safari will not parse that
 // without an explicit T and Z, so normalise rather than trusting Date().
-function parseTime(s){
-  const t=String(s||'').trim();
-  if(!t)return 0;
-  const ms=Date.parse(t.includes('T')?t:t.replace(' ','T')+'Z');
-  return Number.isFinite(ms)?ms:0;
+function parseTime(s) {
+  const t = String(s || '').trim();
+  if (!t) return 0;
+  const ms = Date.parse(t.includes('T') ? t : t.replace(' ', 'T') + 'Z');
+  return Number.isFinite(ms) ? ms : 0;
 }
-function fmtDate(ms){
-  const d=new Date(ms);
-  return isNaN(d)?'—':d.toISOString().slice(0,10);
+
+function fmtDate(ms) {
+  const d = new Date(ms);
+  return isNaN(d) ? '—' : d.toISOString().slice(0, 10);
 }
-function daysAgo(ms){return Math.floor((Date.now()-ms)/86400000);}
+
+function daysAgo(ms) { return Math.floor((Date.now() - ms) / 86400000); }
 
 // Drawn rather than the ↗ glyph, which renders thin and inconsistently across
 // platforms at this size. `currentColor` so it inherits whatever it sits in,
 // and aria-hidden because the surrounding link text already says where it goes.
-const EXT_ARROW='<svg class="ext-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" '+
-  'stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+
-  '<path d="M6 18 18 6"/><path d="M8.5 6H18v9.5"/></svg>';
-const EXT_INLINE='<span class="ext-inline">'+EXT_ARROW+'</span>';
+const EXT_ARROW = '<svg class="ext-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+  + 'stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<path d="M6 18 18 6"/><path d="M8.5 6H18v9.5"/></svg>';
+const EXT_INLINE = '<span class="ext-inline">' + EXT_ARROW + '</span>';
 
-function buildLink(p,label,cls){
-  const text=esc(label==null?('#'+(p.build_number||'?')):label);
-  if(!p.build_url)return text;
+function buildLink(p, label, cls) {
+  const text = esc(label == null ? ('#' + (p.build_number || '?')) : label);
+  if (!p.build_url) return text;
   // Every outbound link carries the arrow, so "this leaves the page" is a
   // visual property rather than something you learn by clicking.
-  return '<a href="'+esc(p.build_url)+'" target="_blank" rel="noopener noreferrer"'+
-         (cls?' class="'+cls+'"':'')+'>'+text+EXT_INLINE+'</a>';
+  return '<a href="' + esc(p.build_url) + '" target="_blank" rel="noopener noreferrer"'
+    + (cls ? ' class="' + cls + '"' : '') + '>' + text + EXT_INLINE + '</a>';
 }
 
-/* ============================================================================
+/* ================================================================
    3. DATA
-   ==========================================================================*/
-let DATA=null, METRICS=[], METRIC_BY_KEY={}, CONFIGS=[], ACC_TASKS=[], BASELINE_BY_ID={};
-let BASE_COLOR={}, historyChart=null;
+   ================================================================ */
+let DATA = null,
+  METRICS = [],
+  METRIC_BY_KEY = {},
+  CONFIGS = [],
+  ACC_TASKS = [],
+  BASELINE_BY_ID = {};
+let BASE_COLOR = {},
+  historyChart = null;
 
 // Values are stored in the canonical unit (latencies in seconds). A chart axis
 // has to pick one unit for every point, so scaling is per metric rather than
 // per value.
-function display(value, metric){
-  if(value==null||!isFinite(value))return null;
-  return metric.display_scale?value*metric.display_scale:value;
+function display(value, metric) {
+  if (value == null || !isFinite(value)) return null;
+  return metric.display_scale ? value * metric.display_scale : value;
 }
-function unitOf(metric){return metric.display_unit||metric.unit||'';}
+
+function unitOf(metric) { return metric.display_unit || metric.unit || ''; }
 
 // The payload nests model -> config -> metric -> series. The trends view wants
 // (configuration, metric) series across every model, so flatten once.
-function buildConfigs(payload){
-  const out=[];
-  (payload.models||[]).forEach(model=>{
-    (model.perf_configs||[]).forEach(cfg=>{
-      const metrics={}, builds=new Map();
-      Object.keys(cfg.metrics||{}).forEach(mk=>{
-        const pts=((cfg.metrics[mk]||{}).series||[])
-          .map(p=>({t:parseTime(p.date),value:Number(p.value),date:p.date,
-                    vllm_commit:p.vllm_commit,image:p.image,
-                    build_url:safeUrl(p.build_url),build_number:p.build_number}))
-          .filter(p=>p.t>0&&Number.isFinite(p.value))
-          .sort((a,b)=>a.t-b.t);
-        if(!pts.length)return;
-        metrics[mk]=pts;
-        pts.forEach(p=>{if(p.build_number!=null)builds.set(String(p.build_number),p.t);});
+function buildConfigs(payload) {
+  const out = [];
+  (payload.models || []).forEach(model => {
+    (model.perf_configs || []).forEach(cfg => {
+      const metrics = {},
+        builds = new Map();
+      Object.keys(cfg.metrics || {}).forEach(mk => {
+        const pts = ((cfg.metrics[mk] || {}).series || [])
+          .map(p => ({
+            t: parseTime(p.date),
+            value: Number(p.value),
+            date: p.date,
+            vllm_commit: p.vllm_commit,
+            image: p.image,
+            build_url: safeUrl(p.build_url),
+            build_number: p.build_number
+          }))
+          .filter(p => p.t > 0 && Number.isFinite(p.value))
+          .sort((a, b) => a.t - b.t);
+        if (!pts.length) return;
+        metrics[mk] = pts;
+        pts.forEach(p => { if (p.build_number != null) builds.set(String(p.build_number), p.t); });
       });
-      if(!Object.keys(metrics).length)return;
-      const sm=shortModel(model.model);
+      if (!Object.keys(metrics).length) return;
+      const sm = shortModel(model.model);
       out.push({
-        key:[model.model,cfg.device,cfg.precision,cfg.tp,cfg.isl,cfg.osl,cfg.conc].join('|'),
-        model:model.model, shortModel:sm,
-        device:cfg.device||'', precision:cfg.precision||'', tp:cfg.tp,
-        isl:cfg.isl, osl:cfg.osl, conc:cfg.conc,
+        key: [model.model, cfg.device, cfg.precision, cfg.tp, cfg.isl, cfg.osl, cfg.conc].join('|'),
+        model: model.model,
+        shortModel: sm,
+        device: cfg.device || '',
+        precision: cfg.precision || '',
+        tp: cfg.tp,
+        isl: cfg.isl,
+        osl: cfg.osl,
+        conc: cfg.conc,
         // Never ellipsed: without the concurrency suffix this names no
         // configuration at all, and concurrency is the first thing a character
         // limit eats.
-        label:sm+' · '+(cfg.device||'?')+' · '+cfg.isl+'/'+cfg.osl+' · c='+cfg.conc,
-        metrics:metrics, builds:builds,
+        label: sm + ' · ' + (cfg.device || '?') + ' · ' + cfg.isl + '/' + cfg.osl + ' · c=' + cfg.conc,
+        metrics: metrics,
+        builds: builds,
       });
     });
   });
@@ -584,30 +582,41 @@ function buildConfigs(payload){
 
 // Model, device, ISL/OSL, then concurrency. Numeric fields are compared as
 // numbers: sorting the label as text puts c=128 before c=64.
-function compareConfigs(a,b){
-  const num=(x,y)=>(Number(x)||0)-(Number(y)||0);
-  return a.shortModel.localeCompare(b.shortModel)||
-         String(a.device).localeCompare(String(b.device))||
-         num(a.isl,b.isl)||num(a.osl,b.osl)||num(a.conc,b.conc)||
-         String(a.precision).localeCompare(String(b.precision))||num(a.tp,b.tp);
+function compareConfigs(a, b) {
+  const num = (x, y) => (Number(x) || 0) - (Number(y) || 0);
+  return a.shortModel.localeCompare(b.shortModel)
+    || String(a.device).localeCompare(String(b.device))
+    || num(a.isl, b.isl) || num(a.osl, b.osl) || num(a.conc, b.conc)
+    || String(a.precision).localeCompare(String(b.precision)) || num(a.tp, b.tp);
 }
 
-function buildAccuracy(payload){
-  const out=[];
-  (payload.models||[]).forEach(model=>{
-    (model.accuracy_tasks||[]).forEach(task=>{
-      const pts=(task.series||[])
-        .map(p=>({t:parseTime(p.date),value:Number(p.value),date:p.date,
-                  vllm_commit:p.vllm_commit,image:p.image,
-                  build_url:safeUrl(p.build_url),build_number:p.build_number}))
-        .filter(p=>p.t>0&&Number.isFinite(p.value))
-        .sort((a,b)=>a.t-b.t);
-      if(!pts.length)return;
+function buildAccuracy(payload) {
+  const out = [];
+  (payload.models || []).forEach(model => {
+    (model.accuracy_tasks || []).forEach(task => {
+      const pts = (task.series || [])
+        .map(p => ({
+          t: parseTime(p.date),
+          value: Number(p.value),
+          date: p.date,
+          vllm_commit: p.vllm_commit,
+          image: p.image,
+          build_url: safeUrl(p.build_url),
+          build_number: p.build_number
+        }))
+        .filter(p => p.t > 0 && Number.isFinite(p.value))
+        .sort((a, b) => a.t - b.t);
+      if (!pts.length) return;
       out.push({
-        key:[model.model,task.workload||'',task.device||'',task.task,task.metric].join('|'),
-        model:model.model, shortModel:shortModel(model.model),
-        device:task.device||'', workload:task.workload||'',
-        task:task.task, metric:task.metric, primary:!!task.primary, points:pts,
+        key: [model.model, task.workload || '', task.device || '', task.task, task.metric].join('|'),
+        model: model.model,
+        shortModel: shortModel(model.model),
+        device: task.device || '',
+        workload: task.workload || '',
+        task: task.task,
+        metric: task.metric,
+        primary: !!task.primary,
+        points: pts,
       });
     });
   });
@@ -616,52 +625,59 @@ function buildAccuracy(payload){
 
 // One row per model, device and task: the headline metric plus every other
 // score that task reported.
-function accuracyGroups(series){
-  const groups=new Map();
-  series.forEach(s=>{
-    const k=[s.model,s.workload,s.device,s.task].join('|');
-    if(!groups.has(k))groups.set(k,{model:s.model,shortModel:s.shortModel,device:s.device,
-                                     task:s.task,primary:null,others:[]});
-    const g=groups.get(k);
-    if(s.primary&&!g.primary)g.primary=s; else g.others.push(s);
+function accuracyGroups(series) {
+  const groups = new Map();
+  series.forEach(s => {
+    const k = [s.model, s.workload, s.device, s.task].join('|');
+    if (!groups.has(k)) groups.set(k, {
+      model: s.model,
+      shortModel: s.shortModel,
+      device: s.device,
+      task: s.task,
+      primary: null,
+      others: []
+    });
+    const g = groups.get(k);
+    if (s.primary && !g.primary) g.primary = s;
+    else g.others.push(s);
   });
-  return [...groups.values()].map(g=>{
-    if(!g.primary)g.primary=g.others.shift();
-    g.others.sort((a,b)=>a.metric.localeCompare(b.metric));
+  return [...groups.values()].map(g => {
+    if (!g.primary) g.primary = g.others.shift();
+    g.others.sort((a, b) => a.metric.localeCompare(b.metric));
     return g;
-  }).sort((a,b)=>a.shortModel.localeCompare(b.shortModel)||
-                 a.device.localeCompare(b.device)||a.task.localeCompare(b.task));
+  }).sort((a, b) => a.shortModel.localeCompare(b.shortModel)
+    || a.device.localeCompare(b.device) || a.task.localeCompare(b.task));
 }
 
 // "exact_match,flexible-extract" reads as "flexible extract": the filter names
 // the scoring rule, and the metric before the comma is shared by every row.
-function accuracyMetricLabel(metric){
-  const [name,filter]=String(metric).split(',');
-  const text=(filter&&filter!=='none')?filter:name;
-  return text.replace(/[_-]+/g,' ');
+function accuracyMetricLabel(metric) {
+  const [name, filter] = String(metric).split(',');
+  const text = (filter && filter !== 'none') ? filter : name;
+  return text.replace(/[_-]+/g, ' ');
 }
 
-/* ============================================================================
+/* ================================================================
    4. STATE
-   ==========================================================================*/
-const state={
-  tab:'trends',
-  baseline:'previous',
-  selected:{},                 // facet key -> Set of allowed values (empty = all)
-  hidden:new Set(),            // config keys toggled off in the shared legend
-  chartDays:null,              // trend chart window in days; null = the full window
+   ================================================================ */
+const state = {
+  tab: 'trends',
+  baseline: 'previous',
+  selected: {}, // facet key -> Set of allowed values (empty = all)
+  hidden: new Set(), // config keys toggled off in the shared legend
+  chartDays: null, // trend chart window in days; null = the full window
 };
-FACETS.forEach(f=>state.selected[f.key]=new Set());
+FACETS.forEach(f => state.selected[f.key] = new Set());
 
-function windowCutoff(){return Date.now()-WINDOW_DAYS*86400000;}
+function windowCutoff() { return Date.now() - WINDOW_DAYS * 86400000; }
 
 // The trend charts can be narrowed inside the page's window, from 1 day up to
 // all of it. Only the charts: regressions, the KPI cards and coverage compare
 // the newest nightly with the one before it, and a short window would drop
 // the previous run and quietly empty every count.
-function chartDays(){
-  const days=Math.round(state.chartDays||WINDOW_DAYS);
-  return Math.min(Math.max(days,1),WINDOW_DAYS);
+function chartDays() {
+  const days = Math.round(state.chartDays || WINDOW_DAYS);
+  return Math.min(Math.max(days, 1), WINDOW_DAYS);
 }
 // Explicit x-axis bounds rather than letting Chart.js scale to whatever data
 // each chart holds, so every stacked chart shares an identical axis and can be
@@ -674,171 +690,207 @@ function chartDays(){
 //
 // Computed once per render and reused by every point lookup and tick label;
 // renderAll clears it.
-let _chartBounds=null;
-function chartBounds(){
-  if(_chartBounds)return _chartBounds;
-  const now=Date.now(), days=chartDays();
-  if(days>=WINDOW_DAYS)return (_chartBounds={min:now-WINDOW_DAYS*86400000,max:now});
+let _chartBounds = null;
+
+function chartBounds() {
+  if (_chartBounds) return _chartBounds;
+  const now = Date.now(),
+    days = chartDays();
+  if (days >= WINDOW_DAYS) return (_chartBounds = { min: now - WINDOW_DAYS * 86400000, max: now });
   // The newest nightly overall, not under the filters, so every narrowed
   // chart counts back from the same night the KPI row describes.
-  const build=latestNightlyBuild();
-  let anchor=0;
-  CONFIGS.forEach(c=>{const t=c.builds.get(build);if(t>anchor)anchor=t;});
-  if(!anchor)anchor=now;
-  return (_chartBounds={min:Math.max(anchor-days*86400000,now-WINDOW_DAYS*86400000),max:now});
+  const build = latestNightlyBuild();
+  let anchor = 0;
+  CONFIGS.forEach(c => { const t = c.builds.get(build); if (t > anchor) anchor = t; });
+  if (!anchor) anchor = now;
+  return (_chartBounds = { min: Math.max(anchor - days * 86400000, now - WINDOW_DAYS * 86400000), max: now });
 }
-function chartPointsIn(cfg,metricKey){
-  const min=chartBounds().min;
-  return pointsIn(cfg,metricKey).filter(p=>p.t>=min);
+
+function chartPointsIn(cfg, metricKey) {
+  const min = chartBounds().min;
+  return pointsIn(cfg, metricKey).filter(p => p.t >= min);
 }
 // Only metrics the shown series have points for, so isolating a config that
 // skipped the chart window leaves no empty chart cards behind.
-function chartedMetrics(){
-  const shown=seriesList().filter(s=>!state.hidden.has(s.key));
-  return METRICS.filter(m=>shown.some(s=>chartPointsIn(s.config,m.key).length>0));
+function chartedMetrics() {
+  const shown = seriesList().filter(s => !state.hidden.has(s.key));
+  return METRICS.filter(m => shown.some(s => chartPointsIn(s.config, m.key).length > 0));
 }
 
 // Points inside the window, for one config and metric.
-function pointsIn(cfg,metricKey){
-  const cutoff=windowCutoff();
-  return (cfg.metrics[metricKey]||[]).filter(p=>p.t>=cutoff);
+function pointsIn(cfg, metricKey) {
+  const cutoff = windowCutoff();
+  return (cfg.metrics[metricKey] || []).filter(p => p.t >= cutoff);
 }
 
-function facetMatches(cfg,exceptKey){
-  return FACETS.every(f=>{
-    if(f.key===exceptKey)return true;
-    const sel=state.selected[f.key];
-    return sel.size===0||sel.has(f.get(cfg));
+function facetMatches(cfg, exceptKey) {
+  return FACETS.every(f => {
+    if (f.key === exceptKey) return true;
+    const sel = state.selected[f.key];
+    return sel.size === 0 || sel.has(f.get(cfg));
   });
 }
-function hasPointsInWindow(cfg){
-  return Object.keys(cfg.metrics).some(mk=>pointsIn(cfg,mk).length>0);
-}
-function visibleConfigs(){
-  return CONFIGS.filter(c=>facetMatches(c)&&hasPointsInWindow(c));
+
+function hasPointsInWindow(cfg) {
+  return Object.keys(cfg.metrics).some(mk => pointsIn(cfg, mk).length > 0);
 }
 
-/* ============================================================================
+function visibleConfigs() {
+  return CONFIGS.filter(c => facetMatches(c) && hasPointsInWindow(c));
+}
+
+/* ================================================================
    5. ANALYSIS
-   ==========================================================================*/
+   ================================================================ */
 // Computed in the page rather than in aggregate.py, because the time window
 // decides which run counts as "latest" and which as its predecessor.
-function verdict(values, metric, baseline){
-  if(values.length<2)return null;
-  const latest=values[values.length-1];
+function verdict(values, metric, baseline) {
+  if (values.length < 2) return null;
+  const latest = values[values.length - 1];
   // The run before it, full stop. No smoothing across nightlies: perf-eval
   // already median-aggregates repeated benchmark runs before ingestion, so
   // averaging again here would blur the night-to-night change this exists to
   // show while only pretending to fix noise that belongs upstream.
-  const base=values[values.length-2];
-  if(base==null||!isFinite(base)||base===0)return null;
-  const ratio=(latest-base)/Math.abs(base);
-  const improved=metric.direction==='higher'?ratio>0:ratio<0;
-  const magnitude=Math.abs(ratio);
-  let severity='ok';
+  const base = values[values.length - 2];
+  if (base == null || !isFinite(base) || base === 0) return null;
+  const ratio = (latest - base) / Math.abs(base);
+  const improved = metric.direction === 'higher' ? ratio > 0 : ratio < 0;
+  const magnitude = Math.abs(ratio);
+  let severity = 'ok';
   // The `ratio!==0` guard is load-bearing whenever the threshold is zero:
   // without it `magnitude>=0` is always true and a flat metric would be
   // reported as a regression.
-  if(ratio!==0&&!improved){
-    if(baseline.alert!=null&&magnitude>=baseline.alert)severity='alert';
-    else if(magnitude>=baseline.warn)severity='warn';
+  if (ratio !== 0 && !improved) {
+    if (baseline.alert != null && magnitude >= baseline.alert) severity = 'alert';
+    else if (magnitude >= baseline.warn) severity = 'warn';
   }
-  return {latest:latest,base:base,ratio:ratio,improved:improved,magnitude:magnitude,
-          severity:severity,points:values.length};
+  return {
+    latest: latest,
+    base: base,
+    ratio: ratio,
+    improved: improved,
+    magnitude: magnitude,
+    severity: severity,
+    points: values.length
+  };
 }
 
 // Absolute rather than relative: accuracy lives on a 0..1 scale, where a
 // change reads in points, not as a percentage of the previous score.
-function accuracyVerdict(values, baseline){
-  if(values.length<2)return null;
-  const latest=values[values.length-1];
-  const base=values[values.length-2];
-  if(base==null||!isFinite(base))return null;
-  const delta=latest-base;
-  const improved=delta>0;
-  const magnitude=Math.abs(delta);
+function accuracyVerdict(values, baseline) {
+  if (values.length < 2) return null;
+  const latest = values[values.length - 1];
+  const base = values[values.length - 2];
+  if (base == null || !isFinite(base)) return null;
+  const delta = latest - base;
+  const improved = delta > 0;
+  const magnitude = Math.abs(delta);
   // The tolerance keeps a move of exactly one point from missing the threshold
   // on float error (0.9334 - 0.9234 is not exactly 0.01).
-  const counted=delta!==0&&magnitude>=baseline.accuracy_abs-1e-9;
-  const severity=(counted&&!improved)?'warn':'ok';
-  return {latest:latest,base:base,delta:delta,ratio:base?delta/Math.abs(base):null,
-          improved:improved,counted:counted,magnitude:magnitude,severity:severity,
-          points:values.length};
+  const counted = delta !== 0 && magnitude >= baseline.accuracy_abs - 1e-9;
+  const severity = (counted && !improved) ? 'warn' : 'ok';
+  return {
+    latest: latest,
+    base: base,
+    delta: delta,
+    ratio: base ? delta / Math.abs(base) : null,
+    improved: improved,
+    counted: counted,
+    magnitude: magnitude,
+    severity: severity,
+    points: values.length
+  };
 }
 
 // Every (configuration, metric) verdict. Memoised per render pass: the stacked
 // charts ask once per metric and the KPI row asks again.
-const _scanCache=new Map();
-function scanKey(baselineId){
-  return [baselineId,FACETS.map(f=>[...state.selected[f.key]].sort().join(',')).join(';')].join('|');
+const _scanCache = new Map();
+
+function scanKey(baselineId) {
+  return [baselineId, FACETS.map(f => [...state.selected[f.key]].sort().join(',')).join(';')].join('|');
 }
 // The newest nightly across every configuration, ignoring the filters. Every
 // overnight figure on the page describes this build, so they agree with each
 // other and with the coverage card.
-function latestNightlyBuild(){
-  let build=null, at=0;
-  CONFIGS.forEach(c=>c.builds.forEach((t,b)=>{if(t>at){at=t;build=b;}}));
+function latestNightlyBuild() {
+  let build = null,
+    at = 0;
+  CONFIGS.forEach(c => c.builds.forEach((t, b) => { if (t > at) { at = t;
+      build = b; } }));
   return build;
 }
 // True when a config's newest windowed point came from the latest nightly. A
 // config that skipped tonight still has a "last two points", but they belong
 // to earlier nights; counting them would pass an old change off as tonight's.
-function reportedTonight(pts,latest){
-  return pts.length>0&&String(pts[pts.length-1].build_number)===latest;
+function reportedTonight(pts, latest) {
+  return pts.length > 0 && String(pts[pts.length - 1].build_number) === latest;
 }
 
-function scan(baselineId){
-  const ck=scanKey(baselineId);
-  if(_scanCache.has(ck))return _scanCache.get(ck);
-  const baseline=BASELINE_BY_ID[baselineId];
-  const latest=latestNightlyBuild();
-  const out=[];
-  visibleConfigs().forEach(cfg=>{
-    METRICS.forEach(metric=>{
-      const pts=pointsIn(cfg,metric.key);
-      if(pts.length<2||!reportedTonight(pts,latest))return;
-      const v=verdict(pts.map(p=>p.value),metric,baseline);
-      if(!v)return;
-      out.push({configKey:cfg.key,config:cfg,metricKey:metric.key,metric:metric,
-                row:pts[pts.length-1],...v});
+function scan(baselineId) {
+  const ck = scanKey(baselineId);
+  if (_scanCache.has(ck)) return _scanCache.get(ck);
+  const baseline = BASELINE_BY_ID[baselineId];
+  const latest = latestNightlyBuild();
+  const out = [];
+  visibleConfigs().forEach(cfg => {
+    METRICS.forEach(metric => {
+      const pts = pointsIn(cfg, metric.key);
+      if (pts.length < 2 || !reportedTonight(pts, latest)) return;
+      const v = verdict(pts.map(p => p.value), metric, baseline);
+      if (!v) return;
+      out.push({
+        configKey: cfg.key,
+        config: cfg,
+        metricKey: metric.key,
+        metric: metric,
+        row: pts[pts.length - 1],
+        ...v
+      });
     });
   });
-  out.sort((a,b)=>b.magnitude-a.magnitude);
-  _scanCache.set(ck,out);
+  out.sort((a, b) => b.magnitude - a.magnitude);
+  _scanCache.set(ck, out);
   return out;
 }
-function invalidateScan(){_scanCache.clear();}
 
-const regressionsOf=id=>scan(id).filter(d=>d.severity!=='ok');
-const improvementsOf=id=>scan(id).filter(d=>d.improved&&d.magnitude>=BASELINE_BY_ID[id].warn);
-// Drops too small to count. Reported next to every regression count, so the
-// threshold never hides movement without saying so.
-const belowThresholdOf=id=>scan(id).filter(d=>d.ratio!==0&&!d.improved&&d.severity==='ok');
-function thresholdLabel(baseline){return +(baseline.warn*100).toFixed(2)+'%';}
-function regressedKeys(id){return new Set(regressionsOf(id).map(d=>d.configKey));}
+function invalidateScan() { _scanCache.clear(); }
+
+const regressionsOf = id => scan(id).filter(d => d.severity !== 'ok');
+const improvementsOf = id => scan(id).filter(d => d.improved && d.magnitude >= BASELINE_BY_ID[id].warn);
+// Moves too small to count, in each direction. Reported next to the count they
+// were left out of, so the threshold never hides movement without saying so.
+const belowThresholdOf = id => scan(id).filter(d => d.ratio !== 0 && !d.improved && d.severity === 'ok');
+const belowThresholdGainsOf = id => scan(id).filter(d => d.improved && d.magnitude < BASELINE_BY_ID[id].warn);
+
+function thresholdLabel(baseline) { return +(baseline.warn * 100).toFixed(2) + '%'; }
+
+function regressedKeys(id) { return new Set(regressionsOf(id).map(d => d.configKey)); }
 // Regressed on *this* metric, not merely somewhere.
-function regressedKeysForMetric(id,metricKey){
-  return new Set(regressionsOf(id).filter(d=>d.metricKey===metricKey).map(d=>d.configKey));
+function regressedKeysForMetric(id, metricKey) {
+  return new Set(regressionsOf(id).filter(d => d.metricKey === metricKey).map(d => d.configKey));
 }
 
 // Median change from the previous run to the newest across every
 // configuration. A single config's delta is noise; the median is the signal.
-function nightOverNight(){
-  const metric=METRIC_BY_KEY[PRIMARY_METRIC];
-  if(!metric)return null;
-  const latest=latestNightlyBuild();
-  const ratios=[];
-  visibleConfigs().forEach(cfg=>{
-    const pts=pointsIn(cfg,PRIMARY_METRIC);
-    if(pts.length<2||!reportedTonight(pts,latest))return;
-    const prev=pts[pts.length-2].value;
-    if(!prev)return;
-    ratios.push((pts[pts.length-1].value-prev)/Math.abs(prev));
+function nightOverNight() {
+  const metric = METRIC_BY_KEY[PRIMARY_METRIC];
+  if (!metric) return null;
+  const latest = latestNightlyBuild();
+  const ratios = [];
+  visibleConfigs().forEach(cfg => {
+    const pts = pointsIn(cfg, PRIMARY_METRIC);
+    if (pts.length < 2 || !reportedTonight(pts, latest)) return;
+    const prev = pts[pts.length - 2].value;
+    if (!prev) return;
+    ratios.push((pts[pts.length - 1].value - prev) / Math.abs(prev));
   });
-  if(!ratios.length)return null;
-  const med=median(ratios);
-  return {ratio:med,configs:ratios.length,
-          improved:metric.direction==='higher'?med>0:med<0};
+  if (!ratios.length) return null;
+  const med = median(ratios);
+  return {
+    ratio: med,
+    configs: ratios.length,
+    improved: metric.direction === 'higher' ? med > 0 : med < 0
+  };
 }
 
 // A workload that OOMs simply stops emitting rows, so silent coverage loss is
@@ -851,30 +903,34 @@ function nightOverNight(){
 // the healthier the dashboard would claim to be. A recipe-derived expectation
 // never decays, and it also catches a workload added upstream that has never
 // succeeded even once.
-function configKeyOf(parts){
-  return [parts.model,parts.device,parts.precision,parts.tp,parts.isl,parts.osl,parts.conc].join('|');
+function configKeyOf(parts) {
+  return [parts.model, parts.device, parts.precision, parts.tp, parts.isl, parts.osl, parts.conc].join('|');
 }
 
-function coverage(){
+function coverage() {
   // Filtered like every other card, so narrowing to one model answers "did
   // this model's configs all report", not the question for the whole run.
-  const expected=(((DATA.expected||{}).configs)||[]).filter(e=>facetMatches({
-    device:e.device, shortModel:shortModel(e.model), precision:e.precision,
-    isl:e.isl, osl:e.osl, conc:e.conc,
+  const expected = (((DATA.expected || {}).configs) || []).filter(e => facetMatches({
+    device: e.device,
+    shortModel: shortModel(e.model),
+    precision: e.precision,
+    isl: e.isl,
+    osl: e.osl,
+    conc: e.conc,
   }));
-  if(!expected.length)return null;
+  if (!expected.length) return null;
 
-  const latestBuild=latestNightlyBuild();
-  if(latestBuild===null)return null;
+  const latestBuild = latestNightlyBuild();
+  if (latestBuild === null) return null;
 
   // Which expected configs reported in that build.
-  const reported=new Set();
-  CONFIGS.forEach(c=>{
-    if(!c.builds.has(latestBuild))return;
+  const reported = new Set();
+  CONFIGS.forEach(c => {
+    if (!c.builds.has(latestBuild)) return;
     reported.add(configKeyOf(c));
   });
 
-  const missing=expected.filter(e=>!reported.has(configKeyOf(e)));
+  const missing = expected.filter(e => !reported.has(configKeyOf(e)));
 
   // Grouped by workload. Absences are rarely independent: an infrastructure
   // failure (a pod that cannot resolve its secrets, say) kills the whole step
@@ -882,103 +938,104 @@ function coverage(){
   // once per shape. A group that has lost all of its configs is reported as a
   // workload that did not run, which is a different problem from a workload
   // that ran and is missing one shape.
-  const groupKey=e=>e.workload||((e.model||'')+'|'+(e.device||''));
-  const byWorkload=new Map();
-  expected.forEach(e=>{
-    const key=groupKey(e);
-    if(!byWorkload.has(key)){
-      byWorkload.set(key,{
-        name:(e.model?shortModel(e.model):e.workload)+' · '+(e.device||'?'),
-        total:0, shapes:[],
+  const groupKey = e => e.workload || ((e.model || '') + '|' + (e.device || ''));
+  const byWorkload = new Map();
+  expected.forEach(e => {
+    const key = groupKey(e);
+    if (!byWorkload.has(key)) {
+      byWorkload.set(key, {
+        name: (e.model ? shortModel(e.model) : e.workload) + ' · ' + (e.device || '?'),
+        total: 0,
+        shapes: [],
       });
     }
     byWorkload.get(key).total++;
   });
-  missing.forEach(e=>{
-    byWorkload.get(groupKey(e)).shapes.push(e.isl+'/'+e.osl+' c='+e.conc);
+  missing.forEach(e => {
+    byWorkload.get(groupKey(e)).shapes.push(e.isl + '/' + e.osl + ' c=' + e.conc);
   });
 
-  const groups=[...byWorkload.values()]
-    .filter(g=>g.shapes.length)
-    .map(g=>({...g,whole:g.shapes.length===g.total}))
+  const groups = [...byWorkload.values()]
+    .filter(g => g.shapes.length)
+    .map(g => ({ ...g, whole: g.shapes.length === g.total }))
     // Whole-workload outages first, then by how much is missing: the top of
     // the list is always the biggest hole.
-    .sort((a,b)=>(b.whole-a.whole)||(b.shapes.length-a.shapes.length)||
-                 a.name.localeCompare(b.name));
+    .sort((a, b) => (b.whole - a.whole) || (b.shapes.length - a.shapes.length)
+      || a.name.localeCompare(b.name));
 
   return {
-    present:expected.length-missing.length,
-    expected:expected.length,
-    build:latestBuild,
-    missing:missing.length,
+    present: expected.length - missing.length,
+    expected: expected.length,
+    build: latestBuild,
+    missing: missing.length,
     groups,
-    accuracy:accuracyTonight(),
+    accuracy: accuracyTonight(),
   };
 }
 
 // Unfiltered, like every other card that names tonight's build: narrowing to
 // a device that skipped tonight would otherwise show the previous build here
 // beside a coverage panel naming tonight's.
-function latestRun(){
-  let best=null;
-  CONFIGS.forEach(c=>Object.keys(c.metrics).forEach(mk=>{
-    pointsIn(c,mk).forEach(p=>{if(!best||p.t>best.t)best=p;});
+function latestRun() {
+  let best = null;
+  CONFIGS.forEach(c => Object.keys(c.metrics).forEach(mk => {
+    pointsIn(c, mk).forEach(p => { if (!best || p.t > best.t) best = p; });
   }));
   return best;
 }
 // Distinct nightlies inside the window, across every configuration and
 // ignoring the facet filters: this describes the data the page is built from,
 // not the current selection.
-function nightliesInWindow(){
-  const builds=new Set();
-  const cutoff=windowCutoff();
-  CONFIGS.forEach(config=>config.builds.forEach((t,build)=>{
-    if(t>=cutoff)builds.add(build);
+function nightliesInWindow() {
+  const builds = new Set();
+  const cutoff = windowCutoff();
+  CONFIGS.forEach(config => config.builds.forEach((t, build) => {
+    if (t >= cutoff) builds.add(build);
   }));
   return builds.size;
 }
 
 // Newest point across all of history, regardless of window — this is what the
 // stale-data notice reports.
-function newestOverall(){
-  let best=null;
-  CONFIGS.forEach(c=>Object.keys(c.metrics).forEach(mk=>{
-    (c.metrics[mk]||[]).forEach(p=>{if(!best||p.t>best.t)best=p;});
+function newestOverall() {
+  let best = null;
+  CONFIGS.forEach(c => Object.keys(c.metrics).forEach(mk => {
+    (c.metrics[mk] || []).forEach(p => { if (!best || p.t > best.t) best = p; });
   }));
   return best;
 }
 
-/* ============================================================================
+/* ================================================================
    6. CONTROLS
-   ==========================================================================*/
-function renderNotice(){
-  const host=document.getElementById('notice-host');
+   ================================================================ */
+function renderNotice() {
+  const host = document.getElementById('notice-host');
   // Unfiltered: a filter combination that matches nothing is not a stalled
   // nightly, and the main area already says the filters match no runs.
-  const inWindow=CONFIGS.some(hasPointsInWindow);
-  if(inWindow){host.innerHTML='';return;}
-  const newest=newestOverall();
-  if(!newest){
-    host.innerHTML='<div class="notice"><span><strong>No runs in this payload.</strong> '+
-      'The collector has not ingested any AMD nightly results yet.</span></div>';
+  const inWindow = CONFIGS.some(hasPointsInWindow);
+  if (inWindow) { host.innerHTML = ''; return; }
+  const newest = newestOverall();
+  if (!newest) {
+    host.innerHTML = '<div class="notice"><span><strong>No runs in this payload.</strong> '
+      + 'The collector has not ingested any AMD nightly results yet.</span></div>';
     return;
   }
   // Deliberately offers no way to widen the window. An empty dashboard that
   // says the nightly stalled is more useful than one showing month-old numbers
   // as though they were current.
-  host.innerHTML='<div class="notice"><span><strong>No runs in the last '+
-    WINDOW_DAYS+' days.</strong> '+
-    'The most recent run is '+integer(daysAgo(newest.t))+' days old ('+esc(fmtDate(newest.t))+'), '+
-    'so the nightly has probably stopped reporting. '+
-    'Check the <a id="notice-pipeline" target="_blank" rel="noopener noreferrer">perf-eval pipeline</a>.'+
-    '</span></div>';
-  const link=document.getElementById('notice-pipeline');
-  if(link)link.href=safeUrl((DATA.pipeline||{}).url)||'https://buildkite.com/vllm/perf-eval';
+  host.innerHTML = '<div class="notice"><span><strong>No runs in the last '
+    + WINDOW_DAYS + ' days.</strong> '
+    + 'The most recent run is ' + integer(daysAgo(newest.t)) + ' days old (' + esc(fmtDate(newest.t)) + '), '
+    + 'so the nightly has probably stopped reporting. '
+    + 'Check the <a id="notice-pipeline" target="_blank" rel="noopener noreferrer">perf-eval pipeline</a>.'
+    + '</span></div>';
+  const link = document.getElementById('notice-pipeline');
+  if (link) link.href = safeUrl((DATA.pipeline || {}).url) || 'https://buildkite.com/vllm/perf-eval';
 }
 
-function renderControls(){
-  const host=document.getElementById('controls-host');
-  let html='<div class="controls">';
+function renderControls() {
+  const host = document.getElementById('controls-host');
+  let html = '<div class="controls">';
 
   // Faceted filters only. The window and the comparison rule are fixed, and
   // stating them here was just furniture: the footer carries the window, and
@@ -986,92 +1043,100 @@ function renderControls(){
   //
   // Each count is the runs that value would contribute under the *other*
   // active filters, which is why a count can read 0.
-  html+='<div class="controls-row"><div class="facet-grid">';
-  FACETS.forEach(f=>{
+  html += '<div class="controls-row"><div class="facet-grid">';
+  FACETS.forEach(f => {
     // Selected values are listed even when no config has them, as happens
     // with a shared link naming a model that has since been renamed: an
     // option that is not drawn could never be unticked.
-    const values=[...new Set([...CONFIGS.map(f.get),...state.selected[f.key]])]
-      .filter(v=>v!==undefined&&v!=='');
-    values.sort(f.key==='conc'?(a,b)=>(+a)-(+b):(a,b)=>String(a).localeCompare(String(b)));
+    const values = [...new Set([...CONFIGS.map(f.get), ...state.selected[f.key]])]
+      .filter(v => v !== undefined && v !== '');
+    values.sort(f.key === 'conc' ? (a, b) => (+a) - (+b) : (a, b) => String(a).localeCompare(String(b)));
     // Chosen from the data rather than hard-coded to Model, so any facet that
     // grows long gets the same treatment.
-    const wide=values.length>6;
-    html+='<div class="facet-col'+(wide?' wide':'')+'"><div class="facet-head">'+esc(f.label)+'</div>'+
-          '<div class="facet-opts">';
-    values.forEach(v=>{
-      const count=CONFIGS.filter(c=>f.get(c)===v&&facetMatches(c,f.key)&&hasPointsInWindow(c)).length;
-      const on=state.selected[f.key].has(v);
+    const wide = values.length > 6;
+    html += '<div class="facet-col' + (wide ? ' wide' : '') + '"><div class="facet-head">' + esc(f.label) + '</div>'
+      + '<div class="facet-opts">';
+    values.forEach(v => {
+      const count = CONFIGS.filter(c => f.get(c) === v && facetMatches(c, f.key) && hasPointsInWindow(c)).length;
+      const on = state.selected[f.key].has(v);
       // A selected option stays usable at zero, or it could never be cleared.
-      const unavailable=count===0&&!on;
-      html+='<div class="facet-opt'+(on?' on':'')+(unavailable?' unavailable':'')+
-            '" data-facet="'+esc(f.key)+'" data-value="'+esc(v)+'" role="checkbox"'+
-            ' aria-checked="'+(on?'true':'false')+'"'+
-            (unavailable?' aria-disabled="true"':'')+'>'+
-            '<span class="facet-box"></span>'+
-            '<span class="facet-label" title="'+esc(v)+'">'+esc(v)+'</span>'+
-            '<span class="facet-count">'+count+'</span></div>';
+      const unavailable = count === 0 && !on;
+      html += '<div class="facet-opt' + (on ? ' on' : '') + (unavailable ? ' unavailable' : '')
+        + '" data-facet="' + esc(f.key) + '" data-value="' + esc(v) + '" role="checkbox"'
+        + ' aria-checked="' + (on ? 'true' : 'false') + '"'
+        + (unavailable ? ' aria-disabled="true"' : '') + '>'
+        + '<span class="facet-box"></span>'
+        + '<span class="facet-label" title="' + esc(v) + '">' + esc(v) + '</span>'
+        + '<span class="facet-count">' + count + '</span></div>';
     });
-    html+='</div></div>';
+    html += '</div></div>';
   });
-  html+='</div>';
+  html += '</div>';
 
   // Only rendered once something is actually filtered. A reset button sitting
   // above an untouched filter set is the furniture this row just lost.
-  const activeFilters=FACETS.reduce((n,f)=>n+state.selected[f.key].size,0);
-  if(activeFilters||state.hidden.size){
-    html+='<div class="facet-reset"><button class="btn" id="reset-facets">'+
-          (activeFilters
-            ? 'Clear '+activeFilters+(activeFilters===1?' filter':' filters')
-            : 'Reset view')+'</button></div>';
+  const activeFilters = FACETS.reduce((n, f) => n + state.selected[f.key].size, 0);
+  if (activeFilters || state.hidden.size) {
+    html += '<div class="facet-reset"><button class="btn" id="reset-facets">'
+      + (activeFilters
+        ? 'Clear ' + activeFilters + (activeFilters === 1 ? ' filter' : ' filters')
+        : 'Reset view') + '</button></div>';
   }
-  html+='</div></div>';
-  host.innerHTML=html;
+  html += '</div></div>';
+  host.innerHTML = html;
 
-  host.querySelectorAll('.facet-opt:not(.unavailable)').forEach(el=>{
-    const k=el.getAttribute('data-facet'), v=el.getAttribute('data-value');
-    activatable(el,null,()=>{
-      const sel=state.selected[k];
-      if(sel.has(v))sel.delete(v); else sel.add(v);
+  host.querySelectorAll('.facet-opt:not(.unavailable)').forEach(el => {
+    const k = el.getAttribute('data-facet'),
+      v = el.getAttribute('data-value');
+    activatable(el, null, () => {
+      const sel = state.selected[k];
+      if (sel.has(v)) sel.delete(v);
+      else sel.add(v);
       // A legend selection names configs; after the filters change it would
       // mostly name hidden ones and could leave nothing to plot.
       state.hidden.clear();
-      invalidateScan();syncToHash();renderAll();
-      focusAfterRender('.facet-opt[data-facet="'+cssEscape(k)+'"][data-value="'+cssEscape(v)+'"]');
+      invalidateScan();
+      syncToHash();
+      renderAll();
+      focusAfterRender('.facet-opt[data-facet="' + cssEscape(k) + '"][data-value="' + cssEscape(v) + '"]');
     });
   });
-  const reset=document.getElementById('reset-facets');
-  if(reset)reset.addEventListener('click',()=>{
-    FACETS.forEach(f=>state.selected[f.key].clear());
+  const reset = document.getElementById('reset-facets');
+  if (reset) reset.addEventListener('click', () => {
+    FACETS.forEach(f => state.selected[f.key].clear());
     state.hidden.clear();
-    invalidateScan();syncToHash();renderAll();
+    invalidateScan();
+    syncToHash();
+    renderAll();
   });
 }
 
-/* ============================================================================
+/* ================================================================
    7. KPI ROW
-   ==========================================================================*/
-function renderKpis(){
-  const host=document.getElementById('kpi-host');
-  const configs=visibleConfigs();
-  if(!configs.length){host.innerHTML='';return;}
+   ================================================================ */
+function renderKpis() {
+  const host = document.getElementById('kpi-host');
+  const configs = visibleConfigs();
+  if (!configs.length) { host.innerHTML = ''; return; }
 
-  const regs=regressionsOf(state.baseline);
-  const imps=improvementsOf(state.baseline);
-  const non=nightOverNight();
-  const cov=coverage();
-  const latest=latestRun();
-  const cards=[];
+  const regs = regressionsOf(state.baseline);
+  const imps = improvementsOf(state.baseline);
+  const non = nightOverNight();
+  const cov = coverage();
+  const latest = latestRun();
+  const cards = [];
 
-  if(latest){
+  if (latest) {
     cards.push({
-      cls:'linked', href:latest.build_url,
-      label:'Latest nightly', value:fmtDate(latest.t),
-      sub:'build #'+esc(latest.build_number||'?')+' · vLLM <code>'+esc(shortSha(latest.vllm_commit))+'</code>',
+      cls: 'linked',
+      href: latest.build_url,
+      label: 'Latest nightly',
+      value: fmtDate(latest.t),
+      sub: 'build #' + esc(latest.build_number || '?') + ' · vLLM <code>' + esc(shortSha(latest.vllm_commit)) + '</code>',
     });
   }
 
-  if(non){
+  if (non) {
     // This card's outline follows direction: it answers "is tonight faster or
     // slower overall", and a glance at the border should answer it without
     // reading the number. Symmetric on purpose, green when up as well as red
@@ -1081,83 +1146,93 @@ function renderKpis(){
     //
     // `improved` rather than `ratio < 0`, so this stays correct if the primary
     // metric is ever changed to one where lower is better.
-    const moved=Math.abs(non.ratio)>=BASELINE_BY_ID[state.baseline].warn;
+    const moved = Math.abs(non.ratio) >= BASELINE_BY_ID[state.baseline].warn;
     cards.push({
-      cls:moved?(non.improved?'ok':'alert'):'',
-      label:'Performance overnight', value:pct(non.ratio,2),
-      valueCls:moved?(non.improved?'up':'down'):'',
-      sub:'median change in '+esc((METRIC_BY_KEY[PRIMARY_METRIC]||{}).label||PRIMARY_METRIC),
+      cls: moved ? (non.improved ? 'ok' : 'alert') : '',
+      label: 'Performance overnight',
+      value: pct(non.ratio, 2),
+      valueCls: moved ? (non.improved ? 'up' : 'down') : '',
+      sub: 'median change in ' + esc((METRIC_BY_KEY[PRIMARY_METRIC] || {}).label || PRIMARY_METRIC),
     });
   }
 
   // Colour only when there is something to report, so a clean night reads as
   // neutral rather than as a row of competing signals.
-  const threshold=thresholdLabel(BASELINE_BY_ID[state.baseline]);
-  const below=belowThresholdOf(state.baseline).length;
+  const threshold = thresholdLabel(BASELINE_BY_ID[state.baseline]);
+  const below = belowThresholdOf(state.baseline).length;
+  const belowGains = belowThresholdGainsOf(state.baseline).length;
   cards.push({
-    cls:regs.length?'alert':'',
-    label:'Regressions overnight', value:integer(regs.length),
-    valueCls:regs.length?'down':'',
-    sub:'drops of at least <b>'+threshold+'</b>'+
-        (below?'<br><b>'+integer(below)+'</b> smaller not counted':''),
+    cls: regs.length ? 'alert' : '',
+    label: 'Regressions overnight',
+    value: integer(regs.length),
+    valueCls: regs.length ? 'down' : '',
+    sub: 'drops of at least <b>' + threshold + '</b>'
+      + (below ? '<br><b>' + integer(below) + '</b> smaller not counted' : ''),
   });
 
   cards.push({
-    cls:imps.length?'good':'',
-    label:'Improvements overnight', value:integer(imps.length),
-    valueCls:imps.length?'up':'',
-    sub:'gains of at least <b>'+threshold+'</b>',
+    cls: imps.length ? 'good' : '',
+    label: 'Improvements overnight',
+    value: integer(imps.length),
+    valueCls: imps.length ? 'up' : '',
+    sub: 'gains of at least <b>' + threshold + '</b>'
+      + (belowGains ? '<br><b>' + integer(belowGains) + '</b> smaller not counted' : ''),
   });
 
-  const acc=accuracyTonight();
-  if(acc){
+  const acc = accuracyTonight();
+  if (acc) {
     cards.push({
-      cls:acc.regressed?'alert':'', tab:'accuracy',
-      label:'Accuracy overnight', value:integer(acc.regressed),
-      valueCls:acc.regressed?'down':'',
-      sub:'drops of at least <b>'+acc.threshold+'</b>',
+      cls: acc.regressed ? 'alert' : '',
+      tab: 'accuracy',
+      label: 'Accuracy overnight',
+      value: integer(acc.regressed),
+      valueCls: acc.regressed ? 'down' : '',
+      sub: 'drops of at least <b>' + acc.threshold + '</b>',
     });
   }
 
-  if(cov){
+  if (cov) {
     // One card for both kinds of coverage, so the row stays one line. Each row
     // is coloured on its own; the border is red if either is incomplete. What
     // is missing is named in the coverage panel under the row.
-    const accMissing=cov.accuracy?cov.accuracy.total-cov.accuracy.reported:0;
+    const accMissing = cov.accuracy ? cov.accuracy.total - cov.accuracy.reported : 0;
     // Cells rather than one string per row, so the rows align on the slash
     // and the labels start in the same column.
-    const covRow=(present,total,label)=>{
-      const cls=present<total?'down':'up';
-      return '<span class="'+cls+' num">'+integer(present)+'</span>'+
-        '<span class="'+cls+'">/</span>'+
-        '<span class="'+cls+'">'+integer(total)+'</span>'+
-        '<span class="kpi-unit">'+label+'</span>';
+    const covRow = (present, total, label) => {
+      const cls = present < total ? 'down' : 'up';
+      return '<span class="' + cls + ' num">' + integer(present) + '</span>'
+        + '<span class="' + cls + '">/</span>'
+        + '<span class="' + cls + '">' + integer(total) + '</span>'
+        + '<span class="kpi-unit">' + label + '</span>';
     };
     cards.push({
-      cls:(cov.missing||accMissing)?'alert':'ok',
-      label:'Coverage', valueCls:'stacked',
-      value:covRow(cov.present,cov.expected,'performance')+
-            (cov.accuracy?covRow(cov.accuracy.reported,cov.accuracy.total,'accuracy'):''),
+      cls: (cov.missing || accMissing) ? 'alert' : 'ok',
+      label: 'Coverage',
+      valueCls: 'stacked',
+      value: covRow(cov.present, cov.expected, 'performance')
+        + (cov.accuracy ? covRow(cov.accuracy.reported, cov.accuracy.total, 'accuracy') : ''),
     });
   }
 
-  host.innerHTML=cards.map(c=>{
-    const inner='<div class="kpi-label">'+esc(c.label)+'</div>'+
-      '<div class="kpi-value'+(c.valueCls?' '+c.valueCls:'')+'">'+c.value+'</div>'+
-      '<div class="kpi-sub">'+(c.sub||'')+'</div>';
+  host.innerHTML = cards.map(c => {
+    const inner = '<div class="kpi-label">' + esc(c.label) + '</div>'
+      + '<div class="kpi-value' + (c.valueCls ? ' ' + c.valueCls : '') + '">' + c.value + '</div>'
+      + '<div class="kpi-sub">' + (c.sub || '') + '</div>';
     // The whole card is the link, with the arrow in the corner saying so.
-    if(c.href){
-      return '<a class="kpi-card linked'+(c.cls&&c.cls!=='linked'?' '+c.cls:'')+'" href="'+esc(c.href)+
-        '" target="_blank" rel="noopener noreferrer">'+
-        '<span class="kpi-ext">'+EXT_ARROW+'</span>'+inner+'</a>';
+    if (c.href) {
+      return '<a class="kpi-card linked' + (c.cls && c.cls !== 'linked' ? ' ' + c.cls : '') + '" href="' + esc(c.href)
+        + '" target="_blank" rel="noopener noreferrer">'
+        + '<span class="kpi-ext">' + EXT_ARROW + '</span>' + inner + '</a>';
     }
     // No arrow on a card that opens a tab: it stays on the page.
-    return '<div class="kpi-card'+(c.tab?' linked':'')+(c.cls?' '+c.cls:'')+'"'+
-      (c.tab?' data-goto-tab="'+esc(c.tab)+'"':'')+'>'+inner+'</div>';
+    return '<div class="kpi-card' + (c.tab ? ' linked' : '') + (c.cls ? ' ' + c.cls : '') + '"'
+      + (c.tab ? ' data-goto-tab="' + esc(c.tab) + '"' : '') + '>' + inner + '</div>';
   }).join('');
-  host.querySelectorAll('[data-goto-tab]').forEach(el=>{
-    const tab=el.getAttribute('data-goto-tab');
-    activatable(el,'Open the '+tab+' tab',()=>{state.tab=tab;syncToHash();renderAll();});
+  host.querySelectorAll('[data-goto-tab]').forEach(el => {
+    const tab = el.getAttribute('data-goto-tab');
+    activatable(el, 'Open the ' + tab + ' tab', () => { state.tab = tab;
+      syncToHash();
+      renderAll(); });
   });
 }
 
@@ -1167,412 +1242,450 @@ function renderKpis(){
 // the recipes: the collector does not record which recipes define lm-eval
 // tasks. So a model that ran accuracy recently and not tonight counts as not
 // reporting, but one that has never produced accuracy is not expected.
-function accuracyTonight(){
-  const build=latestNightlyBuild();
-  const baseline=BASELINE_BY_ID[state.baseline];
-  const cutoff=windowCutoff();
-  const series=ACC_TASKS.map(t=>{
-    const pts=t.points.filter(p=>p.t>=cutoff);
-    return {...t,windowed:pts,verdict:accuracyVerdict(pts.map(p=>p.value),baseline)};
-  }).filter(t=>t.windowed.length&&accuracyFacetMatches(t));
-  const groups=accuracyGroups(series);
-  if(!groups.length)return null;
-  const tonight=groups.filter(g=>reportedTonight(g.primary.windowed,build));
-  const missing=groups.filter(g=>!tonight.includes(g));
+function accuracyTonight() {
+  const build = latestNightlyBuild();
+  const baseline = BASELINE_BY_ID[state.baseline];
+  const cutoff = windowCutoff();
+  const series = ACC_TASKS.map(t => {
+    const pts = t.points.filter(p => p.t >= cutoff);
+    return { ...t, windowed: pts, verdict: accuracyVerdict(pts.map(p => p.value), baseline) };
+  }).filter(t => t.windowed.length && accuracyFacetMatches(t));
+  const groups = accuracyGroups(series);
+  if (!groups.length) return null;
+  const tonight = groups.filter(g => reportedTonight(g.primary.windowed, build));
+  const missing = groups.filter(g => !tonight.includes(g));
   return {
-    build:build, total:groups.length, reported:tonight.length,
-    regressed:tonight.filter(g=>g.primary.verdict&&g.primary.verdict.severity!=='ok').length,
-    missing:missing.map(g=>({
-      name:g.shortModel+' · '+(g.device||'?'), task:g.task,
-      last:g.primary.windowed[g.primary.windowed.length-1],
+    build: build,
+    total: groups.length,
+    reported: tonight.length,
+    regressed: tonight.filter(g => g.primary.verdict && g.primary.verdict.severity !== 'ok').length,
+    missing: missing.map(g => ({
+      name: g.shortModel + ' · ' + (g.device || '?'),
+      task: g.task,
+      last: g.primary.windowed[g.primary.windowed.length - 1],
     })),
-    threshold:accuracyPoints(baseline.accuracy_abs),
+    threshold: accuracyPoints(baseline.accuracy_abs),
   };
 }
 
-/* ============================================================================
+/* ================================================================
    7b. COVERAGE PANEL
-   ==========================================================================*/
+   ================================================================ */
 // Sits directly under the KPI row rather than inside a tab: coverage describes
 // the run as a whole, so it must stay readable from Accuracy and Configs too.
-function renderCoveragePanel(){
-  const host=document.getElementById('coverage-host');
-  const cov=coverage();
-  const accMissing=(cov&&cov.accuracy)?cov.accuracy.missing:[];
-  if(!cov||(!cov.missing&&!accMissing.length)){host.innerHTML='';return;}
+function renderCoveragePanel() {
+  const host = document.getElementById('coverage-host');
+  const cov = coverage();
+  const accMissing = (cov && cov.accuracy) ? cov.accuracy.missing : [];
+  if (!cov || (!cov.missing && !accMissing.length)) { host.innerHTML = ''; return; }
 
-  const parts=[];
-  if(cov.missing){
-    parts.push(integer(cov.missing)+' perf config'+(cov.missing===1?'':'s'));
+  const parts = [];
+  if (cov.missing) {
+    parts.push(integer(cov.missing) + ' perf config' + (cov.missing === 1 ? '' : 's'));
   }
-  if(accMissing.length){
-    parts.push(integer(accMissing.length)+' accuracy result'+(accMissing.length===1?'':'s'));
+  if (accMissing.length) {
+    parts.push(integer(accMissing.length) + ' accuracy result' + (accMissing.length === 1 ? '' : 's'));
   }
-  host.innerHTML='<div class="cov-panel"><div class="cov-head">'+
-    '<h3>Missing in build #'+esc(cov.build)+': '+parts.join(', ')+'</h3>'+
-    '</div><div class="cov-list">'+
-    cov.groups.map(g=>
-      '<div class="cov-item'+(g.whole?' whole':'')+'">'+
-        '<div class="cov-name">'+esc(g.name)+'</div>'+
-        // A workload that produced nothing is one fact, not N: naming every
-        // shape it would have run repeats a single failed step per config.
-        '<div class="cov-shapes">'+
-          (g.whole
-            ? '<span class="cov-shape">all '+integer(g.total)+' configs</span>'
-            : g.shapes.map(s=>'<span class="cov-shape">'+esc(s)+'</span>').join(''))+
-        '</div>'+
-        '<div class="cov-tag">'+
-          (g.whole?'no results':integer(g.shapes.length)+' of '+integer(g.total))+
-        '</div>'+
-      '</div>').join('')+
-    accMissing.map(m=>
-      '<div class="cov-item">'+
-        '<div class="cov-name">'+esc(m.name)+'</div>'+
-        '<div class="cov-shapes"><span class="cov-shape">'+esc(m.task)+' accuracy</span>'+
-          '<span class="neutral" style="font-size:11px;margin-left:8px">last result '+
-          buildLink(m.last,null)+' · '+esc(fmtDate(m.last.t))+'</span></div>'+
-        '<div class="cov-tag">no accuracy</div>'+
-      '</div>').join('')+
-    '</div></div>';
+  host.innerHTML = '<div class="cov-panel"><div class="cov-head">'
+    + '<h3>Missing in build #' + esc(cov.build) + ': ' + parts.join(', ') + '</h3>'
+    + '</div><div class="cov-list">'
+    + cov.groups.map(g =>
+      '<div class="cov-item' + (g.whole ? ' whole' : '') + '">'
+      + '<div class="cov-name">' + esc(g.name) + '</div>'
+      +
+      // A workload that produced nothing is one fact, not N: naming every
+      // shape it would have run repeats a single failed step per config.
+      '<div class="cov-shapes">'
+      + (g.whole
+        ? '<span class="cov-shape">all ' + integer(g.total) + ' configs</span>'
+        : g.shapes.map(s => '<span class="cov-shape">' + esc(s) + '</span>').join(''))
+      + '</div>'
+      + '<div class="cov-tag">'
+      + (g.whole ? 'no results' : integer(g.shapes.length) + ' of ' + integer(g.total))
+      + '</div>'
+      + '</div>').join('')
+    + accMissing.map(m =>
+      '<div class="cov-item">'
+      + '<div class="cov-name">' + esc(m.name) + '</div>'
+      + '<div class="cov-shapes"><span class="cov-shape">' + esc(m.task) + ' accuracy</span>'
+      + '<span class="neutral" style="font-size:11px;margin-left:8px">last result '
+      + buildLink(m.last, null) + ' · ' + esc(fmtDate(m.last.t)) + '</span></div>'
+      + '<div class="cov-tag">no accuracy</div>'
+      + '</div>').join('')
+    + '</div></div>';
 }
 
-/* ============================================================================
+/* ================================================================
    8. TABS
-   ==========================================================================*/
-const TABS=[
-  {id:'trends',label:'Trends'},
-  {id:'accuracy',label:'Accuracy'},
-  {id:'configs',label:'Configurations'},
+   ================================================================ */
+const TABS = [
+  { id: 'trends', label: 'Trends' },
+  { id: 'accuracy', label: 'Accuracy' },
+  { id: 'configs', label: 'Configurations' },
 ];
-function renderTabs(){
-  const regs=visibleConfigs().length?regressionsOf(state.baseline).length:0;
-  const host=document.getElementById('tabs-host');
-  host.setAttribute('role','tablist');
-  host.innerHTML=TABS.map(t=>
-    '<div class="tab'+(state.tab===t.id?' on':'')+'" data-tab="'+t.id+'" role="tab"'+
-    ' aria-selected="'+(state.tab===t.id?'true':'false')+'">'+esc(t.label)+
-    (t.id==='trends'&&regs?'<span class="tab-badge">'+regs+'</span>':'')+'</div>').join('');
-  host.querySelectorAll('.tab').forEach(el=>{
-    const id=el.getAttribute('data-tab');
-    activatable(el,null,()=>{
-      state.tab=id;syncToHash();renderAll();
-      focusAfterRender('.tab[data-tab="'+id+'"]');
+
+function renderTabs() {
+  const regs = visibleConfigs().length ? regressionsOf(state.baseline).length : 0;
+  const host = document.getElementById('tabs-host');
+  host.setAttribute('role', 'tablist');
+  host.innerHTML = TABS.map(t =>
+    '<div class="tab' + (state.tab === t.id ? ' on' : '') + '" data-tab="' + t.id + '" role="tab"'
+    + ' aria-selected="' + (state.tab === t.id ? 'true' : 'false') + '">' + esc(t.label)
+    + (t.id === 'trends' && regs ? '<span class="tab-badge">' + regs + '</span>' : '') + '</div>').join('');
+  host.querySelectorAll('.tab').forEach(el => {
+    const id = el.getAttribute('data-tab');
+    activatable(el, null, () => {
+      state.tab = id;
+      syncToHash();
+      renderAll();
+      focusAfterRender('.tab[data-tab="' + id + '"]');
     });
   });
 }
 
-/* ============================================================================
+/* ================================================================
    9. REGRESSION PANEL
-   ==========================================================================*/
+   ================================================================ */
 // Colour by size of the drop. Compared against the value as displayed, rounded
 // to one decimal, so a chip reading "2.5%" is always yellow and "5.0%" orange.
-const REG_TIERS=[
-  {cls:'minor',max:2.5,label:'up to 2.5%'},
-  {cls:'moderate',max:5,label:'up to 5%'},
-  {cls:'major',max:Infinity,label:'over 5%'},
+const REG_TIERS = [
+  { cls: 'minor', max: 2.5, label: 'up to 2.5%' },
+  { cls: 'moderate', max: 5, label: 'up to 5%' },
+  { cls: 'major', max: Infinity, label: 'over 5%' },
 ];
-function regTier(magnitude){
-  const shown=Number((magnitude*100).toFixed(1));
-  return REG_TIERS.findIndex(t=>shown<=t.max);
+
+function regTier(magnitude) {
+  const shown = Number((magnitude * 100).toFixed(1));
+  return REG_TIERS.findIndex(t => shown <= t.max);
 }
 
 // Grouped by configuration rather than by metric: one slowdown trips several
 // correlated metrics at once, and "Kimi/mi355x regressed on total and output
 // throughput" reads better than the same configuration listed four times.
-function renderRegressionPanel(){
-  const regs=regressionsOf(state.baseline);
-  const active=BASELINE_BY_ID[state.baseline];
-  const below=belowThresholdOf(state.baseline).length;
-  const thresholdNote=' · counting drops of <b>'+thresholdLabel(active)+' or more</b>'+
-    (below?' · '+integer(below)+' smaller drop'+(below===1?'':'s')+' not counted':'');
-  if(!regs.length){
+function renderRegressionPanel() {
+  const regs = regressionsOf(state.baseline);
+  const active = BASELINE_BY_ID[state.baseline];
+  const below = belowThresholdOf(state.baseline).length;
+  const thresholdNote = ' · counting drops of <b>' + thresholdLabel(active) + ' or more</b>'
+    + (below ? ' · ' + integer(below) + ' smaller drop' + (below === 1 ? '' : 's') + ' not counted' : '');
+  if (!regs.length) {
     // Counted from what was actually compared, not from what is on screen: a
     // config with no previous run in the window, or none tonight, was never
     // checked, and a green panel must not claim it passed.
-    const compared=new Set(scan(state.baseline).map(d=>d.configKey)).size;
-    if(!compared){
-      return '<div class="reg-panel unknown"><div class="reg-head">'+
-        '<h3>Nothing to compare</h3><span class="reg-count">no configuration has both a run in '+
-        'build #'+esc(latestNightlyBuild()||'?')+' and an earlier run in the last '+
-        integer(WINDOW_DAYS)+' days</span></div></div>';
+    const compared = new Set(scan(state.baseline).map(d => d.configKey)).size;
+    if (!compared) {
+      return '<div class="reg-panel unknown"><div class="reg-head">'
+        + '<h3>Nothing to compare</h3><span class="reg-count">no configuration has both a run in '
+        + 'build #' + esc(latestNightlyBuild() || '?') + ' and an earlier run in the last '
+        + integer(WINDOW_DAYS) + ' days</span></div></div>';
     }
-    return '<div class="reg-panel clean"><div class="reg-head">'+
-      '<h3>No regressions</h3><span class="reg-count">'+esc(active.label)+
-      ', across '+integer(compared)+' compared configuration'+(compared===1?'':'s')+
-      thresholdNote+'</span></div></div>';
+    return '<div class="reg-panel clean"><div class="reg-head">'
+      + '<h3>No regressions</h3><span class="reg-count">' + esc(active.label)
+      + ', across ' + integer(compared) + ' compared configuration' + (compared === 1 ? '' : 's')
+      + thresholdNote + '</span></div></div>';
   }
-  const groups=new Map();
-  regs.forEach(d=>{
-    if(!groups.has(d.configKey))groups.set(d.configKey,{config:d.config,items:[],row:d.row,tier:0});
-    const g=groups.get(d.configKey);
+  const groups = new Map();
+  regs.forEach(d => {
+    if (!groups.has(d.configKey)) groups.set(d.configKey, { config: d.config, items: [], row: d.row, tier: 0 });
+    const g = groups.get(d.configKey);
     g.items.push(d);
-    g.tier=Math.max(g.tier,regTier(d.magnitude));
-    if(d.row.t>g.row.t)g.row=d.row;
+    g.tier = Math.max(g.tier, regTier(d.magnitude));
+    if (d.row.t > g.row.t) g.row = d.row;
   });
   // A fixed order rather than by size, so a given config is always in the same
   // place and neighbouring rows are the same model on other shapes.
-  const ordered=[...groups.values()].sort((a,b)=>compareConfigs(a.config,b.config));
+  const ordered = [...groups.values()].sort((a, b) => compareConfigs(a.config, b.config));
 
-  return '<div class="reg-panel"><div class="reg-head">'+
-    '<h3>'+integer(regs.length)+' regression'+(regs.length===1?'':'s')+
-    ' across '+integer(ordered.length)+' configuration'+(ordered.length===1?'':'s')+'</h3>'+
-    '<span class="reg-count">'+esc(active.label)+thresholdNote+
-    '<span class="tier-key">'+REG_TIERS.map(t=>'<span class="'+t.cls+'">'+t.label+'</span>').join('')+
-    '</span></span></div><div class="reg-list">'+
-    ordered.map(g=>{
-      const linked=!!g.row.build_url;
-      const inner='<span class="reg-config">'+esc(g.config.label)+'</span>'+
-        '<span class="reg-metrics">'+g.items.map(d=>{
+  return '<div class="reg-panel"><div class="reg-head">'
+    + '<h3>' + integer(regs.length) + ' regression' + (regs.length === 1 ? '' : 's')
+    + ' across ' + integer(ordered.length) + ' configuration' + (ordered.length === 1 ? '' : 's') + '</h3>'
+    + '<span class="reg-count">' + esc(active.label) + thresholdNote
+    + '<span class="tier-key">' + REG_TIERS.map(t => '<span class="' + t.cls + '">' + t.label + '</span>').join('')
+    + '</span></span></div><div class="reg-list">'
+    + ordered.map(g => {
+      const linked = !!g.row.build_url;
+      const inner = '<span class="reg-config">' + esc(g.config.label) + '</span>'
+        + '<span class="reg-metrics">' + g.items.map(d => {
           // Hover carries the actual values, so the pill can stay short
           // without hiding the numbers behind a drill-down.
-          const detail=d.metric.label+': '+fmt(display(d.latest,d.metric),d.metric.digits)+
-            ' vs '+fmt(display(d.base,d.metric),d.metric.digits)+' '+unitOf(d.metric);
-          return '<span class="reg-chip '+REG_TIERS[regTier(d.magnitude)].cls+
-            '" title="'+esc(detail)+'">'+
-            esc(d.metric.label)+' <b>'+pctDirection(d.ratio,1)+'</b></span>';
-        }).join('')+'</span>'+
-        '<span class="reg-build">build #'+esc(g.row.build_number||'?')+
-        (linked?EXT_INLINE:'')+'</span>';
+          const detail = d.metric.label + ': ' + fmt(display(d.latest, d.metric), d.metric.digits)
+            + ' vs ' + fmt(display(d.base, d.metric), d.metric.digits) + ' ' + unitOf(d.metric);
+          return '<span class="reg-chip ' + REG_TIERS[regTier(d.magnitude)].cls
+            + '" title="' + esc(detail) + '">'
+            + esc(d.metric.label) + ' <b>' + pctDirection(d.ratio, 1) + '</b></span>';
+        }).join('') + '</span>'
+        + '<span class="reg-build">build #' + esc(g.row.build_number || '?')
+        + (linked ? EXT_INLINE : '') + '</span>';
       // The whole row is the link, not just the build number on the right: the
       // row is what you are looking at when you decide to open the build.
-      const tier=REG_TIERS[g.tier].cls;
+      const tier = REG_TIERS[g.tier].cls;
       return linked
-        ? '<a class="reg-item linked '+tier+'" href="'+esc(g.row.build_url)+
-          '" target="_blank" rel="noopener noreferrer">'+inner+'</a>'
-        : '<div class="reg-item '+tier+'">'+inner+'</div>';
-    }).join('')+'</div></div>';
+        ? '<a class="reg-item linked ' + tier + '" href="' + esc(g.row.build_url)
+        + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>'
+        : '<div class="reg-item ' + tier + '">' + inner + '</div>';
+    }).join('') + '</div></div>';
 }
 
-/* ============================================================================
+/* ================================================================
    10. SHARED LEGEND + STACKED TREND CHARTS
-   ==========================================================================*/
-function seriesList(){
-  const regressed=regressedKeys(state.baseline);
-  return visibleConfigs().map(c=>({
-    config:c, key:c.key, label:c.label,
-    color:BASE_COLOR[c.key]||PALETTE[0],
-    regressed:regressed.has(c.key),
+   ================================================================ */
+function seriesList() {
+  const regressed = regressedKeys(state.baseline);
+  return visibleConfigs().map(c => ({
+    config: c,
+    key: c.key,
+    label: c.label,
+    color: BASE_COLOR[c.key] || PALETTE[0],
+    regressed: regressed.has(c.key),
   }));
 }
 
 // "Only regressed" is a selection, not a second filter: it hides every
 // configuration that did not regress, so the chips and the charts read from
 // the same state. It shows as on whenever exactly the regressed set is shown.
-function onlyRegressedSelected(series){
-  const hasReg=series.some(s=>s.regressed);
-  return hasReg&&series.every(s=>state.hidden.has(s.key)!==s.regressed);
+function onlyRegressedSelected(series) {
+  const hasReg = series.some(s => s.regressed);
+  return hasReg && series.every(s => state.hidden.has(s.key) !== s.regressed);
 }
 
-function renderSeriesBar(){
-  const series=seriesList();
-  const anyReg=series.some(s=>s.regressed);
-  return '<div class="series-bar"><span class="bar-label">Configurations</span>'+
-    series.map(s=>
-      '<span class="series-chip'+(state.hidden.has(s.key)?' off':'')+
-      (s.regressed?' regressed':'')+'" role="button" aria-pressed="'+
-      (state.hidden.has(s.key)?'false':'true')+'" data-series="'+esc(s.key)+
-      '" title="'+esc(s.label)+(s.regressed?' — regressed on at least one metric':'')+
-      '\nClick to select · click others to add them">'+
-      '<span class="swatch" style="background:'+esc(s.color)+'"></span>'+esc(s.label)+'</span>').join('')+
-    '<div class="spacer"></div>'+
-    (anyReg?'<button class="btn'+(onlyRegressedSelected(series)?' on':'')+'" id="only-reg"'+
-      ' aria-pressed="'+(onlyRegressedSelected(series)?'true':'false')+'">Only regressed</button>':'')+
-    '<button class="btn" id="show-all-series">Show all</button></div>';
+function renderSeriesBar() {
+  const series = seriesList();
+  const anyReg = series.some(s => s.regressed);
+  return '<div class="series-bar"><span class="bar-label">Configurations</span>'
+    + series.map(s =>
+      '<span class="series-chip' + (state.hidden.has(s.key) ? ' off' : '')
+      + (s.regressed ? ' regressed' : '') + '" role="button" aria-pressed="'
+      + (state.hidden.has(s.key) ? 'false' : 'true') + '" data-series="' + esc(s.key)
+      + '" title="' + esc(s.label) + (s.regressed ? ' — regressed on at least one metric' : '')
+      + '\nClick to select · click others to add them">'
+      + '<span class="swatch" style="background:' + esc(s.color) + '"></span>' + esc(s.label) + '</span>').join('')
+    + '<div class="spacer"></div>'
+    + (anyReg ? '<button class="btn' + (onlyRegressedSelected(series) ? ' on' : '') + '" id="only-reg"'
+      + ' aria-pressed="' + (onlyRegressedSelected(series) ? 'true' : 'false') + '">Only regressed</button>' : '')
+    + '<button class="btn" id="show-all-series">Show all</button></div>';
 }
 
-function daysLabel(days){return 'Last '+days+' day'+(days===1?'':'s');}
+function daysLabel(days) { return 'Last ' + days + ' day' + (days === 1 ? '' : 's'); }
 // Dates alone repeat across an axis of a few days, so short spans tick every
 // 6 hours and add the UTC hour; longer ones tick once a day.
-function shortChartSpan(bounds){return bounds.max-bounds.min<=3*86400000;}
-function chartTick(v){
-  const d=new Date(v);
-  if(isNaN(d))return '';
-  const iso=d.toISOString();
-  return shortChartSpan(chartBounds())?iso.slice(5,10)+' '+iso.slice(11,13)+'h':iso.slice(5,10);
+function shortChartSpan(bounds) { return bounds.max - bounds.min <= 3 * 86400000; }
+
+function chartTick(v) {
+  const d = new Date(v);
+  if (isNaN(d)) return '';
+  const iso = d.toISOString();
+  return shortChartSpan(chartBounds()) ? iso.slice(5, 10) + ' ' + iso.slice(11, 13) + 'h' : iso.slice(5, 10);
 }
 
 // Presets for the common spans, and a slider for anything between.
-function renderWindowBar(){
-  const days=chartDays();
-  const presets=[...new Set([1,3,7,WINDOW_DAYS].filter(d=>d<=WINDOW_DAYS))];
-  return '<div class="window-bar"><span class="bar-label">Chart window</span>'+
-    '<div class="segmented">'+presets.map(d=>
-      '<button class="'+(d===days?'on':'')+'" data-days="'+d+'" aria-pressed="'+
-      (d===days?'true':'false')+'" aria-label="Last '+d+' day'+(d===1?'':'s')+'">'+d+'d</button>').join('')+
-    '</div>'+
-    '<input type="range" id="chart-days" min="1" max="'+WINDOW_DAYS+'" step="1" value="'+days+'"'+
-    ' aria-label="Chart window in days">'+
-    '<span class="window-value" id="chart-days-label">'+daysLabel(days)+'</span>'+
-    '<span class="window-note">'+(days<WINDOW_DAYS?'counted back from the newest nightly · ':'')+
-    'charts only; regressions always compare the newest nightly with the one before it</span></div>';
+function renderWindowBar() {
+  const days = chartDays();
+  const presets = [...new Set([1, 3, 7, WINDOW_DAYS].filter(d => d <= WINDOW_DAYS))];
+  return '<div class="window-bar"><span class="bar-label">Chart window</span>'
+    + '<div class="segmented">' + presets.map(d =>
+      '<button class="' + (d === days ? 'on' : '') + '" data-days="' + d + '" aria-pressed="'
+      + (d === days ? 'true' : 'false') + '" aria-label="Last ' + d + ' day' + (d === 1 ? '' : 's') + '">' + d + 'd</button>').join('')
+    + '</div>'
+    + '<input type="range" id="chart-days" min="1" max="' + WINDOW_DAYS + '" step="1" value="' + days + '"'
+    + ' aria-label="Chart window in days">'
+    + '<span class="window-value" id="chart-days-label">' + daysLabel(days) + '</span>'
+    + '<span class="window-note">' + (days < WINDOW_DAYS ? 'counted back from the newest nightly · ' : '')
+    + 'charts only; regressions always compare the newest nightly with the one before it</span></div>';
 }
 
-function chartTheme(){
-  return {tick:cssVar('--text-tertiary'),grid:cssVar('--border-light')};
+function chartTheme() {
+  return { tick: cssVar('--text-tertiary'), grid: cssVar('--border-light') };
 }
 
 // Chart.js fits the y-axis to the data, so two runs that differ only by float
 // noise get stretched to fill the chart and read as a cliff. Keep the axis at
 // least 1% of the value tall, so a flat series draws flat.
-const MIN_Y_SPAN=0.01;
-function floorYSpan(scale){
-  const mid=(scale.max+scale.min)/2;
-  const floor=Math.abs(mid)*MIN_Y_SPAN;
-  if(scale.max-scale.min<floor){
-    scale.min=mid-floor/2;
-    scale.max=mid+floor/2;
+const MIN_Y_SPAN = 0.01;
+
+function floorYSpan(scale) {
+  const mid = (scale.max + scale.min) / 2;
+  const floor = Math.abs(mid) * MIN_Y_SPAN;
+  if (scale.max - scale.min < floor) {
+    scale.min = mid - floor / 2;
+    scale.max = mid + floor / 2;
   }
 }
 
-function renderTrendCharts(){
-  const series=seriesList().filter(s=>!state.hidden.has(s.key));
-  const present=chartedMetrics();
-  if(!present.length||!series.length){
+function renderTrendCharts() {
+  const series = seriesList().filter(s => !state.hidden.has(s.key));
+  const present = chartedMetrics();
+  if (!present.length || !series.length) {
     return '<div class="card"><div class="empty">Nothing to plot for the current filters.</div></div>';
   }
-  return '<div class="mini-grid">'+present.map(m=>{
-    const regCount=regressedKeysForMetric(state.baseline,m.key).size;
-    return '<div class="mini-card'+(regCount?' has-reg':'')+'">'+
-      '<div class="mini-head"><span class="mini-title">'+esc(m.label)+'</span>'+
-      '<span class="mini-unit">'+esc(unitOf(m))+'</span>'+
-      '<span class="mini-dir">'+(m.direction==='higher'?'higher is better':'lower is better')+'</span>'+
-      (regCount?'<span class="mini-reg">'+regCount+' regressed</span>':'')+
-      '</div><div class="mini-wrap"><canvas id="trend-'+esc(m.key)+'"></canvas></div></div>';
-  }).join('')+'</div>';
+  return '<div class="mini-grid">' + present.map(m => {
+    const regCount = regressedKeysForMetric(state.baseline, m.key).size;
+    return '<div class="mini-card' + (regCount ? ' has-reg' : '') + '">'
+      + '<div class="mini-head"><span class="mini-title">' + esc(m.label) + '</span>'
+      + '<span class="mini-unit">' + esc(unitOf(m)) + '</span>'
+      + '<span class="mini-dir">' + (m.direction === 'higher' ? 'higher is better' : 'lower is better') + '</span>'
+      + (regCount ? '<span class="mini-reg">' + regCount + ' regressed</span>' : '')
+      + '</div><div class="mini-wrap"><canvas id="trend-' + esc(m.key) + '"></canvas></div></div>';
+  }).join('') + '</div>';
 }
 
-function drawTrendChart(metric){
-  const canvas=document.getElementById('trend-'+metric.key);
-  if(!canvas)return;
-  const existing=Chart.getChart(canvas);
-  if(existing)existing.destroy();
+function drawTrendChart(metric) {
+  const canvas = document.getElementById('trend-' + metric.key);
+  if (!canvas) return;
+  const existing = Chart.getChart(canvas);
+  if (existing) existing.destroy();
 
-  const theme=chartTheme();
-  const bounds=chartBounds();
-  const regColor=cssVar('--accent-red')||REG_COLOR;
+  const theme = chartTheme();
+  const bounds = chartBounds();
+  const regColor = cssVar('--accent-red') || REG_COLOR;
   // The ring contrasts with the page, so it is the text colour, not white.
-  const ringColor=cssVar('--text-primary')||'#fff';
-  const regForMetric=regressedKeysForMetric(state.baseline,metric.key);
-  const datasets=seriesList()
-    .filter(s=>!state.hidden.has(s.key))
-    .map(s=>{
-      const pts=chartPointsIn(s.config,metric.key);
-      if(!pts.length)return null;
+  const ringColor = cssVar('--text-primary') || '#fff';
+  const regForMetric = regressedKeysForMetric(state.baseline, metric.key);
+  const datasets = seriesList()
+    .filter(s => !state.hidden.has(s.key))
+    .map(s => {
+      const pts = chartPointsIn(s.config, metric.key);
+      if (!pts.length) return null;
       // Red only where it actually moved, so a chart where nothing regressed
       // shows no red at all.
-      const isReg=regForMetric.has(s.key);
-      const color=isReg?regColor:s.color;
-      const last=pts.length-1;
+      const isReg = regForMetric.has(s.key);
+      const color = isReg ? regColor : s.color;
+      const last = pts.length - 1;
       return {
-        label:s.label, _key:s.key,
-        data:pts.map(p=>({x:p.t,y:display(p.value,metric),_p:p})),
-        borderColor:color, backgroundColor:color,
-        borderWidth:isReg?2.75:1.6,
-        tension:0, spanGaps:true,
+        label: s.label,
+        _key: s.key,
+        data: pts.map(p => ({ x: p.t, y: display(p.value, metric), _p: p })),
+        borderColor: color,
+        backgroundColor: color,
+        borderWidth: isReg ? 2.75 : 1.6,
+        tension: 0,
+        spanGaps: true,
         // The newest point is where the regression landed; ringing it says
         // which build to blame.
-        pointRadius:ctx=>(isReg&&ctx.dataIndex===last)?6:2.5,
-        pointHoverRadius:7,
-        pointBackgroundColor:color,
-        pointBorderColor:ctx=>(isReg&&ctx.dataIndex===last)?ringColor:color,
-        pointBorderWidth:ctx=>(isReg&&ctx.dataIndex===last)?2:0,
+        pointRadius: ctx => (isReg && ctx.dataIndex === last) ? 6 : 2.5,
+        pointHoverRadius: 7,
+        pointBackgroundColor: color,
+        pointBorderColor: ctx => (isReg && ctx.dataIndex === last) ? ringColor : color,
+        pointBorderWidth: ctx => (isReg && ctx.dataIndex === last) ? 2 : 0,
       };
     }).filter(Boolean);
-  if(!datasets.length)return;
+  if (!datasets.length) return;
 
-  new Chart(canvas,{
-    type:'line',
-    data:{datasets:datasets},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      animation:false,   // many charts re-render on every filter change
-      interaction:{mode:'nearest',intersect:false},
+  new Chart(canvas, {
+    type: 'line',
+    data: { datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false, // many charts re-render on every filter change
+      interaction: { mode: 'nearest', intersect: false },
       // Several configurations can sit on the same point. Taking the first
       // element Chart.js happens to return would open an arbitrary one — and
       // because this used to jump straight to Buildkite, you would leave the
       // page without knowing which configuration you got. Resolve the overlap
       // explicitly instead: act when it is unambiguous, ask when it is not.
-      onClick:(event,_els,chart)=>{
-        const hits=chart.getElementsAtEventForMode(event,'point',{intersect:true},true);
-        const candidates=(hits.length?hits:chart.getElementsAtEventForMode(
-          event,'nearest',{intersect:false},true))
-          .map(hit=>{
-            const dataset=chart.data.datasets[hit.datasetIndex];
-            const point=dataset.data[hit.index];
-            return point&&point._p
-              ? {label:dataset.label,key:dataset._key,color:dataset.borderColor,point:point._p,
-                 value:point.y,metric:metric}
+      onClick: (event, _els, chart) => {
+        const hits = chart.getElementsAtEventForMode(event, 'point', { intersect: true }, true);
+        const candidates = (hits.length ? hits : chart.getElementsAtEventForMode(
+            event, 'nearest', { intersect: false }, true))
+          .map(hit => {
+            const dataset = chart.data.datasets[hit.datasetIndex];
+            const point = dataset.data[hit.index];
+            return point && point._p
+              ? {
+                label: dataset.label,
+                key: dataset._key,
+                color: dataset.borderColor,
+                point: point._p,
+                value: point.y,
+                metric: metric
+              }
               : null;
           })
           .filter(Boolean);
-        if(!candidates.length)return;
-        if(candidates.length===1){
+        if (!candidates.length) return;
+        if (candidates.length === 1) {
           openSeriesHistory(candidates[0]);
           return;
         }
-        openPointChooser(metric,candidates);
+        openPointChooser(metric, candidates);
       },
-      scales:{
-        x:{type:'linear',min:bounds.min,max:bounds.max,
-           ticks:{color:theme.tick,maxTicksLimit:12,font:{size:10},maxRotation:0,
-                  autoSkipPadding:14,callback:chartTick,
-                  // Whole days, or 6 hours on a short span, so no two ticks
-                  // round to the same label.
-                  stepSize:shortChartSpan(bounds)?21600000:86400000},
-           grid:{color:theme.grid}},
-        y:{afterDataLimits:floorYSpan,
-           ticks:{color:theme.tick,maxTicksLimit:7,font:{size:10}},grid:{color:theme.grid}},
-      },
-      plugins:{
-        legend:{display:false},   // the shared bar above drives every chart
-        tooltip:{callbacks:{
-          title:items=>fmtDate(items[0].parsed.x),
-          label:item=>{
-            const p=item.dataset.data[item.dataIndex]._p;
-            const sha=p.vllm_commit?' · '+shortSha(p.vllm_commit):'';
-            return item.dataset.label+': '+fmt(item.parsed.y,metric.digits)+' '+unitOf(metric)+sha;
+      scales: {
+        x: {
+          type: 'linear',
+          min: bounds.min,
+          max: bounds.max,
+          ticks: {
+            color: theme.tick,
+            maxTicksLimit: 12,
+            font: { size: 10 },
+            maxRotation: 0,
+            autoSkipPadding: 14,
+            callback: chartTick,
+            // Whole days, or 6 hours on a short span, so no two ticks
+            // round to the same label.
+            stepSize: shortChartSpan(bounds) ? 21600000 : 86400000
           },
-          // The affordance has to be discoverable: nothing else on a line
-          // chart says the points are clickable.
-          afterBody:()=>'\nClick for history',
-        }},
+          grid: { color: theme.grid }
+        },
+        y: {
+          afterDataLimits: floorYSpan,
+          ticks: { color: theme.tick, maxTicksLimit: 7, font: { size: 10 } },
+          grid: { color: theme.grid }
+        },
+      },
+      plugins: {
+        legend: { display: false }, // the shared bar above drives every chart
+        tooltip: {
+          callbacks: {
+            title: items => fmtDate(items[0].parsed.x),
+            label: item => {
+              const p = item.dataset.data[item.dataIndex]._p;
+              const sha = p.vllm_commit ? ' · ' + shortSha(p.vllm_commit) : '';
+              return item.dataset.label + ': ' + fmt(item.parsed.y, metric.digits) + ' ' + unitOf(metric) + sha;
+            },
+            // The affordance has to be discoverable: nothing else on a line
+            // chart says the points are clickable.
+            afterBody: () => '\nClick for history',
+          }
+        },
       },
     },
   });
 }
 
-function renderTrendsTab(){
-  const host=document.getElementById('main');
-  if(!visibleConfigs().length){
-    host.innerHTML='<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
+function renderTrendsTab() {
+  const host = document.getElementById('main');
+  if (!visibleConfigs().length) {
+    host.innerHTML = '<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
     return;
   }
-  host.innerHTML=renderRegressionPanel()+
-    '<div class="card"><h3>Metric trends</h3>'+
-    '<div class="card-hint">One chart per metric so a regression that only moves TTFT is '+
-    'visible without hunting through a dropdown. A red line means that configuration regressed '+
-    'by <b>'+thresholdLabel(BASELINE_BY_ID[state.baseline])+' or more</b> on <em>that</em> metric; '+
-    'the newest point is ringed. Click any point for its history and build. '+
-    'Click a configuration to show only it, then click others to add them; '+
-    '<em>Show all</em> resets.</div>'+
-    renderWindowBar()+renderSeriesBar()+renderTrendCharts()+'</div>';
+  host.innerHTML = renderRegressionPanel()
+    + '<div class="card"><h3>Metric trends</h3>'
+    + '<div class="card-hint">One chart per metric so a regression that only moves TTFT is '
+    + 'visible without hunting through a dropdown. A red line means that configuration regressed '
+    + 'by <b>' + thresholdLabel(BASELINE_BY_ID[state.baseline]) + ' or more</b> on <em>that</em> metric; '
+    + 'the newest point is ringed. Click any point for its history and build. '
+    + 'Click a configuration to show only it, then click others to add them; '
+    + '<em>Show all</em> resets.</div>'
+    + renderWindowBar() + renderSeriesBar() + renderTrendCharts() + '</div>';
 
-  const setDays=days=>{
-    state.chartDays=days>=WINDOW_DAYS?null:days;
-    syncToHash();renderAll();
+  const setDays = days => {
+    state.chartDays = days >= WINDOW_DAYS ? null : days;
+    syncToHash();
+    renderAll();
   };
-  host.querySelectorAll('[data-days]').forEach(el=>el.addEventListener('click',()=>{
-    const days=Number(el.getAttribute('data-days'));
+  host.querySelectorAll('[data-days]').forEach(el => el.addEventListener('click', () => {
+    const days = Number(el.getAttribute('data-days'));
     setDays(days);
-    focusAfterRender('[data-days="'+days+'"]');
+    focusAfterRender('[data-days="' + days + '"]');
   }));
-  const slider=document.getElementById('chart-days');
-  if(slider){
+  const slider = document.getElementById('chart-days');
+  if (slider) {
     // The label follows the drag; the charts redraw once, on release.
-    slider.addEventListener('input',()=>{
-      document.getElementById('chart-days-label').textContent=daysLabel(Number(slider.value));
+    slider.addEventListener('input', () => {
+      document.getElementById('chart-days-label').textContent = daysLabel(Number(slider.value));
     });
-    slider.addEventListener('change',()=>{
+    slider.addEventListener('change', () => {
       setDays(Number(slider.value));
       focusAfterRender('#chart-days');
     });
@@ -1583,269 +1696,307 @@ function renderTrendsTab(){
   // With everything showing, a click isolates that configuration; once a
   // selection exists, clicks add to it or remove from it. Removing the last
   // one shows everything again, so the chart is never left empty.
-  host.querySelectorAll('.series-chip').forEach(el=>{
-    const k=el.getAttribute('data-series');
-    activatable(el,null,()=>{
-      const keys=seriesList().map(s=>s.key);
-      if(keys.every(key=>!state.hidden.has(key))){
+  host.querySelectorAll('.series-chip').forEach(el => {
+    const k = el.getAttribute('data-series');
+    activatable(el, null, () => {
+      const keys = seriesList().map(s => s.key);
+      if (keys.every(key => !state.hidden.has(key))) {
         state.hidden.clear();
-        keys.filter(key=>key!==k).forEach(key=>state.hidden.add(key));
-      }else{
-        if(state.hidden.has(k))state.hidden.delete(k); else state.hidden.add(k);
-        if(keys.every(key=>state.hidden.has(key)))state.hidden.clear();
+        keys.filter(key => key !== k).forEach(key => state.hidden.add(key));
+      } else {
+        if (state.hidden.has(k)) state.hidden.delete(k);
+        else state.hidden.add(k);
+        if (keys.every(key => state.hidden.has(key))) state.hidden.clear();
       }
-      syncToHash();renderAll();
-      focusAfterRender('.series-chip[data-series="'+cssEscape(k)+'"]');
+      syncToHash();
+      renderAll();
+      focusAfterRender('.series-chip[data-series="' + cssEscape(k) + '"]');
     });
   });
-  const only=document.getElementById('only-reg');
-  if(only)only.addEventListener('click',()=>{
-    const series=seriesList();
-    const wasOn=onlyRegressedSelected(series);
+  const only = document.getElementById('only-reg');
+  if (only) only.addEventListener('click', () => {
+    const series = seriesList();
+    const wasOn = onlyRegressedSelected(series);
     state.hidden.clear();
-    if(!wasOn)series.filter(s=>!s.regressed).forEach(s=>state.hidden.add(s.key));
-    syncToHash();renderAll();
+    if (!wasOn) series.filter(s => !s.regressed).forEach(s => state.hidden.add(s.key));
+    syncToHash();
+    renderAll();
     focusAfterRender('#only-reg');
   });
-  const all=document.getElementById('show-all-series');
-  if(all)all.addEventListener('click',()=>{
-    state.hidden.clear();syncToHash();renderAll();
+  const all = document.getElementById('show-all-series');
+  if (all) all.addEventListener('click', () => {
+    state.hidden.clear();
+    syncToHash();
+    renderAll();
     focusAfterRender('#show-all-series');
   });
 }
 
-/* ============================================================================
+/* ================================================================
    11. ACCURACY TAB
-   ==========================================================================*/
-function renderAccuracyTab(){
-  const host=document.getElementById('main');
-  const cutoff=windowCutoff();
-  const baseline=BASELINE_BY_ID[state.baseline];
-  const series=ACC_TASKS.map(t=>{
-    const pts=t.points.filter(p=>p.t>=cutoff);
-    return {...t,windowed:pts,verdict:accuracyVerdict(pts.map(p=>p.value),baseline)};
-  }).filter(t=>t.windowed.length&&accuracyFacetMatches(t));
-  const groups=accuracyGroups(series);
+   ================================================================ */
+function renderAccuracyTab() {
+  const host = document.getElementById('main');
+  const cutoff = windowCutoff();
+  const baseline = BASELINE_BY_ID[state.baseline];
+  const series = ACC_TASKS.map(t => {
+    const pts = t.points.filter(p => p.t >= cutoff);
+    return { ...t, windowed: pts, verdict: accuracyVerdict(pts.map(p => p.value), baseline) };
+  }).filter(t => t.windowed.length && accuracyFacetMatches(t));
+  const groups = accuracyGroups(series);
 
-  if(!groups.length){
-    host.innerHTML='<div class="card"><div class="empty">No accuracy results in this window.</div></div>';
+  if (!groups.length) {
+    host.innerHTML = '<div class="card"><div class="empty">No accuracy results in this window.</div></div>';
     return;
   }
-  const threshold=accuracyPoints(baseline.accuracy_abs);
-  let html='<div class="card"><h3>Accuracy by model</h3>'+
-    '<div class="card-hint">Scores from lm-eval, as the percentage of questions answered '+
-    'correctly; higher is better. Each is compared against <em>the previous nightly</em>, '+
-    'not against a reference score for the model. A change of <b>'+threshold+
-    ' or more</b> counts as improved or regressed; smaller moves are normal run-to-run '+
-    'variation (one gsm8k question is about 0.08 pt). Click a row for history.</div>'+
-    '<div class="table-scroll"><table><thead><tr>'+
-    '<th>Model</th><th>Device</th><th>Task</th><th class="num">Score</th>'+
+  const threshold = accuracyPoints(baseline.accuracy_abs);
+  let html = '<div class="card"><h3>Accuracy by model</h3>'
+    + '<div class="card-hint">Scores from lm-eval, as the percentage of questions answered '
+    + 'correctly; higher is better. Each is compared against <em>the previous nightly</em>, '
+    + 'not against a reference score for the model. A change of <b>' + threshold
+    + ' or more</b> counts as improved or regressed; smaller moves are normal run-to-run '
+    + 'variation (one gsm8k question is about 0.08 pt). Click a row for history.</div>'
+    + '<div class="table-scroll"><table><thead><tr>'
+    + '<th>Model</th><th>Device</th><th>Task</th><th class="num">Score</th>'
+    +
     // Not "Baseline": in eval work that word means a pinned reference score
     // for the model, and this is simply the night before.
-    '<th class="num">Previous nightly</th><th class="num">Change</th><th>Status</th>'+
-    '<th>Other scores</th><th class="num">Runs</th><th>Build</th>'+
-    '</tr></thead><tbody>';
-  const tonight=latestNightlyBuild();
-  groups.forEach((g,i)=>{
-    const s=g.primary, v=s.verdict, newest=s.windowed[s.windowed.length-1];
+    '<th class="num">Previous nightly</th><th class="num">Change</th><th>Status</th>'
+    + '<th>Other scores</th><th class="num">Runs</th><th>Build</th>'
+    + '</tr></thead><tbody>';
+  const tonight = latestNightlyBuild();
+  groups.forEach((g, i) => {
+    const s = g.primary,
+      v = s.verdict,
+      newest = s.windowed[s.windowed.length - 1];
     // Judged only when the newest result is tonight's, as the Accuracy
     // overnight card is: an older change must not read as tonight's.
-    const current=reportedTonight(s.windowed,tonight);
-    const cls=!v||!v.counted||!current?'neutral':(v.improved?'good':'bad');
-    html+='<tr class="clickable" data-acc="'+i+'">'+
-      '<td class="config">'+esc(g.shortModel)+'</td>'+
-      '<td>'+esc(g.device||'—')+'</td>'+
-      '<td>'+esc(g.task)+'</td>'+
-      '<td class="num">'+esc(accuracyPercent(newest.value))+
-        '<br><span class="neutral" style="font-size:11px">'+esc(accuracyMetricLabel(s.metric))+'</span></td>'+
-      '<td class="num">'+(v?esc(accuracyPercent(v.base)):'—')+'</td>'+
-      '<td class="num '+cls+' mono">'+(v?esc(accuracyPoints(v.delta,true)):'—')+'</td>'+
-      '<td>'+(!current?'<span class="pill">not in #'+esc(tonight)+'</span>':
-              !v?'<span class="pill">first run</span>':
-              v.severity!=='ok'?'<span class="pill alert">regressed</span>':
-              v.counted?'<span class="pill ok">improved</span>':
-              '<span class="pill">within '+esc(threshold)+'</span>')+'</td>'+
-      '<td class="neutral" style="font-size:11px">'+g.others.map(o=>{
-        const ov=o.verdict, last=o.windowed[o.windowed.length-1];
-        return esc(accuracyMetricLabel(o.metric))+' '+esc(accuracyPercent(last.value))+
-          (ov?' ('+esc(accuracyPoints(ov.delta,true))+')':'');
-      }).join('<br>')+'</td>'+
-      '<td class="num">'+s.windowed.length+'</td>'+
-      '<td>'+buildLink(newest,null)+'</td></tr>';
+    const current = reportedTonight(s.windowed, tonight);
+    const cls = !v || !v.counted || !current ? 'neutral' : (v.improved ? 'good' : 'bad');
+    html += '<tr class="clickable" data-acc="' + i + '">'
+      + '<td class="config">' + esc(g.shortModel) + '</td>'
+      + '<td>' + esc(g.device || '—') + '</td>'
+      + '<td>' + esc(g.task) + '</td>'
+      + '<td class="num">' + esc(accuracyPercent(newest.value))
+      + '<br><span class="neutral" style="font-size:11px">' + esc(accuracyMetricLabel(s.metric)) + '</span></td>'
+      + '<td class="num">' + (v ? esc(accuracyPercent(v.base)) : '—') + '</td>'
+      + '<td class="num ' + cls + ' mono">' + (v ? esc(accuracyPoints(v.delta, true)) : '—') + '</td>'
+      + '<td>' + (!current ? '<span class="pill">not in #' + esc(tonight) + '</span>'
+        : !v ? '<span class="pill">first run</span>'
+        : v.severity !== 'ok' ? '<span class="pill alert">regressed</span>'
+        : v.counted ? '<span class="pill ok">improved</span>'
+        : '<span class="pill">within ' + esc(threshold) + '</span>') + '</td>'
+      + '<td class="neutral" style="font-size:11px">' + g.others.map(o => {
+        const ov = o.verdict,
+          last = o.windowed[o.windowed.length - 1];
+        return esc(accuracyMetricLabel(o.metric)) + ' ' + esc(accuracyPercent(last.value))
+          + (ov ? ' (' + esc(accuracyPoints(ov.delta, true)) + ')' : '');
+      }).join('<br>') + '</td>'
+      + '<td class="num">' + s.windowed.length + '</td>'
+      + '<td>' + buildLink(newest, null) + '</td></tr>';
   });
-  html+='</tbody></table></div></div>';
-  host.innerHTML=html;
+  html += '</tbody></table></div></div>';
+  host.innerHTML = html;
 
-  host.querySelectorAll('tr[data-acc]').forEach(row=>{
-    const g=groups[Number(row.getAttribute('data-acc'))];
-    if(!g)return;
-    const s=g.primary;
-    activatable(row,'Open history for '+g.shortModel+' '+g.device+' '+g.task,event=>{
+  host.querySelectorAll('tr[data-acc]').forEach(row => {
+    const g = groups[Number(row.getAttribute('data-acc'))];
+    if (!g) return;
+    const s = g.primary;
+    activatable(row, 'Open history for ' + g.shortModel + ' ' + g.device + ' ' + g.task, event => {
       // Let a build link inside the row navigate instead of opening history.
-      if(event.target&&event.target.closest&&event.target.closest('a'))return;
-      openHistory(g.shortModel+' · '+(g.device||'?')+' — '+g.task,
-        accuracyMetricLabel(s.metric)+' · higher is better · compared against the previous nightly',
-        ACCURACY_METRIC,s.windowed,s.verdict);
+      if (event.target && event.target.closest && event.target.closest('a')) return;
+      openHistory(g.shortModel + ' · ' + (g.device || '?') + ' — ' + g.task,
+        accuracyMetricLabel(s.metric) + ' · higher is better · compared against the previous nightly',
+        ACCURACY_METRIC, s.windowed, s.verdict);
     });
   });
 }
 
 // Accuracy has no shape, precision or concurrency, so only the Device and
 // Model filters apply to it.
-function accuracyFacetMatches(t){
-  return ['device','model'].every(key=>{
-    const sel=state.selected[key];
-    return sel.size===0||sel.has(key==='device'?t.device:t.shortModel);
+function accuracyFacetMatches(t) {
+  return ['device', 'model'].every(key => {
+    const sel = state.selected[key];
+    return sel.size === 0 || sel.has(key === 'device' ? t.device : t.shortModel);
   });
 }
 
 // Accuracy is stored on 0..1 and shown as a percentage, with changes in
 // percentage points so "+0.15 pt" is never mistaken for a relative change.
-const ACCURACY_METRIC={label:'Accuracy',unit:'%',display_scale:100,digits:2,
-                       direction:'higher',absolute:true};
-function accuracyPercent(v){return v==null||!isFinite(v)?'—':(v*100).toFixed(2)+'%';}
-function accuracyPoints(delta,signed){
-  if(delta==null||!isFinite(delta))return '—';
-  const pts=delta*100;
-  return (signed&&pts>0?'+':'')+(+pts.toFixed(2))+' pt';
+const ACCURACY_METRIC = {
+  label: 'Accuracy',
+  unit: '%',
+  display_scale: 100,
+  digits: 2,
+  direction: 'higher',
+  absolute: true
+};
+
+function accuracyPercent(v) { return v == null || !isFinite(v) ? '—' : (v * 100).toFixed(2) + '%'; }
+
+function accuracyPoints(delta, signed) {
+  if (delta == null || !isFinite(delta)) return '—';
+  const pts = delta * 100;
+  return (signed && pts > 0 ? '+' : '') + (+pts.toFixed(2)) + ' pt';
 }
 
-/* ============================================================================
+/* ================================================================
    12. CONFIGURATIONS TAB
-   ==========================================================================*/
-function renderConfigsTab(){
-  const host=document.getElementById('main');
-  const configs=visibleConfigs();
-  if(!configs.length){
-    host.innerHTML='<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
+   ================================================================ */
+function renderConfigsTab() {
+  const host = document.getElementById('main');
+  const configs = visibleConfigs();
+  if (!configs.length) {
+    host.innerHTML = '<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
     return;
   }
-  const baseline=BASELINE_BY_ID[state.baseline];
-  const present=METRICS.filter(m=>configs.some(c=>pointsIn(c,m.key).length>0));
+  const baseline = BASELINE_BY_ID[state.baseline];
+  const present = METRICS.filter(m => configs.some(c => pointsIn(c, m.key).length > 0));
 
-  let html='<div class="card"><h3>Latest value per configuration</h3>'+
-    '<div class="card-hint">Newest run in the window, with its change against the '+
-    'previous nightly. Changes under <b>'+thresholdLabel(baseline)+'</b> stay grey, and so '+
-    'does any cell whose newest run is not from build #'+esc(latestNightlyBuild()||'?')+
-    ', since that change happened on an earlier night. '+
-    'Click a cell for that metric\'s history.'+
-    '</div><div class="table-scroll"><table><thead><tr>'+
-    '<th>Configuration</th><th class="num">Runs</th>'+
-    present.map(m=>'<th class="num">'+esc(m.label)+'<br><span class="neutral">'+esc(unitOf(m))+'</span></th>').join('')+
-    '</tr></thead><tbody>';
+  let html = '<div class="card"><h3>Latest value per configuration</h3>'
+    + '<div class="card-hint">Newest run in the window, with its change against the '
+    + 'previous nightly. Changes under <b>' + thresholdLabel(baseline) + '</b> stay grey, and so '
+    + 'does any cell whose newest run is not from build #' + esc(latestNightlyBuild() || '?')
+    + ', since that change happened on an earlier night. '
+    + 'Click a cell for that metric\'s history.'
+    + '</div><div class="table-scroll"><table><thead><tr>'
+    + '<th>Configuration</th><th class="num">Runs</th>'
+    + present.map(m => '<th class="num">' + esc(m.label) + '<br><span class="neutral">' + esc(unitOf(m)) + '</span></th>').join('')
+    + '</tr></thead><tbody>';
 
-  const tonight=latestNightlyBuild();
-  configs.forEach((c,ci)=>{
-    const runs=Math.max(...present.map(m=>pointsIn(c,m.key).length),0);
-    html+='<tr><td class="config">'+esc(c.label)+'</td><td class="num">'+runs+'</td>';
-    present.forEach(m=>{
-      const pts=pointsIn(c,m.key);
-      if(!pts.length){html+='<td class="num neutral">—</td>';return;}
-      const v=verdict(pts.map(p=>p.value),m,baseline);
-      const cls=(!v||!reportedTonight(pts,tonight))?'neutral':
-        (v.severity==='alert'?'bad':v.severity==='warn'?'warnc':
-        (v.improved&&v.magnitude>=baseline.warn)?'good':'neutral');
-      html+='<td class="num clickable" data-cfg="'+ci+'" data-metric="'+esc(m.key)+'">'+
-        esc(fmt(display(pts[pts.length-1].value,m),m.digits))+
+  const tonight = latestNightlyBuild();
+  configs.forEach((c, ci) => {
+    const runs = Math.max(...present.map(m => pointsIn(c, m.key).length), 0);
+    html += '<tr><td class="config">' + esc(c.label) + '</td><td class="num">' + runs + '</td>';
+    present.forEach(m => {
+      const pts = pointsIn(c, m.key);
+      if (!pts.length) { html += '<td class="num neutral">—</td>'; return; }
+      const v = verdict(pts.map(p => p.value), m, baseline);
+      const cls = (!v || !reportedTonight(pts, tonight)) ? 'neutral'
+        : (v.severity === 'alert' ? 'bad' : v.severity === 'warn' ? 'warnc'
+          : (v.improved && v.magnitude >= baseline.warn) ? 'good' : 'neutral');
+      html += '<td class="num clickable" data-cfg="' + ci + '" data-metric="' + esc(m.key) + '">'
+        + esc(fmt(display(pts[pts.length - 1].value, m), m.digits))
+        +
         // Two decimals near the threshold, so a 0.46% drop cannot display as
         // "0.5%" while not being counted.
-        (v?' <span class="'+cls+'" style="font-size:11px">'+
-          pct(v.ratio,Math.abs(v.ratio)<0.01?2:1)+'</span>':'')+'</td>';
+        (v ? ' <span class="' + cls + '" style="font-size:11px">'
+          + pct(v.ratio, Math.abs(v.ratio) < 0.01 ? 2 : 1) + '</span>' : '') + '</td>';
     });
-    html+='</tr>';
+    html += '</tr>';
   });
-  html+='</tbody></table></div></div>';
-  host.innerHTML=html;
+  html += '</tbody></table></div></div>';
+  host.innerHTML = html;
 
-  host.querySelectorAll('td[data-metric]').forEach(td=>{
-    const config=configs[Number(td.getAttribute('data-cfg'))];
-    const metric=METRIC_BY_KEY[td.getAttribute('data-metric')];
-    if(!config||!metric)return;
-    activatable(td,'Open history for '+config.label+' '+metric.label,()=>{
-      const points=pointsIn(config,metric.key);
-      openHistory(config.label+' — '+metric.label,
-        (metric.direction==='higher'?'higher is better':'lower is better')+' · '+baseline.label,
-        metric,points,verdict(points.map(p=>p.value),metric,baseline));
+  host.querySelectorAll('td[data-metric]').forEach(td => {
+    const config = configs[Number(td.getAttribute('data-cfg'))];
+    const metric = METRIC_BY_KEY[td.getAttribute('data-metric')];
+    if (!config || !metric) return;
+    activatable(td, 'Open history for ' + config.label + ' ' + metric.label, () => {
+      const points = pointsIn(config, metric.key);
+      openHistory(config.label + ' — ' + metric.label,
+        (metric.direction === 'higher' ? 'higher is better' : 'lower is better') + ' · ' + baseline.label,
+        metric, points, verdict(points.map(p => p.value), metric, baseline));
     });
   });
 }
 
-/* ============================================================================
+/* ================================================================
    13. HISTORY OVERLAY
-   ==========================================================================*/
-function openHistory(title,subtitle,metric,points,v){
+   ================================================================ */
+function openHistory(title, subtitle, metric, points, v) {
   // The chooser hides the chart; restore it in case we arrived from there.
-  document.getElementById('history-chart-wrap').style.display='';
-  document.getElementById('overlay-title').textContent=title;
-  document.getElementById('overlay-sub').textContent=subtitle;
+  document.getElementById('history-chart-wrap').style.display = '';
+  document.getElementById('overlay-title').textContent = title;
+  document.getElementById('overlay-sub').textContent = subtitle;
 
-  const unit=unitOf(metric);
-  const items=[
-    {k:'Latest',v:fmt(display(points[points.length-1].value,metric),metric.digits)+' '+unit},
-    {k:'Previous',v:v?fmt(display(v.base,metric),metric.digits)+' '+unit:'—'},
-    {k:'Change',v:!v?'—':(metric.absolute?accuracyPoints(v.delta,true):pct(v.ratio,2))},
-    {k:'Runs',v:String(points.length)},
+  const unit = unitOf(metric);
+  const items = [
+    { k: 'Latest', v: fmt(display(points[points.length - 1].value, metric), metric.digits) + ' ' + unit },
+    { k: 'Previous', v: v ? fmt(display(v.base, metric), metric.digits) + ' ' + unit : '—' },
+    { k: 'Change', v: !v ? '—' : (metric.absolute ? accuracyPoints(v.delta, true) : pct(v.ratio, 2)) },
+    { k: 'Runs', v: String(points.length) },
   ];
-  document.getElementById('overlay-summary').innerHTML=items.map(i=>
-    '<div class="item"><div class="k">'+esc(i.k)+'</div><div class="v">'+esc(i.v)+'</div></div>').join('');
+  document.getElementById('overlay-summary').innerHTML = items.map(i =>
+    '<div class="item"><div class="k">' + esc(i.k) + '</div><div class="v">' + esc(i.v) + '</div></div>').join('');
 
-  const rows=points.slice().reverse();
-  const table=document.getElementById('overlay-table');
-  table.innerHTML=
-    '<table><thead><tr><th>Date</th><th class="num">Value</th><th>vLLM commit</th>'+
-    '<th>Image</th><th>Build</th></tr></thead><tbody>'+
-    rows.map((p,i)=>'<tr'+(p.build_url?' class="clickable" data-row="'+i+'"':'')+'>'+
-      '<td>'+esc(fmtDate(p.t))+'</td>'+
-      '<td class="num">'+esc(fmt(display(p.value,metric),metric.digits))+'</td>'+
-      '<td class="mono">'+esc(shortSha(p.vllm_commit))+'</td>'+
-      '<td class="mono">'+esc(p.image||'—')+'</td>'+
-      '<td>'+buildLink(p,null)+'</td></tr>').join('')+
-    '</tbody></table>';
+  const rows = points.slice().reverse();
+  const table = document.getElementById('overlay-table');
+  table.innerHTML =
+    '<table><thead><tr><th>Date</th><th class="num">Value</th><th>vLLM commit</th>'
+    + '<th>Image</th><th>Build</th></tr></thead><tbody>'
+    + rows.map((p, i) => '<tr' + (p.build_url ? ' class="clickable" data-row="' + i + '"' : '') + '>'
+      + '<td>' + esc(fmtDate(p.t)) + '</td>'
+      + '<td class="num">' + esc(fmt(display(p.value, metric), metric.digits)) + '</td>'
+      + '<td class="mono">' + esc(shortSha(p.vllm_commit)) + '</td>'
+      + '<td class="mono">' + esc(p.image || '—') + '</td>'
+      + '<td>' + buildLink(p, null) + '</td></tr>').join('')
+    + '</tbody></table>';
 
   // The row is what you are reading when you decide to open a build, so the
   // whole row opens it rather than the build number alone. The link stays in
   // the last column: it carries the arrow that says this leaves the page, and
   // it keeps middle-click and ctrl-click working.
-  table.querySelectorAll('tr[data-row]').forEach(row=>{
-    const point=rows[Number(row.getAttribute('data-row'))];
-    if(!point)return;
-    activatable(row,'Open build #'+(point.build_number||'?')+' in Buildkite',event=>{
+  table.querySelectorAll('tr[data-row]').forEach(row => {
+    const point = rows[Number(row.getAttribute('data-row'))];
+    if (!point) return;
+    activatable(row, 'Open build #' + (point.build_number || '?') + ' in Buildkite', event => {
       // That anchor navigates on its own; handling its click here as well
       // would open the build twice.
-      if(event.target&&event.target.closest&&event.target.closest('a'))return;
-      window.open(point.build_url,'_blank','noopener');
+      if (event.target && event.target.closest && event.target.closest('a')) return;
+      window.open(point.build_url, '_blank', 'noopener');
     });
   });
 
-  const canvas=document.getElementById('history-chart');
-  if(historyChart){historyChart.destroy();historyChart=null;}
-  const theme=chartTheme();
-  const accent=cssVar(metric.direction==='higher'?'--accent-blue':'--ui');
-  historyChart=new Chart(canvas,{
-    type:'line',
-    data:{datasets:[{
-      label:metric.label+(unit?' ('+unit+')':''),
-      data:points.map(p=>({x:p.t,y:display(p.value,metric),_p:p})),
-      borderColor:accent,backgroundColor:accent,
-      borderWidth:2,pointRadius:3,tension:0,fill:false,
-    }]},
-    options:{
-      responsive:true,maintainAspectRatio:false,animation:false,
-      interaction:{mode:'index',intersect:false},
-      scales:{
-        x:{type:'linear',ticks:{color:theme.tick,maxTicksLimit:12,font:{size:10},
-           maxRotation:0,callback:t=>fmtDate(t).slice(5,10)},grid:{color:theme.grid}},
-        y:{afterDataLimits:floorYSpan,ticks:{color:theme.tick,font:{size:10}},grid:{color:theme.grid}},
-      },
-      plugins:{
-        legend:{labels:{color:cssVar('--text-secondary')}},
-        tooltip:{callbacks:{
-          title:items=>fmtDate(items[0].parsed.x),
-          afterBody:items=>{
-            const p=points[items[0].dataIndex]||{};
-            return ['vLLM commit: '+shortSha(p.vllm_commit),'Build: #'+(p.build_number||'?')];
+  const canvas = document.getElementById('history-chart');
+  if (historyChart) { historyChart.destroy();
+    historyChart = null; }
+  const theme = chartTheme();
+  const accent = cssVar(metric.direction === 'higher' ? '--accent-blue' : '--ui');
+  historyChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      datasets: [{
+        label: metric.label + (unit ? ' (' + unit + ')' : ''),
+        data: points.map(p => ({ x: p.t, y: display(p.value, metric), _p: p })),
+        borderColor: accent,
+        backgroundColor: accent,
+        borderWidth: 2,
+        pointRadius: 3,
+        tension: 0,
+        fill: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          type: 'linear',
+          ticks: {
+            color: theme.tick,
+            maxTicksLimit: 12,
+            font: { size: 10 },
+            maxRotation: 0,
+            callback: t => fmtDate(t).slice(5, 10)
           },
-        }},
+          grid: { color: theme.grid }
+        },
+        y: { afterDataLimits: floorYSpan, ticks: { color: theme.tick, font: { size: 10 } }, grid: { color: theme.grid } },
+      },
+      plugins: {
+        legend: { labels: { color: cssVar('--text-secondary') } },
+        tooltip: {
+          callbacks: {
+            title: items => fmtDate(items[0].parsed.x),
+            afterBody: items => {
+              const p = points[items[0].dataIndex] || {};
+              return ['vLLM commit: ' + shortSha(p.vllm_commit), 'Build: #' + (p.build_number || '?')];
+            },
+          }
+        },
       },
     },
   });
@@ -1853,48 +2004,49 @@ function openHistory(title,subtitle,metric,points,v){
 }
 // Open the full history for one clicked series, resolved back to its config so
 // the overlay shows the whole trend rather than just the point that was hit.
-function openSeriesHistory(candidate){
+function openSeriesHistory(candidate) {
   // By key, not label: labels leave out TP, precision and the model's org.
-  const config=visibleConfigs().filter(c=>c.key===candidate.key)[0];
-  const metric=candidate.metric;
-  if(!config){
+  const config = visibleConfigs().filter(c => c.key === candidate.key)[0];
+  const metric = candidate.metric;
+  if (!config) {
     // No matching config (a stale render); fall back to the single point so
     // the click still does something useful.
-    openHistory(candidate.label+' — '+metric.label,
-      fmtDate(candidate.point.t||0),metric,[candidate.point],null);
+    openHistory(candidate.label + ' — ' + metric.label,
+      fmtDate(candidate.point.t || 0), metric, [candidate.point], null);
     return;
   }
-  const points=pointsIn(config,metric.key);
-  openHistory(config.label+' — '+metric.label,
-    (metric.direction==='higher'?'higher is better':'lower is better')+
-      ' · '+BASELINE_BY_ID[state.baseline].label,
-    metric,points,verdict(points.map(p=>p.value),metric,BASELINE_BY_ID[state.baseline]));
+  const points = pointsIn(config, metric.key);
+  openHistory(config.label + ' — ' + metric.label,
+    (metric.direction === 'higher' ? 'higher is better' : 'lower is better')
+    + ' · ' + BASELINE_BY_ID[state.baseline].label,
+    metric, points, verdict(points.map(p => p.value), metric, BASELINE_BY_ID[state.baseline]));
 }
 
 // Several series on one point: name them and let the reader choose, rather
 // than picking one and hoping it was the one they meant.
-function openPointChooser(metric,candidates){
-  if(historyChart){historyChart.destroy();historyChart=null;}
-  document.getElementById('history-chart-wrap').style.display='none';
-  document.getElementById('overlay-summary').innerHTML='';
-  document.getElementById('overlay-title').textContent=
-    candidates.length+' configurations at this point';
-  document.getElementById('overlay-sub').textContent=
-    metric.label+' · '+fmtDate(candidates[0].point.t||0)+
-    ' · select one to see its history';
+function openPointChooser(metric, candidates) {
+  if (historyChart) { historyChart.destroy();
+    historyChart = null; }
+  document.getElementById('history-chart-wrap').style.display = 'none';
+  document.getElementById('overlay-summary').innerHTML = '';
+  document.getElementById('overlay-title').textContent =
+    candidates.length + ' configurations at this point';
+  document.getElementById('overlay-sub').textContent =
+    metric.label + ' · ' + fmtDate(candidates[0].point.t || 0)
+    + ' · select one to see its history';
 
-  document.getElementById('overlay-table').innerHTML='<div class="pick-list">'+
-    candidates.map((c,index)=>
-      '<button class="pick-item" data-pick="'+index+'">'+
-      '<span class="pick-swatch" style="background:'+esc(c.color)+'"></span>'+
-      '<span class="pick-label">'+esc(c.label)+'</span>'+
-      '<span class="pick-value">'+esc(fmt(c.value,metric.digits))+' '+
-      esc(unitOf(metric))+'</span></button>').join('')+'</div>';
+  document.getElementById('overlay-table').innerHTML = '<div class="pick-list">'
+    + candidates.map((c, index) =>
+      '<button class="pick-item" data-pick="' + index + '">'
+      + '<span class="pick-swatch" style="background:' + esc(c.color) + '"></span>'
+      + '<span class="pick-label">' + esc(c.label) + '</span>'
+      + '<span class="pick-value">' + esc(fmt(c.value, metric.digits)) + ' '
+      + esc(unitOf(metric)) + '</span></button>').join('') + '</div>';
 
   document.getElementById('overlay-table').querySelectorAll('button[data-pick]')
-    .forEach(button=>button.addEventListener('click',()=>{
-      const candidate=candidates[Number(button.getAttribute('data-pick'))];
-      if(candidate)openSeriesHistory(candidate);
+    .forEach(button => button.addEventListener('click', () => {
+      const candidate = candidates[Number(button.getAttribute('data-pick'))];
+      if (candidate) openSeriesHistory(candidate);
     }));
 
   showOverlay();
@@ -1903,200 +2055,220 @@ function openPointChooser(metric,candidates){
 // A modal takes focus when it opens and gives it back when it closes, so a
 // keyboard user is neither left behind the dialog nor dropped at the top of
 // the page afterwards.
-let overlayOpener=null;
-function showOverlay(){
-  const overlay=document.getElementById('overlay');
-  if(!overlay.classList.contains('open'))overlayOpener=document.activeElement;
+let overlayOpener = null;
+
+function showOverlay() {
+  const overlay = document.getElementById('overlay');
+  if (!overlay.classList.contains('open')) overlayOpener = document.activeElement;
   overlay.classList.add('open');
   document.getElementById('overlay-close').focus();
 }
-function closeHistory(){
-  const overlay=document.getElementById('overlay');
-  const wasOpen=overlay.classList.contains('open');
+
+function closeHistory() {
+  const overlay = document.getElementById('overlay');
+  const wasOpen = overlay.classList.contains('open');
   overlay.classList.remove('open');
-  if(historyChart){historyChart.destroy();historyChart=null;}
-  if(wasOpen&&overlayOpener&&document.contains(overlayOpener))overlayOpener.focus();
-  if(wasOpen)overlayOpener=null;
+  if (historyChart) { historyChart.destroy();
+    historyChart = null; }
+  if (wasOpen && overlayOpener && document.contains(overlayOpener)) overlayOpener.focus();
+  if (wasOpen) overlayOpener = null;
 }
 
-/* ============================================================================
+/* ================================================================
    14. HASH STATE
-   ==========================================================================*/
-let suppressHash=false;
-function syncToHash(){
-  const parts=[];
-  if(state.tab!=='trends')parts.push('tab='+state.tab);
-  if(state.baseline!==DATA.default_baseline)parts.push('base='+state.baseline);
-  if(chartDays()!==WINDOW_DAYS)parts.push('days='+chartDays());
-  FACETS.forEach(f=>{
-    const sel=[...state.selected[f.key]];
-    if(sel.length)parts.push(f.key+'='+sel.map(encodeURIComponent).join(','));
+   ================================================================ */
+let suppressHash = false;
+
+function syncToHash() {
+  const parts = [];
+  if (state.tab !== 'trends') parts.push('tab=' + state.tab);
+  if (state.baseline !== DATA.default_baseline) parts.push('base=' + state.baseline);
+  if (chartDays() !== WINDOW_DAYS) parts.push('days=' + chartDays());
+  FACETS.forEach(f => {
+    const sel = [...state.selected[f.key]];
+    if (sel.length) parts.push(f.key + '=' + sel.map(encodeURIComponent).join(','));
   });
-  if(state.hidden.size){
-    const shown=seriesList().map(s=>s.key).filter(k=>!state.hidden.has(k));
-    if(shown.length)parts.push('show='+shown.map(encodeURIComponent).join(','));
+  if (state.hidden.size) {
+    const shown = seriesList().map(s => s.key).filter(k => !state.hidden.has(k));
+    if (shown.length) parts.push('show=' + shown.map(encodeURIComponent).join(','));
   }
-  suppressHash=true;
-  window.location.hash=parts.join('&');
-  setTimeout(()=>{suppressHash=false;},0);
+  suppressHash = true;
+  window.location.hash = parts.join('&');
+  setTimeout(() => { suppressHash = false; }, 0);
 }
-function readFromHash(){
-  const raw=(window.location.hash||'').replace(/^#/,'');
-  state.tab='trends';
-  state.baseline=DATA.default_baseline||'previous';
-  state.chartDays=null;
-  FACETS.forEach(f=>state.selected[f.key].clear());
-  const shown=new Set();
-  raw.split('&').forEach(chunk=>{
-    const i=chunk.indexOf('=');
-    if(i<0)return;
-    const k=chunk.slice(0,i), v=chunk.slice(i+1);
-    if(k==='tab'&&TABS.some(t=>t.id===v))state.tab=v;
-    else if(k==='base'&&BASELINE_BY_ID[v])state.baseline=v;
-    else if(k==='days'&&/^\d+$/.test(v))state.chartDays=Number(v);
-    else if(k==='show')v.split(',').map(safeDecode).filter(Boolean).forEach(key=>shown.add(key));
-    else{
-      const facet=FACETS.find(f=>f.key===k);
-      if(facet){
+
+function readFromHash() {
+  const raw = (window.location.hash || '').replace(/^#/, '');
+  state.tab = 'trends';
+  state.baseline = DATA.default_baseline || 'previous';
+  state.chartDays = null;
+  FACETS.forEach(f => state.selected[f.key].clear());
+  const shown = new Set();
+  raw.split('&').forEach(chunk => {
+    const i = chunk.indexOf('=');
+    if (i < 0) return;
+    const k = chunk.slice(0, i),
+      v = chunk.slice(i + 1);
+    if (k === 'tab' && TABS.some(t => t.id === v)) state.tab = v;
+    else if (k === 'base' && BASELINE_BY_ID[v]) state.baseline = v;
+    else if (k === 'days' && /^\d+$/.test(v)) state.chartDays = Number(v);
+    else if (k === 'show') v.split(',').map(safeDecode).filter(Boolean).forEach(key => shown.add(key));
+    else {
+      const facet = FACETS.find(f => f.key === k);
+      if (facet) {
         v.split(',').map(safeDecode).filter(Boolean)
-          .forEach(val=>state.selected[k].add(val));
+          .forEach(val => state.selected[k].add(val));
       }
     }
   });
   // The legend selection is stored as the configs shown, which is short when
   // isolating one; everything else is hidden.
   state.hidden.clear();
-  if(shown.size)CONFIGS.forEach(c=>{if(!shown.has(c.key))state.hidden.add(c.key);});
+  if (shown.size) CONFIGS.forEach(c => { if (!shown.has(c.key)) state.hidden.add(c.key); });
   invalidateScan();
 }
 // A truncated or hand-edited link must not take the page down with it.
-function safeDecode(value){
-  try{return decodeURIComponent(value);}catch(_e){return '';}
+function safeDecode(value) {
+  try { return decodeURIComponent(value); } catch (_e) { return ''; }
 }
 
-/* ============================================================================
+/* ================================================================
    15. RENDER ROOT
-   ==========================================================================*/
-function renderAll(){
+   ================================================================ */
+function renderAll() {
   // Any change of filter, window or baseline invalidates an open drill-down:
   // leaving it up would show one configuration's history over another's page.
   closeHistory();
-  _chartBounds=null;
+  _chartBounds = null;
   renderNotice();
   renderControls();
   renderKpis();
   renderCoveragePanel();
   renderTabs();
-  if(state.tab==='trends')renderTrendsTab();
-  else if(state.tab==='accuracy')renderAccuracyTab();
+  if (state.tab === 'trends') renderTrendsTab();
+  else if (state.tab === 'accuracy') renderAccuracyTab();
   else renderConfigsTab();
 }
 
-function renderChrome(){
-  document.getElementById('generated-at').textContent='Generated '+(DATA.generated_at||'unknown');
-  const url=safeUrl((DATA.pipeline||{}).url)||'https://buildkite.com/vllm/perf-eval';
-  document.getElementById('pipeline-link').href=url;
-  document.getElementById('pipeline-link-footer').href=url;
+function renderChrome() {
+  document.getElementById('generated-at').textContent = 'Generated ' + (DATA.generated_at || 'unknown');
+  const url = safeUrl((DATA.pipeline || {}).url) || 'https://buildkite.com/vllm/perf-eval';
+  document.getElementById('pipeline-link').href = url;
+  document.getElementById('pipeline-link-footer').href = url;
   // Report what the viewer is actually looking at. The payload's retention is
   // a property of the event store, not of this view — quoting "180 days" next
   // to a 14-day window only invites the question of which one is true.
-  const retention=DATA.retention||{};
-  const parts=['Showing the last '+WINDOW_DAYS+' days'];
-  const nightlies=nightliesInWindow();
-  if(nightlies)parts.push(nightlies+(nightlies===1?' nightly':' nightlies'));
+  const retention = DATA.retention || {};
+  const parts = ['Showing the last ' + WINDOW_DAYS + ' days'];
+  const nightlies = nightliesInWindow();
+  if (nightlies) parts.push(nightlies + (nightlies === 1 ? ' nightly' : ' nightlies'));
   // Trimming is a fact about the published file, so it is labelled as such.
   // Nightlies inside the window are never trimmed, so this can only ever
   // mean older history was dropped — never that the view is short.
-  if(retention.trimmed&&retention.nightlies_published){
-    parts.push('older history trimmed to '+retention.nightlies_published+
-               ' of '+retention.nightlies_available+' nightlies to fit the payload budget');
+  if (retention.trimmed && retention.nightlies_published) {
+    parts.push('older history trimmed to ' + retention.nightlies_published
+      + ' of ' + retention.nightlies_available + ' nightlies to fit the payload budget');
   }
-  document.getElementById('retention-note').textContent=parts.join(' · ');
+  document.getElementById('retention-note').textContent = parts.join(' · ');
 }
 
-function wireChrome(){
-  document.getElementById('theme-toggle').addEventListener('click',()=>{
-    const light=document.documentElement.getAttribute('data-theme')==='light';
-    if(light){document.documentElement.removeAttribute('data-theme');
-              localStorage.setItem('perf-eval-theme','dark');}
-    else{document.documentElement.setAttribute('data-theme','light');
-         localStorage.setItem('perf-eval-theme','light');}
+function wireChrome() {
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    const light = document.documentElement.getAttribute('data-theme') === 'light';
+    if (light) {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('perf-eval-theme', 'dark');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('perf-eval-theme', 'light');
+    }
     // Chart.js resolves colours from CSS variables when a chart is built, so
     // everything has to be redrawn against the new palette.
     renderAll();
   });
-  document.getElementById('copy-link').addEventListener('click',()=>{
-    const btn=document.getElementById('copy-link');
-    const restore=()=>{btn.textContent='Copy link';};
-    if(navigator.clipboard&&navigator.clipboard.writeText){
+  document.getElementById('copy-link').addEventListener('click', () => {
+    const btn = document.getElementById('copy-link');
+    const restore = () => { btn.textContent = 'Copy link'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(window.location.href).then(
-        ()=>{btn.textContent='Copied';setTimeout(restore,1500);},
-        ()=>{btn.textContent='Copy failed';setTimeout(restore,1500);});
-    }else{btn.textContent='Copy failed';setTimeout(restore,1500);}
+        () => { btn.textContent = 'Copied';
+          setTimeout(restore, 1500); },
+        () => { btn.textContent = 'Copy failed';
+          setTimeout(restore, 1500); });
+    } else { btn.textContent = 'Copy failed';
+      setTimeout(restore, 1500); }
   });
-  document.getElementById('overlay-close').addEventListener('click',closeHistory);
-  document.getElementById('overlay').addEventListener('click',e=>{
-    if(e.target===document.getElementById('overlay'))closeHistory();
+  document.getElementById('overlay-close').addEventListener('click', closeHistory);
+  document.getElementById('overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('overlay')) closeHistory();
   });
-  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeHistory();});
-  window.addEventListener('hashchange',()=>{
-    if(suppressHash)return;
-    readFromHash();renderAll();
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHistory(); });
+  window.addEventListener('hashchange', () => {
+    if (suppressHash) return;
+    readFromHash();
+    renderAll();
   });
 }
 
-function fail(msg){
-  document.getElementById('main').innerHTML=
-    '<div class="card"><div class="empty">'+esc(msg)+'</div></div>';
-  document.getElementById('generated-at').textContent='Data unavailable';
+function fail(msg) {
+  document.getElementById('main').innerHTML =
+    '<div class="card"><div class="empty">' + esc(msg) + '</div></div>';
+  document.getElementById('generated-at').textContent = 'Data unavailable';
 }
 
 // The build step rewrites this path with a content-hash cache tag.
 fetch('perf_eval.json')
-  .then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
-  .then(payload=>{
-    DATA=payload;
-    DATA.models=DATA.models||[];
-    DATA.summary=DATA.summary||{};
-    DATA.metric_meta=DATA.metric_meta||{};
-    DATA.baselines=(DATA.baselines&&DATA.baselines.length)?DATA.baselines:[
+  .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+  .then(payload => {
+    DATA = payload;
+    DATA.models = DATA.models || [];
+    DATA.summary = DATA.summary || {};
+    DATA.metric_meta = DATA.metric_meta || {};
+    DATA.baselines = (DATA.baselines && DATA.baselines.length) ? DATA.baselines : [
       // Fallback for a payload written before `baselines` existed. Mirrors
       // aggregate.py's BASELINES, thresholds included, so the page cannot
       // silently apply a different rule than the one that produced the data.
-      {id:'previous',label:'vs previous run',kind:'previous',baseline_window:1,
-       warn:0.005,alert:null,accuracy_abs:0.01,
-       description:'Compares the newest nightly against the run before it.'},
+      {
+        id: 'previous',
+        label: 'vs previous run',
+        kind: 'previous',
+        baseline_window: 1,
+        warn: 0.005,
+        alert: null,
+        accuracy_abs: 0.01,
+        description: 'Compares the newest nightly against the run before it.'
+      },
     ];
-    DATA.default_baseline=DATA.default_baseline||DATA.baselines[0].id;
-    BASELINE_BY_ID=Object.fromEntries(DATA.baselines.map(b=>[b.id,b]));
+    DATA.default_baseline = DATA.default_baseline || DATA.baselines[0].id;
+    BASELINE_BY_ID = Object.fromEntries(DATA.baselines.map(b => [b.id, b]));
 
     // aggregate.py owns the window, because it also guarantees the payload
     // holds at least that much history.
-    const windowDays=(DATA.retention||{}).display_window_days;
-    if(Number.isFinite(windowDays)&&windowDays>0)WINDOW_DAYS=windowDays;
+    const windowDays = (DATA.retention || {}).display_window_days;
+    if (Number.isFinite(windowDays) && windowDays > 0) WINDOW_DAYS = windowDays;
 
     // Metric display order comes from the payload, so adding a metric upstream
     // needs no frontend change.
-    METRICS=Object.keys(DATA.metric_meta)
-      .filter(k=>k!=='accuracy')
-      .map(k=>({key:k,...DATA.metric_meta[k]}))
-      .sort((a,b)=>(a.order==null?99:a.order)-(b.order==null?99:b.order));
-    METRIC_BY_KEY=Object.fromEntries(METRICS.map(m=>[m.key,m]));
+    METRICS = Object.keys(DATA.metric_meta)
+      .filter(k => k !== 'accuracy')
+      .map(k => ({ key: k, ...DATA.metric_meta[k] }))
+      .sort((a, b) => (a.order == null ? 99 : a.order) - (b.order == null ? 99 : b.order));
+    METRIC_BY_KEY = Object.fromEntries(METRICS.map(m => [m.key, m]));
 
-    CONFIGS=buildConfigs(DATA);
-    ACC_TASKS=buildAccuracy(DATA);
+    CONFIGS = buildConfigs(DATA);
+    ACC_TASKS = buildAccuracy(DATA);
     // Identity colours are assigned from the full dataset, not the filtered
     // view, so a series keeps its colour when filters change and across every
     // chart. Regressed series override this with red at render time.
-    BASE_COLOR=Object.fromEntries(
-      CONFIGS.map(c=>c.key).sort().map((k,i)=>[k,PALETTE[i%PALETTE.length]]));
+    BASE_COLOR = Object.fromEntries(
+      CONFIGS.map(c => c.key).sort().map((k, i) => [k, PALETTE[i % PALETTE.length]]));
 
     readFromHash();
     renderChrome();
     wireChrome();
     renderAll();
   })
-  .catch(err=>fail('Could not load perf_eval.json: '+err.message));
+  .catch(err => fail('Could not load perf_eval.json: ' + err.message));
 })();
 </script>
 </body>

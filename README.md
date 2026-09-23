@@ -383,9 +383,9 @@ scale). Smaller moves are neutral.
 of the regressions flagged on a typical night were under 0.5% (the smallest
 was 0.015%), and latencies stored at 0.1 ms resolution make a single rounding
 step on a fast metric look like a regression. Because a threshold hides
-movement, the page states it wherever it reports a count: the regression KPI
-card, the regression panel (with how many smaller drops were not counted), the
-trend-chart hint and the Configurations table.
+movement, the page states it wherever it reports a count: the regression and
+improvement KPI cards and the regression panel (each with how many smaller
+moves were not counted), the trend-chart hint and the Configurations table.
 
 Once `repetitions: 3` lands on the AMD recipes, the spread *across* those
 repetitions is a real noise floor, and the threshold should be derived from it
