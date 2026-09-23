@@ -73,13 +73,11 @@
     .segmented button:hover { color: var(--text-primary); }
     .segmented button.on { background: var(--ui); color: #fff; }
     .spacer { flex: 1; }
-    /* Faceted filters: every value visible and one click from toggling, rather
-       than hidden behind dropdowns. */
+    /* Facets: every value visible and one click away, no dropdowns. */
     .facet-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(165px,1fr)); gap: var(--gap-md); width: 100%; }
     .facet-col { min-width: 0; }
-    /* A facet with many values (in practice, Model) takes two grid tracks and
-       flows its options into two columns, instead of one tall column that sets
-       the height of the whole filter panel. */
+    /* A long facet (Model) spans two tracks and two columns, so it does not
+       set the height of the whole panel. */
     .facet-col.wide { grid-column: span 2; }
     .facet-col.wide .facet-opts { columns: 2; column-gap: var(--gap-md); }
     .facet-opt { break-inside: avoid; }
@@ -91,9 +89,8 @@
     .facet-opt { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--text-secondary); user-select: none; min-width: 0; }
     .facet-opt:hover { background: var(--bg-tertiary); color: var(--text-primary); }
     .facet-opt.on { color: var(--text-primary); }
-    /* Not ".empty": that name belongs to the page-wide empty-state rule, whose
-       centring and 60px padding leaked into these rows and shifted the columns.
-       The box is hidden rather than removed so the label stays aligned. */
+    /* Not .empty, which is the page-wide empty state. Hidden rather than
+       removed, so labels stay aligned. */
     .facet-opt.unavailable { opacity: 0.4; cursor: default; }
     .facet-opt.unavailable:hover { background: none; color: var(--text-secondary); }
     .facet-opt.unavailable .facet-box { visibility: hidden; }
@@ -121,14 +118,12 @@
     .kpi-ext .ext-icon { width: 17px; height: 17px; }
     .kpi-card.linked:hover .kpi-ext { opacity: 1; transform: translate(1px,-1px); }
 
-    /* External-link affordance. A drawn arrow rather than the ↗ glyph, which
-       renders thin and inconsistently across platforms at this size. */
+    /* A drawn arrow: the ↗ glyph renders thin and inconsistently. */
     .ext-icon { width: 14px; height: 14px; display: block; }
     .ext-inline { display: inline-flex; vertical-align: -2px; margin-left: 4px; opacity: 0.7; transition: transform 0.12s, opacity 0.12s; }
     .kpi-ext { transition: transform 0.12s, opacity 0.12s; }
     a:hover .ext-inline, .reg-item.linked:hover .ext-inline { opacity: 1; transform: translate(1px,-1px); }
-    /* Anything activatable gets a visible focus ring, so the keyboard path is not
-       worse than the mouse path. */
+    /* Visible focus ring on anything activatable. */
     .kpi-card.linked:focus-visible, .reg-item.linked:focus-visible, tr.clickable:focus-visible, td.clickable:focus-visible { outline: 2px solid var(--ui); outline-offset: -2px; }
     .kpi-label { font-size: 10px; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 5px; }
     .kpi-value { font-size: 25px; font-weight: 700; color: var(--text-primary); font-family: "SF Mono", Consolas, monospace; line-height: 1.1; }
@@ -169,8 +164,7 @@
     .reg-item.minor { border-left-color: var(--accent-yellow); }
     .reg-item.major { border-left-color: var(--accent-red); }
     .reg-item.linked:hover { background: var(--bg-tertiary); text-decoration: none; }
-    /* Never truncated: without the concurrency suffix the row names no
-       configuration at all, so it wraps instead of ellipsing. */
+    /* Wraps rather than truncates: the concurrency suffix names the config. */
     .reg-config { color: var(--text-primary); font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
     .reg-metrics { display: flex; flex-wrap: wrap; gap: 7px; }
     .reg-chip { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 6px; background: rgba(237,160,106,0.16); color: var(--accent-orange); white-space: nowrap; border: 1px solid rgba(237,160,106,0.3); }
@@ -186,11 +180,8 @@
     /* ============================================================
        COVERAGE PANEL
        ============================================================ */
-    /* Grouped by workload, and outside the KPI card on purpose. A Buildkite step
-       that dies takes every config it owns with it, so absences arrive in blocks:
-       listed flat inside the card they stretched the whole KPI row and pushed the
-       charts off-screen. Grouping also separates "never ran" from "ran, one shape
-       absent", which are different failures with different owners. */
+    /* Grouped by workload: a failed step drops all its configs at once. Kept
+       out of the KPI card so a long list cannot push the charts down. */
     .cov-panel { border: 1px solid var(--accent-red); border-radius: var(--radius); padding: var(--gap-md); margin-bottom: var(--gap-lg); background: var(--bg-secondary); }
     .cov-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; flex-wrap: wrap; }
     .cov-head h3 { font-size: 13px; color: var(--text-primary); font-weight: 600; }
@@ -202,8 +193,7 @@
     .cov-shapes { display: flex; flex-wrap: wrap; gap: 7px; }
     .cov-shape { font-size: 12px; padding: 4px 10px; border-radius: 6px; white-space: nowrap; font-family: "SF Mono", Consolas, monospace; background: rgba(237,160,106,0.16); color: var(--accent-orange); border: 1px solid rgba(237,160,106,0.3); }
     .cov-tag { font-size: 11px; font-weight: 600; color: var(--accent-red); white-space: nowrap; }
-    /* Gap between the direction triangle and the number: at this size the glyph
-       otherwise crowds the first digit. */
+    /* Space between the direction triangle and the number. */
     .reg-chip .dir { margin-right: 5px; }
     .reg-build { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
 
@@ -219,8 +209,8 @@
     .series-chip:hover { color: var(--text-primary); }
     .series-chip.off { opacity: 0.35; }
     .series-chip .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; }
-    /* Outline rather than a badge: the chip carries "regressed somewhere", while a
-       red line means "regressed on this metric". */
+    /* Outline: the chip means "regressed on some metric", a red line
+       "regressed on this one". */
     .series-chip.regressed { border-color: var(--accent-red); border-width: 2px; padding: 2px 9px; background: rgba(242,92,78,0.10); color: var(--text-primary); }
     .series-bar .bar-label, .window-bar .bar-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-tertiary); font-weight: 600; margin-right: 2px; }
     .series-bar .btn.on { background: var(--accent-red); border-color: var(--accent-red); color: #fff; }
@@ -228,8 +218,7 @@
     /* ============================================================
        STACKED TREND CHARTS
        ============================================================ */
-    /* One full-width chart per metric. Trading vertical scroll for resolution: at
-       container width every nightly is a distinguishable point, not a smudge. */
+    /* Full width, one chart per metric, so every nightly is a distinct point. */
     .mini-grid { display: flex; flex-direction: column; gap: var(--gap-md); }
     .mini-card { background: var(--bg-primary); border: 1px solid var(--border-light); border-radius: var(--radius); padding: 12px 14px 8px; }
     .mini-card.has-reg { border-color: var(--accent-red); }
@@ -300,8 +289,8 @@
   <header>
     <div>
       <h1><img class="brand-logo" src="vendor/amd.png" alt="AMD" width="22" height="22" />Perf Eval Dashboard</h1>
-      <!-- The scope is stated on the page itself so an absent model reads as
-           "out of scope" rather than "missing run". -->
+      <!-- Scope is stated on the page, so an absent model reads as out of scope,
+           not as a missing run. -->
       <div class="scope-note">
         <strong title="NVIDIA workloads (H200/B200) and ad-hoc builds run upstream but are deliberately excluded.">AMD nightly runs only.</strong>
       </div>
@@ -314,9 +303,7 @@
   </header>
 
   <div id="notice-host"></div>
-  <!-- KPI row above the controls on purpose: you read the state of the night
-       first, then narrow down. Filters above the summary would make you
-       configure a view before knowing whether anything needs looking at. -->
+  <!-- KPI row first: read the state of the night, then narrow down. -->
   <div class="kpi-row" id="kpi-host"></div>
   <div id="coverage-host"></div>
   <div id="controls-host"></div>
@@ -340,10 +327,8 @@
   </div>
 </div>
 
-<!-- Chart.js 4.4.1, vendored rather than loaded from a CDN: on a locked-down
-     internal network a blocked CDN gives a blank chart with no visible
-     explanation, and a local copy also works offline and straight off disk.
-     site/vendor/README.md records the provenance and how to verify it. -->
+<!-- Chart.js 4.4.1, vendored: a blocked CDN would leave blank charts with no
+     error. Provenance: site/vendor/README.md. -->
 <script src="vendor/chart.umd.min.js"></script>
 <script>
 'use strict';
@@ -352,36 +337,19 @@
 /* ================================================================
    1. COLOUR SEMANTICS
    ================================================================ */
-// Colour carries meaning here, so it is allocated rather than picked.
-//
-// PALETTE contains no red and no pink — pink reads as a light red on a 2px
-// line — so a red line on a chart always means "this regressed" and can never
-// be a healthy series that happened to be assigned red.
+// PALETTE has no red or pink, so a red line always means "regressed".
 const PALETTE = ['#6aa6ed', '#6dbf80', '#c49af5', '#4fc3c3', '#ddb040', '#8899b8', '#9ad06a',
   '#7c83f0', '#5fc9a0', '#c8b06a', '#79c0ff', '#d0a3e8', '#4fa3a3', '#a3c46a'
 ];
-// One red, read from --accent-red at draw time so it follows the theme; this
-// is only the fallback. Applied per metric: a series is red on a chart only if
-// it regressed on that chart's metric, and keeps its identity colour on the
-// metrics where it is healthy. Painting it red on all twelve would claim a
-// regression the data does not show.
+// Regression red, read from --accent-red at draw time; this is the fallback.
+// A series turns red only on the metrics it regressed on.
 const REG_COLOR = '#f25c4e';
 
-// Fixed trailing window, anchored to now rather than to the newest run: if the
-// nightly stops reporting the dashboard goes empty and says so, rather than
-// quietly presenting month-old numbers as current.
-//
-// Two weeks is short enough that everything on screen predates roughly the
-// same handful of image bumps, and long enough to see a trend rather than a
-// single step. The trend charts can be narrowed inside it (chartDays), but
-// never widened past it.
-//
-// Overridden from the payload's retention block at load. aggregate.py owns
-// this number, because it also guarantees the payload always contains at
-// least this much history — the two must not drift apart. The literal here is
-// only the fallback for a payload written before the field existed.
+// Days of history the page shows, ending now, so a stalled nightly shows as
+// empty rather than as old data. Set from the payload (aggregate.py owns it);
+// this is the fallback. The charts can narrow it (chartDays) but not widen it.
 let WINDOW_DAYS = 14;
-// The headline metric for the night-over-night card.
+// The headline metric for the Performance overnight card.
 const PRIMARY_METRIC = 'output_tput_per_gpu';
 const FACETS = [
   { key: 'device', label: 'Device', get: c => c.device },
@@ -394,14 +362,12 @@ const FACETS = [
 /* ================================================================
    2. HELPERS
    ================================================================ */
-// Model ids, images and task names come from upstream YAML and artifacts, so
-// everything interpolated into markup goes through esc().
+// Upstream strings go into markup, so everything interpolated goes through esc().
 function esc(v) {
   return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-// URLs from the payload become hrefs and window.open targets, where HTML
-// escaping alone would still let a javascript: URL run. Only http(s) passes.
+// HTML escaping still allows javascript: URLs, so only http(s) passes.
 function safeUrl(v) {
   const url = String(v || '').trim();
   return /^https?:\/\//i.test(url) ? url : '';
@@ -416,16 +382,8 @@ function shortModel(m) { return String(m || '').split('/').pop(); }
 function shortSha(s) { return s ? String(s).slice(0, 8) : '—'; }
 
 function pct(r, d) { return r == null ? '—' : (r > 0 ? '+' : '') + (r * 100).toFixed(d == null ? 1 : d) + '%'; }
-// A triangle for which way the value moved, then the unsigned magnitude.
-//
-// This is the *raw direction of the number*, not the verdict: a latency
-// regression shows ▲ because the latency went up, while a throughput
-// regression shows ▼. Inside the regression panel the pill's presence already
-// says "this is bad", so the arrow is free to carry the more useful fact.
-//
-// Direction and magnitude are separate elements so a gap can sit between
-// them — CSS margin rather than a Unicode thin space, which survives font
-// substitution and is visible in the source.
+// The arrow shows which way the number moved, not whether that is good: a
+// latency regression is ▲, a throughput regression ▼.
 function pctDirection(r, d) {
   if (r == null) return '—';
   const arrow = r > 0 ? '▲' : (r < 0 ? '▼' : '');
@@ -435,22 +393,14 @@ function pctDirection(r, d) {
 
 function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 
-// Give a clickable non-link element the keyboard path a button would have. A
-// row you can click but cannot tab to is unreachable for anyone not using a
-// mouse.
-//
-// Deliberately no role="button": these are real table cells and rows, and
-// overriding the role would break the table structure for screen readers,
-// which is a regression dressed up as an improvement. An aria-label carries
-// the intent instead.
+// Makes a non-button element keyboard-operable. No role="button": these
+// are often table cells, and the role would break table semantics.
 function activatable(el, label, handler) {
   el.setAttribute('tabindex', '0');
   if (label) el.setAttribute('aria-label', label);
   el.addEventListener('click', handler);
   el.addEventListener('keydown', event => {
-    // A key pressed on a link or control inside this element belongs to that
-    // control: cancelling it here would stop Enter from following a build
-    // link in a clickable row.
+    // Keys on a nested link or control belong to it, so Enter follows the link.
     if (event.target !== el && event.target.closest
       && event.target.closest('a,button,input,select,textarea')) return;
     if (event.key === 'Enter' || event.key === ' ') {
@@ -459,8 +409,7 @@ function activatable(el, label, handler) {
     }
   });
 }
-// Every render replaces the controls, so whatever had keyboard focus is gone
-// afterwards. Put it back on the matching new element.
+// Renders replace the controls, so restore focus to the matching new one.
 function focusAfterRender(selector) {
   const el = document.querySelector(selector);
   if (el) el.focus();
@@ -476,8 +425,7 @@ function median(nums) {
     mid = s.length >> 1;
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
-// Dates are written as UTC "YYYY-MM-DD HH:MM:SS"; Safari will not parse that
-// without an explicit T and Z, so normalise rather than trusting Date().
+// Safari will not parse "YYYY-MM-DD HH:MM:SS" without the T and Z.
 function parseTime(s) {
   const t = String(s || '').trim();
   if (!t) return 0;
@@ -492,9 +440,8 @@ function fmtDate(ms) {
 
 function daysAgo(ms) { return Math.floor((Date.now() - ms) / 86400000); }
 
-// Drawn rather than the ↗ glyph, which renders thin and inconsistently across
-// platforms at this size. `currentColor` so it inherits whatever it sits in,
-// and aria-hidden because the surrounding link text already says where it goes.
+// Drawn: the ↗ glyph renders inconsistently. aria-hidden because the
+// link text already says where it goes.
 const EXT_ARROW = '<svg class="ext-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
   + 'stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + '<path d="M6 18 18 6"/><path d="M8.5 6H18v9.5"/></svg>';
@@ -503,8 +450,7 @@ const EXT_INLINE = '<span class="ext-inline">' + EXT_ARROW + '</span>';
 function buildLink(p, label, cls) {
   const text = esc(label == null ? ('#' + (p.build_number || '?')) : label);
   if (!p.build_url) return text;
-  // Every outbound link carries the arrow, so "this leaves the page" is a
-  // visual property rather than something you learn by clicking.
+  // Every outbound link carries the arrow, so leaving the page is no surprise.
   return '<a href="' + esc(p.build_url) + '" target="_blank" rel="noopener noreferrer"'
     + (cls ? ' class="' + cls + '"' : '') + '>' + text + EXT_INLINE + '</a>';
 }
@@ -521,9 +467,8 @@ let DATA = null,
 let BASE_COLOR = {},
   historyChart = null;
 
-// Values are stored in the canonical unit (latencies in seconds). A chart axis
-// has to pick one unit for every point, so scaling is per metric rather than
-// per value.
+// Stored in canonical units (latency in seconds); display_scale converts
+// per metric for the axis.
 function display(value, metric) {
   if (value == null || !isFinite(value)) return null;
   return metric.display_scale ? value * metric.display_scale : value;
@@ -531,8 +476,7 @@ function display(value, metric) {
 
 function unitOf(metric) { return metric.display_unit || metric.unit || ''; }
 
-// The payload nests model -> config -> metric -> series. The trends view wants
-// (configuration, metric) series across every model, so flatten once.
+// Flatten model -> config -> metric -> series into (config, metric) series.
 function buildConfigs(payload) {
   const out = [];
   (payload.models || []).forEach(model => {
@@ -568,9 +512,7 @@ function buildConfigs(payload) {
         isl: cfg.isl,
         osl: cfg.osl,
         conc: cfg.conc,
-        // Never ellipsed: without the concurrency suffix this names no
-        // configuration at all, and concurrency is the first thing a character
-        // limit eats.
+        // Never truncated: the concurrency suffix names the config.
         label: sm + ' · ' + (cfg.device || '?') + ' · ' + cfg.isl + '/' + cfg.osl + ' · c=' + cfg.conc,
         metrics: metrics,
         builds: builds,
@@ -580,8 +522,8 @@ function buildConfigs(payload) {
   return out.sort(compareConfigs);
 }
 
-// Model, device, ISL/OSL, then concurrency. Numeric fields are compared as
-// numbers: sorting the label as text puts c=128 before c=64.
+// Model, device, ISL/OSL, concurrency; numbers compare as numbers, so c=64
+// sorts before c=128.
 function compareConfigs(a, b) {
   const num = (x, y) => (Number(x) || 0) - (Number(y) || 0);
   return a.shortModel.localeCompare(b.shortModel)
@@ -623,8 +565,7 @@ function buildAccuracy(payload) {
   return out;
 }
 
-// One row per model, device and task: the headline metric plus every other
-// score that task reported.
+// One row per model, device and task: the headline score plus the others.
 function accuracyGroups(series) {
   const groups = new Map();
   series.forEach(s => {
@@ -649,8 +590,7 @@ function accuracyGroups(series) {
     || a.device.localeCompare(b.device) || a.task.localeCompare(b.task));
 }
 
-// "exact_match,flexible-extract" reads as "flexible extract": the filter names
-// the scoring rule, and the metric before the comma is shared by every row.
+// "exact_match,flexible-extract" -> "flexible extract".
 function accuracyMetricLabel(metric) {
   const [name, filter] = String(metric).split(',');
   const text = (filter && filter !== 'none') ? filter : name;
@@ -671,25 +611,16 @@ FACETS.forEach(f => state.selected[f.key] = new Set());
 
 function windowCutoff() { return Date.now() - WINDOW_DAYS * 86400000; }
 
-// The trend charts can be narrowed inside the page's window, from 1 day up to
-// all of it. Only the charts: regressions, the KPI cards and coverage compare
-// the newest nightly with the one before it, and a short window would drop
-// the previous run and quietly empty every count.
+// Chart window, 1 day up to WINDOW_DAYS. Charts only: the comparisons need
+// the previous run, which a short window would drop.
 function chartDays() {
   const days = Math.round(state.chartDays || WINDOW_DAYS);
   return Math.min(Math.max(days, 1), WINDOW_DAYS);
 }
-// Explicit x-axis bounds rather than letting Chart.js scale to whatever data
-// each chart holds, so every stacked chart shares an identical axis and can be
-// read vertically against the others.
-//
-// A narrowed window counts back from the newest nightly, not from now: the
-// nightly lands mid-morning UTC, so "last day" anchored to now would be empty
-// for most of the following day. The axis still ends at now, so a nightly that
-// stopped reporting shows as a gap on the right.
-//
-// Computed once per render and reused by every point lookup and tick label;
-// renderAll clears it.
+// Shared x-axis bounds, so the stacked charts line up by date. A narrowed
+// window counts back from the newest nightly (one ending now would often be
+// empty); the axis still ends now, so a stalled nightly shows as a gap.
+// Cached per render; renderAll clears it.
 let _chartBounds = null;
 
 function chartBounds() {
@@ -697,8 +628,7 @@ function chartBounds() {
   const now = Date.now(),
     days = chartDays();
   if (days >= WINDOW_DAYS) return (_chartBounds = { min: now - WINDOW_DAYS * 86400000, max: now });
-  // The newest nightly overall, not under the filters, so every narrowed
-  // chart counts back from the same night the KPI row describes.
+  // Newest nightly overall, ignoring filters, so every chart shares the anchor.
   const build = latestNightlyBuild();
   let anchor = 0;
   CONFIGS.forEach(c => { const t = c.builds.get(build); if (t > anchor) anchor = t; });
@@ -710,8 +640,7 @@ function chartPointsIn(cfg, metricKey) {
   const min = chartBounds().min;
   return pointsIn(cfg, metricKey).filter(p => p.t >= min);
 }
-// Only metrics the shown series have points for, so isolating a config that
-// skipped the chart window leaves no empty chart cards behind.
+// Only metrics the shown series have points for, so no empty chart cards.
 function chartedMetrics() {
   const shown = seriesList().filter(s => !state.hidden.has(s.key));
   return METRICS.filter(m => shown.some(s => chartPointsIn(s.config, m.key).length > 0));
@@ -742,24 +671,20 @@ function visibleConfigs() {
 /* ================================================================
    5. ANALYSIS
    ================================================================ */
-// Computed in the page rather than in aggregate.py, because the time window
-// decides which run counts as "latest" and which as its predecessor.
+// Computed here, not in aggregate.py, because the window decides which
+// runs are compared.
 function verdict(values, metric, baseline) {
   if (values.length < 2) return null;
   const latest = values[values.length - 1];
-  // The run before it, full stop. No smoothing across nightlies: perf-eval
-  // already median-aggregates repeated benchmark runs before ingestion, so
-  // averaging again here would blur the night-to-night change this exists to
-  // show while only pretending to fix noise that belongs upstream.
+  // Newest vs the run before it, with no smoothing: perf-eval already medians
+  // repeated runs, so averaging again would only blur the change.
   const base = values[values.length - 2];
   if (base == null || !isFinite(base) || base === 0) return null;
   const ratio = (latest - base) / Math.abs(base);
   const improved = metric.direction === 'higher' ? ratio > 0 : ratio < 0;
   const magnitude = Math.abs(ratio);
   let severity = 'ok';
-  // The `ratio!==0` guard is load-bearing whenever the threshold is zero:
-  // without it `magnitude>=0` is always true and a flat metric would be
-  // reported as a regression.
+  // ratio !== 0 keeps a flat value neutral if the threshold is ever zero.
   if (ratio !== 0 && !improved) {
     if (baseline.alert != null && magnitude >= baseline.alert) severity = 'alert';
     else if (magnitude >= baseline.warn) severity = 'warn';
@@ -775,8 +700,7 @@ function verdict(values, metric, baseline) {
   };
 }
 
-// Absolute rather than relative: accuracy lives on a 0..1 scale, where a
-// change reads in points, not as a percentage of the previous score.
+// Absolute change: accuracy is on 0..1, so changes read in points.
 function accuracyVerdict(values, baseline) {
   if (values.length < 2) return null;
   const latest = values[values.length - 1];
@@ -785,8 +709,7 @@ function accuracyVerdict(values, baseline) {
   const delta = latest - base;
   const improved = delta > 0;
   const magnitude = Math.abs(delta);
-  // The tolerance keeps a move of exactly one point from missing the threshold
-  // on float error (0.9334 - 0.9234 is not exactly 0.01).
+  // Float tolerance: 0.9334 - 0.9234 is not exactly 0.01.
   const counted = delta !== 0 && magnitude >= baseline.accuracy_abs - 1e-9;
   const severity = (counted && !improved) ? 'warn' : 'ok';
   return {
@@ -802,16 +725,14 @@ function accuracyVerdict(values, baseline) {
   };
 }
 
-// Every (configuration, metric) verdict. Memoised per render pass: the stacked
-// charts ask once per metric and the KPI row asks again.
+// Every (config, metric) verdict, cached per filter state and baseline.
 const _scanCache = new Map();
 
 function scanKey(baselineId) {
   return [baselineId, FACETS.map(f => [...state.selected[f.key]].sort().join(',')).join(';')].join('|');
 }
-// The newest nightly across every configuration, ignoring the filters. Every
-// overnight figure on the page describes this build, so they agree with each
-// other and with the coverage card.
+// Newest nightly across all configs, ignoring filters: every overnight
+// figure describes this build.
 function latestNightlyBuild() {
   let build = null,
     at = 0;
@@ -819,9 +740,8 @@ function latestNightlyBuild() {
       build = b; } }));
   return build;
 }
-// True when a config's newest windowed point came from the latest nightly. A
-// config that skipped tonight still has a "last two points", but they belong
-// to earlier nights; counting them would pass an old change off as tonight's.
+// True when the config's newest point is from the latest nightly. Otherwise
+// its last two points are an older night's change, not tonight's.
 function reportedTonight(pts, latest) {
   return pts.length > 0 && String(pts[pts.length - 1].build_number) === latest;
 }
@@ -857,8 +777,7 @@ function invalidateScan() { _scanCache.clear(); }
 
 const regressionsOf = id => scan(id).filter(d => d.severity !== 'ok');
 const improvementsOf = id => scan(id).filter(d => d.improved && d.magnitude >= BASELINE_BY_ID[id].warn);
-// Moves too small to count, in each direction. Reported next to the count they
-// were left out of, so the threshold never hides movement without saying so.
+// Moves under the threshold, shown beside the counts they were left out of.
 const belowThresholdOf = id => scan(id).filter(d => d.ratio !== 0 && !d.improved && d.severity === 'ok');
 const belowThresholdGainsOf = id => scan(id).filter(d => d.improved && d.magnitude < BASELINE_BY_ID[id].warn);
 
@@ -870,8 +789,7 @@ function regressedKeysForMetric(id, metricKey) {
   return new Set(regressionsOf(id).filter(d => d.metricKey === metricKey).map(d => d.configKey));
 }
 
-// Median change from the previous run to the newest across every
-// configuration. A single config's delta is noise; the median is the signal.
+// Median night-over-night change across configs; one config's delta is noise.
 function nightOverNight() {
   const metric = METRIC_BY_KEY[PRIMARY_METRIC];
   if (!metric) return null;
@@ -893,23 +811,15 @@ function nightOverNight() {
   };
 }
 
-// A workload that OOMs simply stops emitting rows, so silent coverage loss is
-// otherwise invisible on a dashboard of averages.
-//
-// The expectation comes from the upstream workload recipes, published in the
-// payload as `expected`, NOT from what happened to report recently. That
-// distinction is the whole point: an expectation derived from recent data
-// forgets anything absent long enough, so the longer a workload stayed broken
-// the healthier the dashboard would claim to be. A recipe-derived expectation
-// never decays, and it also catches a workload added upstream that has never
-// succeeded even once.
+// Coverage: did the configs the recipes define (payload `expected`) report
+// in the latest nightly? Expected comes from the recipes, not recent data,
+// so a workload broken for weeks, or never working, stays missing.
 function configKeyOf(parts) {
   return [parts.model, parts.device, parts.precision, parts.tp, parts.isl, parts.osl, parts.conc].join('|');
 }
 
 function coverage() {
-  // Filtered like every other card, so narrowing to one model answers "did
-  // this model's configs all report", not the question for the whole run.
+  // Filtered like the other cards.
   const expected = (((DATA.expected || {}).configs) || []).filter(e => facetMatches({
     device: e.device,
     shortModel: shortModel(e.model),
@@ -932,12 +842,8 @@ function coverage() {
 
   const missing = expected.filter(e => !reported.has(configKeyOf(e)));
 
-  // Grouped by workload. Absences are rarely independent: an infrastructure
-  // failure (a pod that cannot resolve its secrets, say) kills the whole step
-  // and every config in it at once, so a flat list repeats the same incident
-  // once per shape. A group that has lost all of its configs is reported as a
-  // workload that did not run, which is a different problem from a workload
-  // that ran and is missing one shape.
+  // Grouped by workload: one failed step drops every config in it, which is
+  // one incident, not one per shape.
   const groupKey = e => e.workload || ((e.model || '') + '|' + (e.device || ''));
   const byWorkload = new Map();
   expected.forEach(e => {
@@ -958,8 +864,7 @@ function coverage() {
   const groups = [...byWorkload.values()]
     .filter(g => g.shapes.length)
     .map(g => ({ ...g, whole: g.shapes.length === g.total }))
-    // Whole-workload outages first, then by how much is missing: the top of
-    // the list is always the biggest hole.
+    // Whole-workload outages first, then by size of the gap.
     .sort((a, b) => (b.whole - a.whole) || (b.shapes.length - a.shapes.length)
       || a.name.localeCompare(b.name));
 
@@ -973,9 +878,7 @@ function coverage() {
   };
 }
 
-// Unfiltered, like every other card that names tonight's build: narrowing to
-// a device that skipped tonight would otherwise show the previous build here
-// beside a coverage panel naming tonight's.
+// Unfiltered, like the other cards that name tonight's build.
 function latestRun() {
   let best = null;
   CONFIGS.forEach(c => Object.keys(c.metrics).forEach(mk => {
@@ -983,9 +886,7 @@ function latestRun() {
   }));
   return best;
 }
-// Distinct nightlies inside the window, across every configuration and
-// ignoring the facet filters: this describes the data the page is built from,
-// not the current selection.
+// Distinct nightlies in the window, ignoring filters.
 function nightliesInWindow() {
   const builds = new Set();
   const cutoff = windowCutoff();
@@ -995,8 +896,7 @@ function nightliesInWindow() {
   return builds.size;
 }
 
-// Newest point across all of history, regardless of window — this is what the
-// stale-data notice reports.
+// Newest point in all of history; the stale-data notice reports it.
 function newestOverall() {
   let best = null;
   CONFIGS.forEach(c => Object.keys(c.metrics).forEach(mk => {
@@ -1010,8 +910,7 @@ function newestOverall() {
    ================================================================ */
 function renderNotice() {
   const host = document.getElementById('notice-host');
-  // Unfiltered: a filter combination that matches nothing is not a stalled
-  // nightly, and the main area already says the filters match no runs.
+  // Unfiltered: an empty filter combination is not a stalled nightly.
   const inWindow = CONFIGS.some(hasPointsInWindow);
   if (inWindow) { host.innerHTML = ''; return; }
   const newest = newestOverall();
@@ -1020,9 +919,7 @@ function renderNotice() {
       + 'The collector has not ingested any AMD nightly results yet.</span></div>';
     return;
   }
-  // Deliberately offers no way to widen the window. An empty dashboard that
-  // says the nightly stalled is more useful than one showing month-old numbers
-  // as though they were current.
+  // No option to widen the window: old numbers shown as current are worse.
   host.innerHTML = '<div class="notice"><span><strong>No runs in the last '
     + WINDOW_DAYS + ' days.</strong> '
     + 'The most recent run is ' + integer(daysAgo(newest.t)) + ' days old (' + esc(fmtDate(newest.t)) + '), '
@@ -1037,29 +934,23 @@ function renderControls() {
   const host = document.getElementById('controls-host');
   let html = '<div class="controls">';
 
-  // Faceted filters only. The window and the comparison rule are fixed, and
-  // stating them here was just furniture: the footer carries the window, and
-  // every delta on the page shows its own sign and magnitude.
-  //
-  // Each count is the runs that value would contribute under the *other*
-  // active filters, which is why a count can read 0.
+  // Each count is the configs a value adds under the other active filters,
+  // so it can read 0.
   html += '<div class="controls-row"><div class="facet-grid">';
   FACETS.forEach(f => {
-    // Selected values are listed even when no config has them, as happens
-    // with a shared link naming a model that has since been renamed: an
-    // option that is not drawn could never be unticked.
+    // Selected values stay listed with no matching config (a stale shared
+    // link, say), or they could never be unticked.
     const values = [...new Set([...CONFIGS.map(f.get), ...state.selected[f.key]])]
       .filter(v => v !== undefined && v !== '');
     values.sort(f.key === 'conc' ? (a, b) => (+a) - (+b) : (a, b) => String(a).localeCompare(String(b)));
-    // Chosen from the data rather than hard-coded to Model, so any facet that
-    // grows long gets the same treatment.
+    // Any facet with many values gets the wide layout.
     const wide = values.length > 6;
     html += '<div class="facet-col' + (wide ? ' wide' : '') + '"><div class="facet-head">' + esc(f.label) + '</div>'
       + '<div class="facet-opts">';
     values.forEach(v => {
       const count = CONFIGS.filter(c => f.get(c) === v && facetMatches(c, f.key) && hasPointsInWindow(c)).length;
       const on = state.selected[f.key].has(v);
-      // A selected option stays usable at zero, or it could never be cleared.
+      // A selected option stays clickable at zero so it can be cleared.
       const unavailable = count === 0 && !on;
       html += '<div class="facet-opt' + (on ? ' on' : '') + (unavailable ? ' unavailable' : '')
         + '" data-facet="' + esc(f.key) + '" data-value="' + esc(v) + '" role="checkbox"'
@@ -1073,8 +964,7 @@ function renderControls() {
   });
   html += '</div>';
 
-  // Only rendered once something is actually filtered. A reset button sitting
-  // above an untouched filter set is the furniture this row just lost.
+  // Shown only once something is filtered or the legend changed.
   const activeFilters = FACETS.reduce((n, f) => n + state.selected[f.key].size, 0);
   if (activeFilters || state.hidden.size) {
     html += '<div class="facet-reset"><button class="btn" id="reset-facets">'
@@ -1092,8 +982,7 @@ function renderControls() {
       const sel = state.selected[k];
       if (sel.has(v)) sel.delete(v);
       else sel.add(v);
-      // A legend selection names configs; after the filters change it would
-      // mostly name hidden ones and could leave nothing to plot.
+      // Reset the legend: its selection names configs the new filters may hide.
       state.hidden.clear();
       invalidateScan();
       syncToHash();
@@ -1137,15 +1026,8 @@ function renderKpis() {
   }
 
   if (non) {
-    // This card's outline follows direction: it answers "is tonight faster or
-    // slower overall", and a glance at the border should answer it without
-    // reading the number. Symmetric on purpose, green when up as well as red
-    // when down, so the colour reads as a direction rather than as an alarm.
-    // Inside the regression threshold it stays neutral: a median of +0.00%
-    // is not a direction.
-    //
-    // `improved` rather than `ratio < 0`, so this stays correct if the primary
-    // metric is ever changed to one where lower is better.
+    // Outline shows direction (green up, red down), neutral inside the threshold.
+    // Uses `improved`, not the sign, in case the metric becomes lower-is-better.
     const moved = Math.abs(non.ratio) >= BASELINE_BY_ID[state.baseline].warn;
     cards.push({
       cls: moved ? (non.improved ? 'ok' : 'alert') : '',
@@ -1156,8 +1038,7 @@ function renderKpis() {
     });
   }
 
-  // Colour only when there is something to report, so a clean night reads as
-  // neutral rather than as a row of competing signals.
+  // Colour only when there is something to report.
   const threshold = thresholdLabel(BASELINE_BY_ID[state.baseline]);
   const below = belowThresholdOf(state.baseline).length;
   const belowGains = belowThresholdGainsOf(state.baseline).length;
@@ -1192,12 +1073,10 @@ function renderKpis() {
   }
 
   if (cov) {
-    // One card for both kinds of coverage, so the row stays one line. Each row
-    // is coloured on its own; the border is red if either is incomplete. What
-    // is missing is named in the coverage panel under the row.
+    // Perf and accuracy coverage in one card. Each line is coloured on its own;
+    // the border is red if either is incomplete.
     const accMissing = cov.accuracy ? cov.accuracy.total - cov.accuracy.reported : 0;
-    // Cells rather than one string per row, so the rows align on the slash
-    // and the labels start in the same column.
+    // Grid cells, so the two lines align on the slash.
     const covRow = (present, total, label) => {
       const cls = present < total ? 'down' : 'up';
       return '<span class="' + cls + ' num">' + integer(present) + '</span>'
@@ -1236,12 +1115,9 @@ function renderKpis() {
   });
 }
 
-// Tonight's accuracy, judged per model and device on the headline score.
-//
-// The expectation is every model and device with accuracy in the window, not
-// the recipes: the collector does not record which recipes define lm-eval
-// tasks. So a model that ran accuracy recently and not tonight counts as not
-// reporting, but one that has never produced accuracy is not expected.
+// Tonight's accuracy per model and device, on the headline score. Expected
+// is every model with accuracy in the window (the collector does not record
+// which recipes run lm-eval), so one that never produced it is not counted.
 function accuracyTonight() {
   const build = latestNightlyBuild();
   const baseline = BASELINE_BY_ID[state.baseline];
@@ -1271,8 +1147,7 @@ function accuracyTonight() {
 /* ================================================================
    7b. COVERAGE PANEL
    ================================================================ */
-// Sits directly under the KPI row rather than inside a tab: coverage describes
-// the run as a whole, so it must stay readable from Accuracy and Configs too.
+// Under the KPI row, not in a tab, so it is visible from every tab.
 function renderCoveragePanel() {
   const host = document.getElementById('coverage-host');
   const cov = coverage();
@@ -1293,8 +1168,7 @@ function renderCoveragePanel() {
       '<div class="cov-item' + (g.whole ? ' whole' : '') + '">'
       + '<div class="cov-name">' + esc(g.name) + '</div>'
       +
-      // A workload that produced nothing is one fact, not N: naming every
-      // shape it would have run repeats a single failed step per config.
+      // A workload with nothing reported is one line, not one per shape.
       '<div class="cov-shapes">'
       + (g.whole
         ? '<span class="cov-shape">all ' + integer(g.total) + ' configs</span>'
@@ -1346,8 +1220,7 @@ function renderTabs() {
 /* ================================================================
    9. REGRESSION PANEL
    ================================================================ */
-// Colour by size of the drop. Compared against the value as displayed, rounded
-// to one decimal, so a chip reading "2.5%" is always yellow and "5.0%" orange.
+// Tier by the displayed 1-decimal value, so "2.5%" is always yellow.
 const REG_TIERS = [
   { cls: 'minor', max: 2.5, label: 'up to 2.5%' },
   { cls: 'moderate', max: 5, label: 'up to 5%' },
@@ -1359,9 +1232,7 @@ function regTier(magnitude) {
   return REG_TIERS.findIndex(t => shown <= t.max);
 }
 
-// Grouped by configuration rather than by metric: one slowdown trips several
-// correlated metrics at once, and "Kimi/mi355x regressed on total and output
-// throughput" reads better than the same configuration listed four times.
+// Grouped by config: one slowdown usually moves several metrics.
 function renderRegressionPanel() {
   const regs = regressionsOf(state.baseline);
   const active = BASELINE_BY_ID[state.baseline];
@@ -1369,9 +1240,8 @@ function renderRegressionPanel() {
   const thresholdNote = ' · counting drops of <b>' + thresholdLabel(active) + ' or more</b>'
     + (below ? ' · ' + integer(below) + ' smaller drop' + (below === 1 ? '' : 's') + ' not counted' : '');
   if (!regs.length) {
-    // Counted from what was actually compared, not from what is on screen: a
-    // config with no previous run in the window, or none tonight, was never
-    // checked, and a green panel must not claim it passed.
+    // Counts configs actually compared: one with no previous run was never
+    // checked, so the green panel must not include it.
     const compared = new Set(scan(state.baseline).map(d => d.configKey)).size;
     if (!compared) {
       return '<div class="reg-panel unknown"><div class="reg-head">'
@@ -1392,8 +1262,7 @@ function renderRegressionPanel() {
     g.tier = Math.max(g.tier, regTier(d.magnitude));
     if (d.row.t > g.row.t) g.row = d.row;
   });
-  // A fixed order rather than by size, so a given config is always in the same
-  // place and neighbouring rows are the same model on other shapes.
+  // Fixed order, so a config is always in the same place.
   const ordered = [...groups.values()].sort((a, b) => compareConfigs(a.config, b.config));
 
   return '<div class="reg-panel"><div class="reg-head">'
@@ -1406,8 +1275,7 @@ function renderRegressionPanel() {
       const linked = !!g.row.build_url;
       const inner = '<span class="reg-config">' + esc(g.config.label) + '</span>'
         + '<span class="reg-metrics">' + g.items.map(d => {
-          // Hover carries the actual values, so the pill can stay short
-          // without hiding the numbers behind a drill-down.
+          // Hover shows the actual values.
           const detail = d.metric.label + ': ' + fmt(display(d.latest, d.metric), d.metric.digits)
             + ' vs ' + fmt(display(d.base, d.metric), d.metric.digits) + ' ' + unitOf(d.metric);
           return '<span class="reg-chip ' + REG_TIERS[regTier(d.magnitude)].cls
@@ -1416,8 +1284,7 @@ function renderRegressionPanel() {
         }).join('') + '</span>'
         + '<span class="reg-build">build #' + esc(g.row.build_number || '?')
         + (linked ? EXT_INLINE : '') + '</span>';
-      // The whole row is the link, not just the build number on the right: the
-      // row is what you are looking at when you decide to open the build.
+      // The whole row links to the build.
       const tier = REG_TIERS[g.tier].cls;
       return linked
         ? '<a class="reg-item linked ' + tier + '" href="' + esc(g.row.build_url)
@@ -1440,9 +1307,9 @@ function seriesList() {
   }));
 }
 
-// "Only regressed" is a selection, not a second filter: it hides every
-// configuration that did not regress, so the chips and the charts read from
-// the same state. It shows as on whenever exactly the regressed set is shown.
+// "Only regressed" sets the legend selection rather than adding a filter,
+// so chips and charts share one state. On whenever exactly the regressed
+// set is shown.
 function onlyRegressedSelected(series) {
   const hasReg = series.some(s => s.regressed);
   return hasReg && series.every(s => state.hidden.has(s.key) !== s.regressed);
@@ -1466,8 +1333,7 @@ function renderSeriesBar() {
 }
 
 function daysLabel(days) { return 'Last ' + days + ' day' + (days === 1 ? '' : 's'); }
-// Dates alone repeat across an axis of a few days, so short spans tick every
-// 6 hours and add the UTC hour; longer ones tick once a day.
+// Short spans tick every 6 hours with the UTC hour, so labels do not repeat.
 function shortChartSpan(bounds) { return bounds.max - bounds.min <= 3 * 86400000; }
 
 function chartTick(v) {
@@ -1497,9 +1363,8 @@ function chartTheme() {
   return { tick: cssVar('--text-tertiary'), grid: cssVar('--border-light') };
 }
 
-// Chart.js fits the y-axis to the data, so two runs that differ only by float
-// noise get stretched to fill the chart and read as a cliff. Keep the axis at
-// least 1% of the value tall, so a flat series draws flat.
+// Keep the y-axis at least 1% of the value tall, so float noise between
+// two equal runs draws flat instead of as a cliff.
 const MIN_Y_SPAN = 0.01;
 
 function floorYSpan(scale) {
@@ -1537,7 +1402,7 @@ function drawTrendChart(metric) {
   const theme = chartTheme();
   const bounds = chartBounds();
   const regColor = cssVar('--accent-red') || REG_COLOR;
-  // The ring contrasts with the page, so it is the text colour, not white.
+  // Text colour, so the ring contrasts in both themes.
   const ringColor = cssVar('--text-primary') || '#fff';
   const regForMetric = regressedKeysForMetric(state.baseline, metric.key);
   const datasets = seriesList()
@@ -1545,8 +1410,7 @@ function drawTrendChart(metric) {
     .map(s => {
       const pts = chartPointsIn(s.config, metric.key);
       if (!pts.length) return null;
-      // Red only where it actually moved, so a chart where nothing regressed
-      // shows no red at all.
+      // Red only on the metrics that regressed.
       const isReg = regForMetric.has(s.key);
       const color = isReg ? regColor : s.color;
       const last = pts.length - 1;
@@ -1559,8 +1423,7 @@ function drawTrendChart(metric) {
         borderWidth: isReg ? 2.75 : 1.6,
         tension: 0,
         spanGaps: true,
-        // The newest point is where the regression landed; ringing it says
-        // which build to blame.
+        // Ring the newest point: that is the build to blame.
         pointRadius: ctx => (isReg && ctx.dataIndex === last) ? 6 : 2.5,
         pointHoverRadius: 7,
         pointBackgroundColor: color,
@@ -1578,11 +1441,8 @@ function drawTrendChart(metric) {
       maintainAspectRatio: false,
       animation: false, // many charts re-render on every filter change
       interaction: { mode: 'nearest', intersect: false },
-      // Several configurations can sit on the same point. Taking the first
-      // element Chart.js happens to return would open an arbitrary one — and
-      // because this used to jump straight to Buildkite, you would leave the
-      // page without knowing which configuration you got. Resolve the overlap
-      // explicitly instead: act when it is unambiguous, ask when it is not.
+      // Several series can share a point: open it when unambiguous, otherwise
+      // let the reader pick.
       onClick: (event, _els, chart) => {
         const hits = chart.getElementsAtEventForMode(event, 'point', { intersect: true }, true);
         const candidates = (hits.length ? hits : chart.getElementsAtEventForMode(
@@ -1621,8 +1481,7 @@ function drawTrendChart(metric) {
             maxRotation: 0,
             autoSkipPadding: 14,
             callback: chartTick,
-            // Whole days, or 6 hours on a short span, so no two ticks
-            // round to the same label.
+            // Whole days, or 6 hours on short spans, so no two ticks share a label.
             stepSize: shortChartSpan(bounds) ? 21600000 : 86400000
           },
           grid: { color: theme.grid }
@@ -1643,8 +1502,7 @@ function drawTrendChart(metric) {
               const sha = p.vllm_commit ? ' · ' + shortSha(p.vllm_commit) : '';
               return item.dataset.label + ': ' + fmt(item.parsed.y, metric.digits) + ' ' + unitOf(metric) + sha;
             },
-            // The affordance has to be discoverable: nothing else on a line
-            // chart says the points are clickable.
+            // Nothing else says the points are clickable.
             afterBody: () => '\nClick for history',
           }
         },
@@ -1693,9 +1551,8 @@ function renderTrendsTab() {
 
   chartedMetrics().forEach(drawTrendChart);
 
-  // With everything showing, a click isolates that configuration; once a
-  // selection exists, clicks add to it or remove from it. Removing the last
-  // one shows everything again, so the chart is never left empty.
+  // First click isolates a config; later clicks add or remove one. Removing
+  // the last one shows everything again.
   host.querySelectorAll('.series-chip').forEach(el => {
     const k = el.getAttribute('data-series');
     activatable(el, null, () => {
@@ -1759,8 +1616,7 @@ function renderAccuracyTab() {
     + '<div class="table-scroll"><table><thead><tr>'
     + '<th>Model</th><th>Device</th><th>Task</th><th class="num">Score</th>'
     +
-    // Not "Baseline": in eval work that word means a pinned reference score
-    // for the model, and this is simply the night before.
+    // "Previous nightly", not "Baseline", which in eval work means a reference score.
     '<th class="num">Previous nightly</th><th class="num">Change</th><th>Status</th>'
     + '<th>Other scores</th><th class="num">Runs</th><th>Build</th>'
     + '</tr></thead><tbody>';
@@ -1769,8 +1625,7 @@ function renderAccuracyTab() {
     const s = g.primary,
       v = s.verdict,
       newest = s.windowed[s.windowed.length - 1];
-    // Judged only when the newest result is tonight's, as the Accuracy
-    // overnight card is: an older change must not read as tonight's.
+    // Judged only if the newest result is tonight's, like the Accuracy card.
     const current = reportedTonight(s.windowed, tonight);
     const cls = !v || !v.counted || !current ? 'neutral' : (v.improved ? 'good' : 'bad');
     html += '<tr class="clickable" data-acc="' + i + '">'
@@ -1812,8 +1667,7 @@ function renderAccuracyTab() {
   });
 }
 
-// Accuracy has no shape, precision or concurrency, so only the Device and
-// Model filters apply to it.
+// Accuracy has no shape, precision or concurrency: only Device and Model apply.
 function accuracyFacetMatches(t) {
   return ['device', 'model'].every(key => {
     const sel = state.selected[key];
@@ -1821,8 +1675,7 @@ function accuracyFacetMatches(t) {
   });
 }
 
-// Accuracy is stored on 0..1 and shown as a percentage, with changes in
-// percentage points so "+0.15 pt" is never mistaken for a relative change.
+// Shown as a percentage; changes in points, so +0.15 pt is not read as relative.
 const ACCURACY_METRIC = {
   label: 'Accuracy',
   unit: '%',
@@ -1878,8 +1731,7 @@ function renderConfigsTab() {
       html += '<td class="num clickable" data-cfg="' + ci + '" data-metric="' + esc(m.key) + '">'
         + esc(fmt(display(pts[pts.length - 1].value, m), m.digits))
         +
-        // Two decimals near the threshold, so a 0.46% drop cannot display as
-        // "0.5%" while not being counted.
+        // Two decimals under 1%, so a 0.46% drop cannot display as 0.5%.
         (v ? ' <span class="' + cls + '" style="font-size:11px">'
           + pct(v.ratio, Math.abs(v.ratio) < 0.01 ? 2 : 1) + '</span>' : '') + '</td>';
     });
@@ -1933,16 +1785,12 @@ function openHistory(title, subtitle, metric, points, v) {
       + '<td>' + buildLink(p, null) + '</td></tr>').join('')
     + '</tbody></table>';
 
-  // The row is what you are reading when you decide to open a build, so the
-  // whole row opens it rather than the build number alone. The link stays in
-  // the last column: it carries the arrow that says this leaves the page, and
-  // it keeps middle-click and ctrl-click working.
+  // The whole row opens the build; the link stays for middle- and ctrl-click.
   table.querySelectorAll('tr[data-row]').forEach(row => {
     const point = rows[Number(row.getAttribute('data-row'))];
     if (!point) return;
     activatable(row, 'Open build #' + (point.build_number || '?') + ' in Buildkite', event => {
-      // That anchor navigates on its own; handling its click here as well
-      // would open the build twice.
+      // The link navigates itself; handling it here too would open it twice.
       if (event.target && event.target.closest && event.target.closest('a')) return;
       window.open(point.build_url, '_blank', 'noopener');
     });
@@ -2002,15 +1850,13 @@ function openHistory(title, subtitle, metric, points, v) {
   });
   showOverlay();
 }
-// Open the full history for one clicked series, resolved back to its config so
-// the overlay shows the whole trend rather than just the point that was hit.
+// Open the full history of the clicked series.
 function openSeriesHistory(candidate) {
   // By key, not label: labels leave out TP, precision and the model's org.
   const config = visibleConfigs().filter(c => c.key === candidate.key)[0];
   const metric = candidate.metric;
   if (!config) {
-    // No matching config (a stale render); fall back to the single point so
-    // the click still does something useful.
+    // Stale render with no matching config: show just the clicked point.
     openHistory(candidate.label + ' — ' + metric.label,
       fmtDate(candidate.point.t || 0), metric, [candidate.point], null);
     return;
@@ -2022,8 +1868,7 @@ function openSeriesHistory(candidate) {
     metric, points, verdict(points.map(p => p.value), metric, BASELINE_BY_ID[state.baseline]));
 }
 
-// Several series on one point: name them and let the reader choose, rather
-// than picking one and hoping it was the one they meant.
+// Several series on one point: list them and let the reader choose.
 function openPointChooser(metric, candidates) {
   if (historyChart) { historyChart.destroy();
     historyChart = null; }
@@ -2052,9 +1897,7 @@ function openPointChooser(metric, candidates) {
   showOverlay();
 }
 
-// A modal takes focus when it opens and gives it back when it closes, so a
-// keyboard user is neither left behind the dialog nor dropped at the top of
-// the page afterwards.
+// Move focus into the dialog on open, and back to the opener on close.
 let overlayOpener = null;
 
 function showOverlay() {
@@ -2121,8 +1964,7 @@ function readFromHash() {
       }
     }
   });
-  // The legend selection is stored as the configs shown, which is short when
-  // isolating one; everything else is hidden.
+  // Stored as the configs shown (short when isolating); the rest are hidden.
   state.hidden.clear();
   if (shown.size) CONFIGS.forEach(c => { if (!shown.has(c.key)) state.hidden.add(c.key); });
   invalidateScan();
@@ -2136,8 +1978,7 @@ function safeDecode(value) {
    15. RENDER ROOT
    ================================================================ */
 function renderAll() {
-  // Any change of filter, window or baseline invalidates an open drill-down:
-  // leaving it up would show one configuration's history over another's page.
+  // Close any open drill-down: it would describe the previous view.
   closeHistory();
   _chartBounds = null;
   renderNotice();
@@ -2155,16 +1996,12 @@ function renderChrome() {
   const url = safeUrl((DATA.pipeline || {}).url) || 'https://buildkite.com/vllm/perf-eval';
   document.getElementById('pipeline-link').href = url;
   document.getElementById('pipeline-link-footer').href = url;
-  // Report what the viewer is actually looking at. The payload's retention is
-  // a property of the event store, not of this view — quoting "180 days" next
-  // to a 14-day window only invites the question of which one is true.
+  // Describe this view's window, not the store's retention.
   const retention = DATA.retention || {};
   const parts = ['Showing the last ' + WINDOW_DAYS + ' days'];
   const nightlies = nightliesInWindow();
   if (nightlies) parts.push(nightlies + (nightlies === 1 ? ' nightly' : ' nightlies'));
-  // Trimming is a fact about the published file, so it is labelled as such.
-  // Nightlies inside the window are never trimmed, so this can only ever
-  // mean older history was dropped — never that the view is short.
+  // Nightlies inside the window are never trimmed, only older history.
   if (retention.trimmed && retention.nightlies_published) {
     parts.push('older history trimmed to ' + retention.nightlies_published
       + ' of ' + retention.nightlies_available + ' nightlies to fit the payload budget');
@@ -2182,8 +2019,7 @@ function wireChrome() {
       document.documentElement.setAttribute('data-theme', 'light');
       localStorage.setItem('perf-eval-theme', 'light');
     }
-    // Chart.js resolves colours from CSS variables when a chart is built, so
-    // everything has to be redrawn against the new palette.
+    // Chart.js reads colours when a chart is built, so redraw on theme change.
     renderAll();
   });
   document.getElementById('copy-link').addEventListener('click', () => {
@@ -2225,9 +2061,7 @@ fetch('perf_eval.json')
     DATA.summary = DATA.summary || {};
     DATA.metric_meta = DATA.metric_meta || {};
     DATA.baselines = (DATA.baselines && DATA.baselines.length) ? DATA.baselines : [
-      // Fallback for a payload written before `baselines` existed. Mirrors
-      // aggregate.py's BASELINES, thresholds included, so the page cannot
-      // silently apply a different rule than the one that produced the data.
+      // Fallback for payloads without `baselines`; mirrors aggregate.py.
       {
         id: 'previous',
         label: 'vs previous run',
@@ -2242,13 +2076,11 @@ fetch('perf_eval.json')
     DATA.default_baseline = DATA.default_baseline || DATA.baselines[0].id;
     BASELINE_BY_ID = Object.fromEntries(DATA.baselines.map(b => [b.id, b]));
 
-    // aggregate.py owns the window, because it also guarantees the payload
-    // holds at least that much history.
+    // aggregate.py owns the window and guarantees the payload covers it.
     const windowDays = (DATA.retention || {}).display_window_days;
     if (Number.isFinite(windowDays) && windowDays > 0) WINDOW_DAYS = windowDays;
 
-    // Metric display order comes from the payload, so adding a metric upstream
-    // needs no frontend change.
+    // Metric order comes from the payload.
     METRICS = Object.keys(DATA.metric_meta)
       .filter(k => k !== 'accuracy')
       .map(k => ({ key: k, ...DATA.metric_meta[k] }))
@@ -2257,9 +2089,8 @@ fetch('perf_eval.json')
 
     CONFIGS = buildConfigs(DATA);
     ACC_TASKS = buildAccuracy(DATA);
-    // Identity colours are assigned from the full dataset, not the filtered
-    // view, so a series keeps its colour when filters change and across every
-    // chart. Regressed series override this with red at render time.
+    // Colours are assigned over the full dataset, so a series keeps its colour
+    // across filters and charts.
     BASE_COLOR = Object.fromEntries(
       CONFIGS.map(c => c.key).sort().map((k, i) => [k, PALETTE[i % PALETTE.length]]));
 
