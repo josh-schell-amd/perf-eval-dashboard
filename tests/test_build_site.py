@@ -60,7 +60,7 @@ class TestBuild:
         build_site.build(site, payload, out)
         assert not stale.exists()
 
-    def test_the_private_event_store_is_never_published(self, site, payload, tmp_path):
+    def test_the_event_store_is_never_published(self, site, payload, tmp_path):
         (payload.parent / "events.jsonl").write_text('{"event":"build"}\n', encoding="utf-8")
         out = build_site.build(site, payload, tmp_path / "_site")
         assert not (out / "events.jsonl").exists()
@@ -73,7 +73,7 @@ class TestFailureModes:
             build_site.build(site, tmp_path / "absent.json", tmp_path / "_site")
 
     def test_missing_site_raises(self, payload, tmp_path):
-        with pytest.raises(FileNotFoundError, match="site directory not found"):
+        with pytest.raises(FileNotFoundError, match="site source directory not found"):
             build_site.build(tmp_path / "absent", payload, tmp_path / "_site")
 
     def test_missing_index_raises(self, payload, tmp_path):
@@ -86,15 +86,30 @@ class TestFailureModes:
         broken = tmp_path / "broken.json"
         broken.write_text("{not json", encoding="utf-8")
         out = tmp_path / "_site"
-        with pytest.raises(json.JSONDecodeError):
+        with pytest.raises(ValueError, match="not valid JSON"):
             build_site.build(site, broken, out)
         assert not out.exists()
 
-    def test_a_page_without_the_fetch_call_is_rejected(self, payload, tmp_path):
+    def test_a_failed_build_leaves_the_previous_output(self, site, payload, tmp_path):
+        out = build_site.build(site, payload, tmp_path / "_site")
+        broken = tmp_path / "broken.json"
+        broken.write_text("{not json", encoding="utf-8")
+        with pytest.raises(ValueError):
+            build_site.build(site, broken, out)
+        assert (out / "perf_eval.json").is_file()
+
+    @pytest.mark.parametrize(
+        "html",
+        [
+            "<html>no data load</html>",
+            "<script>fetch('perf_eval.json');fetch('perf_eval.json');</script>",
+        ],
+    )
+    def test_the_page_must_fetch_the_payload_exactly_once(self, payload, tmp_path, html):
         site_dir = tmp_path / "site"
         site_dir.mkdir()
-        (site_dir / "index.html").write_text("<html>no data load</html>", encoding="utf-8")
-        with pytest.raises(RuntimeError, match="no fetch"):
+        (site_dir / "index.html").write_text(html, encoding="utf-8")
+        with pytest.raises(RuntimeError, match="exactly one"):
             build_site.build(site_dir, payload, tmp_path / "_site")
 
 
@@ -105,6 +120,6 @@ class TestRealSite:
             json.dumps({"generated_at": "2026-01-01T00:00:00Z", "models": [], "summary": {}}),
             encoding="utf-8",
         )
-        out = build_site.build(build_site.DEFAULT_SITE, payload, tmp_path / "_site")
+        out = build_site.build(build_site.DEFAULT_SOURCE, payload, tmp_path / "_site")
         html = (out / "index.html").read_text(encoding="utf-8")
         assert "fetch('perf_eval.json?v=" in html

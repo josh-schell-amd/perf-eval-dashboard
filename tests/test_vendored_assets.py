@@ -119,7 +119,7 @@ class TestMitAttribution:
 
         payload = tmp_path / "perf_eval.json"
         payload.write_text('{"models": [], "summary": {}}', encoding="utf-8")
-        out = build_site.build(build_site.DEFAULT_SITE, payload, tmp_path / "_site")
+        out = build_site.build(build_site.DEFAULT_SOURCE, payload, tmp_path / "_site")
         published = out / "vendor" / self.LICENSE_FILE
         assert published.is_file()
         assert self.COPYRIGHT in published.read_text(encoding="utf-8")

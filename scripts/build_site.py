@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Assemble the deployable site from ``site/`` plus the published payload.
+"""Build the deployable site.
 
-Copies ``site/`` into ``_site/``, drops ``data/perf_eval.json`` alongside
-``index.html`` (the page fetches it as a sibling), and cache-busts the fetch so
-a browser holding a stale copy of the JSON picks up a fresh deploy.
+    source   site/       the page, checked in: index.html and vendor/
+    output   _site/      what gets deployed to gh-pages, rebuilt from scratch
 
-Only ``perf_eval.json`` is published. The ``events.jsonl`` event store
-is never copied into the site.
+The build copies the source into the output, adds data/perf_eval.json next to
+index.html (the page fetches it from there), and changes the page's
+``fetch('perf_eval.json')`` to ``fetch('perf_eval.json?v=<hash>')`` so a
+browser holding an old copy of the data loads the new one after a deploy.
+
+Only perf_eval.json is published; the events.jsonl event store never is.
 """
 
 from __future__ import annotations
@@ -14,25 +17,28 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import re
 import shutil
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_SITE = ROOT / "site"
+DEFAULT_SOURCE = ROOT / "site"
 DEFAULT_PAYLOAD = ROOT / "data" / "perf_eval.json"
 DEFAULT_OUTPUT = ROOT / "_site"
 
 PAYLOAD_NAME = "perf_eval.json"
-# Matches the fetch in site/index.html, with or without an existing ?v= tag.
-_FETCH_RE = re.compile(r"(fetch\(\s*['\"])perf_eval\.json(?:\?v=[^'\"]*)?(['\"])")
+FETCH_CALL = f"fetch('{PAYLOAD_NAME}')"
 
 
-def build(site_dir: Path, payload_path: Path, output_dir: Path) -> Path:
-    if not site_dir.is_dir():
-        raise FileNotFoundError(f"site directory not found: {site_dir}")
-    index = site_dir / "index.html"
+def build(source_dir: Path, payload_path: Path, output_dir: Path) -> Path:
+    """Build output_dir from source_dir and the payload; return output_dir.
+
+    Everything is checked before output_dir is touched, so a failed build
+    leaves the previous output in place.
+    """
+    index = source_dir / "index.html"
+    if not source_dir.is_dir():
+        raise FileNotFoundError(f"site source directory not found: {source_dir}")
     if not index.is_file():
         raise FileNotFoundError(f"site entrypoint not found: {index}")
     if not payload_path.is_file():
@@ -41,39 +47,46 @@ def build(site_dir: Path, payload_path: Path, output_dir: Path) -> Path:
         )
 
     payload_bytes = payload_path.read_bytes()
-    # Fail loudly here rather than shipping a page that renders nothing.
-    json.loads(payload_bytes)
+    try:
+        json.loads(payload_bytes)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"{payload_path} is not valid JSON ({exc}); the page could not load it, "
+            "so nothing was built"
+        ) from exc
+
+    html = index.read_text(encoding="utf-8")
+    found = html.count(FETCH_CALL)
+    if found != 1:
+        raise RuntimeError(
+            f"{index} must load its data with exactly one {FETCH_CALL} call, so the "
+            f"build can add the cache tag; found {found}"
+        )
+    tag = hashlib.sha256(payload_bytes).hexdigest()[:12]
+    html = html.replace(FETCH_CALL, f"fetch('{PAYLOAD_NAME}?v={tag}')")
 
     if output_dir.exists():
         shutil.rmtree(output_dir)
-    shutil.copytree(site_dir, output_dir)
-
+    shutil.copytree(source_dir, output_dir)
+    (output_dir / "index.html").write_text(html, encoding="utf-8")
     (output_dir / PAYLOAD_NAME).write_bytes(payload_bytes)
 
-    digest = hashlib.sha256(payload_bytes).hexdigest()[:12]
-    html = (output_dir / "index.html").read_text(encoding="utf-8")
-    patched, count = _FETCH_RE.subn(rf"\1{PAYLOAD_NAME}?v={digest}\2", html)
-    if count == 0:
-        raise RuntimeError(
-            f"no fetch('{PAYLOAD_NAME}') call found in index.html; "
-            "cache-busting would silently do nothing"
-        )
-    (output_dir / "index.html").write_text(patched, encoding="utf-8")
-
-    print(f"Built {output_dir} ({len(payload_bytes)} bytes of data, cache tag {digest})")
+    print(f"Built {output_dir} ({len(payload_bytes)} bytes of data, cache tag {tag})")
     return output_dir
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--site", type=Path, default=DEFAULT_SITE, help="Source site directory")
+    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help="Site source (site/)")
     parser.add_argument(
         "--payload", type=Path, default=DEFAULT_PAYLOAD, help="Path to perf_eval.json"
     )
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Output directory")
+    parser.add_argument(
+        "--output", type=Path, default=DEFAULT_OUTPUT, help="Where to build the site (_site/)"
+    )
     args = parser.parse_args()
 
-    build(args.site, args.payload, args.output)
+    build(args.source, args.payload, args.output)
     return 0
 
 
