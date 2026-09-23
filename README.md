@@ -1,5 +1,10 @@
 # Perf Eval Dashboard
 
+> [!IMPORTANT]
+> This is an experimental demo. It is not a supported or authoritative source
+> of performance or accuracy results, and should not be relied on beyond
+> demonstration purposes.
+
 A static dashboard for performance and accuracy results from the
 [`vllm/perf-eval`](https://buildkite.com/vllm/perf-eval) Buildkite pipeline.
 
