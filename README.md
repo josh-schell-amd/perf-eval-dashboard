@@ -576,6 +576,20 @@ Each run scans the last 14 days of finished `main` builds (1–30 configurable
 via the dispatch input). The window is a safety net for a nightly that landed
 late, or for backfilling after a failed run.
 
+**Backfilling a build that is already ingested** needs the `recheck_builds`
+dispatch input (0–60). A build that has any results is never listed again once
+it leaves the re-check window, so artifacts an older collector missed — the
+accuracy results before lm-eval's model directory was recognised, for example
+— only arrive if you re-list it. Running once with `recheck_builds: 30`
+re-lists every nightly in the window; results already stored are skipped.
+
+A download that keeps failing with a timeout, 429 or gateway error **fails the
+run** after 3 attempts, for the same reason: skipping it would lose that
+artifact for good. A 4xx or a body that is not JSON is skipped with a warning,
+so one broken artifact cannot block every later collection. A bench result
+with no positive `total_token_throughput` is a failed benchmark and is skipped
+rather than published as zero throughput.
+
 ### What a run costs Buildkite
 
 Every outbound request is counted and reported, and the arithmetic is fixed:
@@ -583,15 +597,15 @@ Every outbound request is counted and reported, and the arithmetic is fixed:
 | | Requests |
 |---|---|
 | Builds listing | 1 |
-| Artifact listing | 2 per nightly inside the re-check window (one per path filter) |
+| Artifact listing | 3 per nightly inside the re-check window (one per path filter) |
 | Download | 1 per artifact not already ingested |
 
 A build we already hold results for is **not re-listed** once it falls outside
 the re-check window, which defaults to the newest 3 nightlies. Those three are
 always re-listed because a nightly can finish with a failed workload that
 someone retries later, adding artifacts to the same build number. So a steady
-state run is `1 + 2×3 = 7` listings plus the new nightly's artifacts, not
-one-plus-two-per-build across the whole 14 days.
+state run is `1 + 3×3 = 10` listings plus the new nightly's artifacts, not
+one-plus-three-per-build across the whole 14 days.
 
 **See the cost before you spend it.** `--dry-run` performs the listings, which
 is what reveals how much work there is, then reports exactly what it would
@@ -635,9 +649,14 @@ differs byte-wise even when no new nightly arrived. Publishing on that alone
 would spend a Pages build republishing identical numbers, and Pages allows
 only about ten builds an hour.
 
-`payload_changed.py` compares the fresh payload against the last published one
-with `generated_at` excluded and everything else included, and the deploy is
-gated on the result. The skip applies **only to scheduled runs** — a push to
+`payload_changed.py` compares the fresh payload against the one **live on
+`gh-pages`** with `generated_at` excluded and everything else included, and the
+deploy is gated on the result. It compares against the live copy rather than
+one saved with the event store: that copy is written before the deploy runs,
+so a failed or skipped deploy would count as published and leave the site
+stale. The collector likewise records a new recipe snapshot only when the
+recipes changed, since its timestamp is published and a fresh one every run
+would make every payload look changed. The skip applies **only to scheduled runs** — a push to
 `site/`, a manual dispatch or a build-finished dispatch always republishes,
 because the page itself may have changed even though the data did not. That is
 also why `collect.yml` triggers on pushes touching `site/`: without it a UI

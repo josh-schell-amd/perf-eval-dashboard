@@ -626,8 +626,8 @@ def _bk_result_artifacts(
     """Discover both result kinds within the existing per-build page budget.
 
     The API applies each path filter before pagination. A broad artifact list
-    can contain thousands of sample files the collector never consumes. Both
-    filtered listings must terminate normally before any result is returned;
+    can contain thousands of sample files the collector never consumes. Every
+    filtered listing must terminate normally before any result is returned;
     exhausting the shared budget still fails the collection closed.
     """
     path = (
@@ -650,7 +650,7 @@ def _bk_result_artifacts(
             budget=budget,
         )
         # A successful listing ends on one short (possibly empty) page. Count
-        # that page as well as every full page across both filters.
+        # that page as well as every full page across all the filters.
         remaining_pages -= len(rows) // 100 + 1
         artifacts.extend(rows)
     return artifacts
@@ -861,7 +861,8 @@ def collect(
     for position, (build, night) in enumerate(nightlies):
         number = build.get("number")
         # Already fully ingested and outside the re-check window: re-listing
-        # its artifacts costs two requests and tells us nothing new.
+        # its artifacts costs one request per path filter and tells us nothing
+        # new.
         if position >= recheck_builds and str(number) in ingested_builds:
             budget.skipped_builds += 1
             continue
@@ -950,10 +951,16 @@ def collect(
         return 0
 
     # Record what the recipes say should run, so coverage is measured against
-    # the upstream expectation rather than against recent reporting. Refreshed
-    # every collection; the store keeps only the newest.
+    # the upstream expectation rather than against recent reporting. Only when
+    # it changed: the snapshot's timestamp is published, and a fresh one every
+    # run would make every payload look changed and defeat the deploy check.
     expected = expected_configs(workloads)
-    if expected:
+    previous_expected = max(
+        (e for e in existing if e.get("event") == EXPECTED_CONFIGS_EVENT),
+        key=lambda e: str(e.get("received_at") or ""),
+        default=None,
+    )
+    if expected and (previous_expected is None or previous_expected.get("configs") != expected):
         pending_events.append(
             {
                 "event": EXPECTED_CONFIGS_EVENT,

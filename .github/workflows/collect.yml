@@ -31,10 +31,18 @@ on:
         description: 'Days of Buildkite history to scan (1-30)'
         required: false
         default: '14'
+      recheck_builds:
+        description: >-
+          Re-list the newest N nightlies even if already ingested (0-60). Blank
+          uses the collector default of 3; raise it once to backfill artifacts
+          an earlier collector version missed.
+        required: false
+        default: ''
       deploy:
         description: 'Deploy to gh-pages after collecting'
         required: false
-        default: 'true'
+        type: boolean
+        default: true
 
 # Serialize: two runs pushing dashboard-state or gh-pages would race.
 concurrency:
@@ -70,6 +78,7 @@ jobs:
       - name: Validate workflow inputs
         env:
           RAW_DAYS: ${{ inputs.days }}
+          RAW_RECHECK: ${{ inputs.recheck_builds }}
         run: |
           set -euo pipefail
           DAYS="${RAW_DAYS:-14}"
@@ -80,24 +89,58 @@ jobs:
             echo "::error::days must be 30 or fewer" && exit 1
           fi
           echo "COLLECT_DAYS=$DAYS" >> "$GITHUB_ENV"
+          if [ -n "${RAW_RECHECK:-}" ]; then
+            if ! printf '%s' "$RAW_RECHECK" | grep -Eq '^[0-9]{1,2}$' || [ "$RAW_RECHECK" -gt 60 ]; then
+              echo "::error::recheck_builds must be an integer from 0 to 60" && exit 1
+            fi
+            echo "RECHECK_BUILDS=$RAW_RECHECK" >> "$GITHUB_ENV"
+          fi
 
+      # Authenticated with an extra header rather than a rewritten remote, so
+      # the token is not left in .git/config for later steps. A missing branch
+      # (ls-remote exit 2) is a first run; any other failure stops the run,
+      # because starting from an empty store would later overwrite the real
+      # one and lose everything older than the lookback.
       - name: Restore the private event store
         env:
           STATE_BRANCH: dashboard-state
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          AUTH="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           mkdir -p data
-          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null 2>&1; then
-            git fetch --depth=1 origin "$STATE_BRANCH"
+          set +e
+          git -c http.extraheader="$AUTH" ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            git -c http.extraheader="$AUTH" fetch --depth=1 origin "$STATE_BRANCH"
             git show "FETCH_HEAD:data/events.jsonl" > data/events.jsonl
             echo "Restored $(wc -l < data/events.jsonl) records from $STATE_BRANCH."
-            # Keep the previously published payload so the deploy can be
-            # skipped when this run produces identical numbers.
-            git show "FETCH_HEAD:data/perf_eval.json" > /tmp/previous_perf_eval.json \
-              || echo "No previous payload on $STATE_BRANCH; treating as changed."
-          else
+          elif [ "$status" -eq 2 ]; then
             : > data/events.jsonl
             echo "No $STATE_BRANCH branch yet; starting from an empty store."
+          else
+            echo "::error::Could not reach origin to restore $STATE_BRANCH (git exit $status)."
+            exit 1
+          fi
+
+      # The deploy check compares against what is actually live. A copy saved
+      # alongside the event store would be written before the deploy runs, so
+      # a failed or skipped deploy would still count as published and the
+      # site would stay stale.
+      - name: Fetch the published payload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          AUTH="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          if git -c http.extraheader="$AUTH" fetch --depth=1 origin gh-pages 2>/dev/null \
+             && git show "FETCH_HEAD:perf_eval.json" > /tmp/previous_perf_eval.json 2>/dev/null; then
+            echo "Fetched the live payload from gh-pages."
+          else
+            rm -f /tmp/previous_perf_eval.json
+            echo "No published payload yet; treating this run as changed."
           fi
 
       # Fails closed on a malformed store before anything overwrites it, and
@@ -121,7 +164,8 @@ jobs:
           python scripts/perf_eval/collect_artifacts.py \
             --days "$COLLECT_DAYS" \
             --store data/events.jsonl \
-            --max-requests 1500
+            --max-requests 1500 \
+            ${RECHECK_BUILDS:+--recheck-builds "$RECHECK_BUILDS"}
 
       - name: Aggregate the published payload
         run: |
@@ -151,13 +195,20 @@ jobs:
         run: |
           set -euo pipefail
           WORKTREE="$(mktemp -d)"
+          AUTH="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin \
-            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null 2>&1; then
-            git fetch --depth=1 origin "$STATE_BRANCH"
+          set +e
+          git -c http.extraheader="$AUTH" ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "::error::Could not reach origin to persist $STATE_BRANCH (git exit $status)."
+            exit 1
+          fi
+          if [ "$status" -eq 0 ]; then
+            git -c http.extraheader="$AUTH" fetch --depth=1 origin "$STATE_BRANCH"
             git worktree add --no-checkout "$WORKTREE" FETCH_HEAD
             git -C "$WORKTREE" checkout FETCH_HEAD -- . 2>/dev/null || true
           else
@@ -174,7 +225,7 @@ jobs:
             echo "Event store unchanged; nothing to persist."
           else
             git -C "$WORKTREE" commit -m "perf-eval state: run ${GITHUB_RUN_ID}"
-            git -C "$WORKTREE" push origin "HEAD:${STATE_BRANCH}"
+            git -C "$WORKTREE" -c http.extraheader="$AUTH" push origin "HEAD:${STATE_BRANCH}"
           fi
           git worktree remove --force "$WORKTREE"
 
@@ -188,7 +239,7 @@ jobs:
       - name: Deploy to GitHub Pages
         if: >-
           (steps.changed.outputs.changed == 'true' || github.event_name != 'schedule') &&
-          (github.event_name != 'workflow_dispatch' || inputs.deploy != 'false')
+          (github.event_name != 'workflow_dispatch' || inputs.deploy)
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

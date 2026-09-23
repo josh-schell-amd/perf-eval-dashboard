@@ -394,3 +394,38 @@ def test_store_is_unchanged_by_a_dry_run(fake, tmp_path):
         for line in store.read_text(encoding="utf-8").splitlines()
         if line
     )
+
+
+def test_a_collection_with_nothing_new_leaves_the_payload_unchanged(fake, monkeypatch, tmp_path):
+    # The deploy check compares payloads, so anything a no-op collection
+    # restamps (the recipe snapshot's time, say) would make every scheduled
+    # run deploy.
+    from perf_eval import aggregate as agg
+    from perf_eval.payload_changed import payload_changed
+    from perf_eval.store import read_events_strict
+
+    store = tmp_path / "events.jsonl"
+    fake([nightly_build(1000 + i) for i in range(3)])
+    recipe = (
+        {
+            "name": "test_8b-mi355x",
+            "device": "mi355x",
+            "tp": 4,
+            "precision": "fp8",
+            "model": "org/Model",
+            "nightly": True,
+        },
+        {"cfg0": {"isl": 1024, "osl": 1024, "conc": 128}},
+    )
+    monkeypatch.setattr(ca, "fetch_workload_map", lambda _token: {"test_8b-mi355x": recipe})
+    # A clock that moves on every call, so each collection stamps new times.
+    ticks = iter(range(10_000))
+    monkeypatch.setattr(ca, "utcnow_iso", lambda: f"2026-06-10T00:{next(ticks) % 60:02d}:00Z")
+
+    ca.collect(store, days=14, bk_token="t", gh_token="", budget=ca.RequestBudget())
+    first = agg.aggregate(read_events_strict(store))
+    ca.collect(store, days=14, bk_token="t", gh_token="", budget=ca.RequestBudget())
+    second = agg.aggregate(read_events_strict(store))
+
+    assert first["expected"]["configs"], "the recipe snapshot should be recorded"
+    assert not payload_changed(first, second)
