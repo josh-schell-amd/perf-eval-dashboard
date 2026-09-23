@@ -132,6 +132,9 @@ def compact_events(events: list[dict], *, now: datetime | None = None) -> list[d
     newest observation winning), the newest expected_configs snapshot, and the
     IDs of artifacts downloaded in that time, folded into one index event.
     Everything else is dropped.
+
+    ``now`` is only for tests, which pass a fixed date so the 14-day cutoff
+    gives the same result on any day.
     """
     now = (now or datetime.now(UTC)).astimezone(UTC)
     cutoff = now - timedelta(days=WINDOW_DAYS)
@@ -210,6 +213,8 @@ def _write_atomic(path: Path, data: bytes) -> None:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
+        # mkstemp creates the file owner-only (0600); give the result normal
+        # read permissions (0644), since it replaces the real file.
         os.chmod(temp_path, 0o644)
         os.replace(temp_path, path)
     finally:

@@ -1,9 +1,4 @@
-"""Tests for the local secret scanner that gates every push and pull request.
-
-The scanner deliberately detects known token shapes only. Other providers and
-git history are left to GitHub push protection; see the module docstring in
-secrets_scan.py.
-"""
+"""Tests for the secret scanner that gates every push and pull request."""
 
 from __future__ import annotations
 

@@ -1,35 +1,11 @@
 #!/usr/bin/env python3
-"""Fast local check for credentials accidentally committed to the tree.
-
-Run locally::
+"""Fail if a GitHub, Buildkite or HuggingFace token appears in the repo.
 
     python scripts/perf_eval/secrets_scan.py
 
-Run in CI (``.github/workflows/secrets-scan.yml``) on every push and pull
-request. Exits non-zero if anything looks like a real
-credential, so a PR is blocked before the secret reaches a default branch.
-
-Scope, deliberately narrow
---------------------------
-This looks for **known token shapes only**: a fixed prefix followed by a run
-of at least N characters from a known alphabet. That is all a GitHub or
-Buildkite token is, so it is expressed as a table of those three facts rather
-than as regular expressions — adding a provider is one line of data, and there
-is no pattern to misread in review.
-
-It deliberately does *not* try to detect "anything that looks secret". An
-earlier version flagged any run of 40+ hex characters, which in practice
-detected git commit SHAs rather than credentials, and needed three separate
-suppression mechanisms to stay usable. Other providers and git history are
-left to GitHub secret scanning and push protection; this file attempts
-neither.
-
-Allowlist
----------
-Paths skipped for cost rather than correctness: vendored third-party bundles,
-build output, virtualenvs and caches. Keep it short — if you find yourself
-adding a path so a real-looking match goes away, check it is genuinely safe
-first.
+Runs in CI on every push and pull request. It checks known token shapes only
+(a prefix plus a run of allowed characters, listed in TOKEN_SHAPES); other
+providers and git history are left to GitHub push protection.
 """
 
 from __future__ import annotations
