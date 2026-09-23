@@ -15,7 +15,7 @@ def payload(**overrides):
         "generated_at": "2026-01-01T00:00:00Z",
         "models": [{"model": "m", "nightly_count": 3}],
         "summary": {"models": 1, "nightlies": 3},
-        "retention": {"nightly_limit": 180, "adaptive": False},
+        "retention": {"display_window_days": 14, "event_history_days": 30},
     }
     base.update(overrides)
     return base
@@ -48,8 +48,8 @@ class TestMaterialChanges:
         new = payload(models=[{"model": "m", "metrics": {"tput": {"latest": 101.0}}}])
         assert pc.payload_changed(old, new) is True
 
-    def test_adaptive_retention_kicking_in_is_a_change(self):
-        new = payload(retention={"nightly_limit": 90, "adaptive": True})
+    def test_a_retention_change_is_a_change(self):
+        new = payload(retention={"display_window_days": 7, "event_history_days": 30})
         assert pc.payload_changed(payload(), new) is True
 
     def test_key_order_is_not_a_change(self):
@@ -122,27 +122,32 @@ class TestCli:
 
 
 class TestAgainstRealAggregateOutput:
-    def test_a_day_passing_is_not_a_change(self):
-        """Regression: the 14-day window sliding overnight is not new data.
-
-        `retention.window_nightlies` used to be published and was derived from
-        "now", so one nightly falling out of the window changed the payload
-        and forced a deploy with no new results.
-        """
-        events = [
+    def _nights(self, days_ago: list[float], when: datetime):
+        return [
             perf_result(
                 commit=f"{index:040x}",
-                date=(datetime(2026, 2, 1, tzinfo=UTC) - timedelta(days=index)).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                ),
+                date=(when - timedelta(days=ago)).strftime("%Y-%m-%d %H:%M:%S"),
                 build_number=1000 + index,
             )
-            for index in range(20)
+            for index, ago in enumerate(days_ago)
         ]
+
+    def test_a_day_passing_is_not_a_change(self):
+        # No nightly crosses the window edge, so nothing new to publish.
         when = datetime(2026, 2, 1, tzinfo=UTC)
+        events = self._nights([1, 3, 8], when)
         today = agg.bounded_aggregate(events, generated_at=when)
         tomorrow = agg.bounded_aggregate(events, generated_at=when + timedelta(days=1))
         assert pc.payload_changed(today, tomorrow) is False
+
+    def test_a_nightly_leaving_the_window_is_a_change(self):
+        # The payload publishes only the window, so this deploys, at most once
+        # per nightly that ages out.
+        when = datetime(2026, 2, 1, tzinfo=UTC)
+        events = self._nights([1, 3, 13.5], when)
+        today = agg.bounded_aggregate(events, generated_at=when)
+        tomorrow = agg.bounded_aggregate(events, generated_at=when + timedelta(days=1))
+        assert pc.payload_changed(today, tomorrow) is True
 
     def test_two_runs_over_the_same_events_differ_only_by_timestamp(self):
         events = [perf_result()]

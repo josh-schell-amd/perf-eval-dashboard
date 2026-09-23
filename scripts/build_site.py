@@ -5,7 +5,7 @@ Copies ``site/`` into ``_site/``, drops ``data/perf_eval.json`` alongside
 ``index.html`` (the page fetches it as a sibling), and cache-busts the fetch so
 a browser holding a stale copy of the JSON picks up a fresh deploy.
 
-Only ``perf_eval.json`` is published. The private ``events.jsonl`` event store
+Only ``perf_eval.json`` is published. The ``events.jsonl`` event store
 is never copied into the site.
 """
 

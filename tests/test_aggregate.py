@@ -374,64 +374,27 @@ class TestWhatCountsAsANightly:
 
 
 class TestBoundedAggregate:
-    """Retention publishes as much history as fits, with no fixed ceiling.
+    """The payload publishes the display window plus the newest nightly."""
 
-    The only hard rule is that nightlies inside the display window are never
-    shed: the window is a promise the page makes, and publishing less than it
-    would make the page show a shorter history than it claims with nothing on
-    screen saying so.
-    """
-
-    def _old_nightlies(self, count: int, *, days_ago_start: int = 400):
-        """Nightlies well outside the display window, newest last."""
+    def _nights(self, days_ago: list[int]):
         return [
             perf_result(
                 commit=f"{index:040x}",
-                date=(NOW - timedelta(days=days_ago_start - index)).strftime("%Y-%m-%d %H:%M:%S"),
+                date=(NOW - timedelta(days=ago)).strftime("%Y-%m-%d %H:%M:%S"),
                 build_number=1000 + index,
             )
-            for index in range(count)
+            for index, ago in enumerate(days_ago)
         ]
 
-    def test_full_history_fits_the_default_budget(self):
-        payload = agg.bounded_aggregate(self._old_nightlies(5), generated_at=NOW)
-        assert payload["retention"]["trimmed"] is False
-        assert payload["retention"]["nightlies_published"] == 5
-        assert len(_metric(payload)["series"]) == 5
+    def test_only_nightlies_inside_the_window_are_published(self):
+        payload = agg.bounded_aggregate(self._nights([1, 5, 13, 20, 29]), generated_at=NOW)
+        assert len(_metric(payload)["series"]) == 3
 
-    def test_there_is_no_fixed_nightly_ceiling(self):
-        # The old implementation capped at 180 regardless of budget. Nothing
-        # should cap it but the byte budget and what the store holds.
-        payload = agg.bounded_aggregate(self._old_nightlies(200, days_ago_start=900))
-        assert payload["retention"]["nightlies_published"] == 200
-        assert payload["retention"]["trimmed"] is False
-
-    def test_older_history_is_trimmed_a_whole_nightly_at_a_time(self):
-        events = self._old_nightlies(20)
-        payload = agg.bounded_aggregate(events, generated_at=NOW, max_bytes=6000)
-        assert payload["retention"]["trimmed"] is True
+    def test_a_stalled_nightly_still_publishes_its_newest_run(self):
+        # The page needs it to say how old the last run is.
+        payload = agg.bounded_aggregate(self._nights([40, 25]), generated_at=NOW)
         series = _metric(payload)["series"]
-        assert 0 < len(series) < 20
-        # Trimming keeps the newest nightlies, so the latest value survives.
-        assert series[-1]["value"] == 100.0
-
-    def test_nightlies_inside_the_window_survive_a_tiny_budget(self):
-        # This is the guarantee. A budget far too small for the data must not
-        # silently drop days the page is going to render.
-        in_window = [
-            perf_result(
-                commit=f"{index:040x}",
-                date=(NOW - timedelta(days=index)).strftime("%Y-%m-%d %H:%M:%S"),
-                build_number=2000 + index,
-            )
-            for index in range(10)
-        ]
-        payload = agg.bounded_aggregate(
-            self._old_nightlies(40) + in_window, generated_at=NOW, max_bytes=9000
-        )
-        assert payload["retention"]["trimmed"] is True
-        # Every in-window nightly is still present, whatever was trimmed.
-        assert len(_metric(payload)["series"]) >= 10
+        assert [point["build_number"] for point in series] == [1001]
 
     def test_an_unfittable_window_raises_rather_than_under_delivering(self):
         with pytest.raises(RuntimeError, match="display window"):
@@ -448,18 +411,13 @@ class TestBoundedAggregate:
         payload = agg.bounded_aggregate([perf_result()], generated_at=NOW)
         retention = payload["retention"]
         assert retention["display_window_days"] == agg.DISPLAY_WINDOW_DAYS
-        assert retention["event_history_days"] == 180
+        assert retention["event_history_days"] == 30
         assert retention["max_bytes"] > 0
-        assert retention["nightlies_available"] >= retention["nightlies_published"] - 1
 
-    def test_no_field_is_derived_from_the_clock(self):
-        """Every retention field must depend on the data, not on "now".
-
-        A clock-derived field drifts as the window slides and triggers a
-        deploy with no new results — the exact problem `generated_at` causes,
-        which the deploy gate exists to suppress.
-        """
-        events = self._old_nightlies(5)
+    def test_no_retention_field_is_derived_from_the_clock(self):
+        # A clock-derived field would change daily with no new results and
+        # defeat the deploy check.
+        events = self._nights([1, 3])
         today = agg.bounded_aggregate(events, generated_at=NOW)
         tomorrow = agg.bounded_aggregate(events, generated_at=NOW + timedelta(days=1))
         assert today["retention"] == tomorrow["retention"]
@@ -515,26 +473,6 @@ class TestExpectedIsPublished:
         payload = agg.aggregate([snapshot], generated_at=NOW)
         assert payload["models"] == []
         assert payload["summary"]["nightlies"] == 0
-
-
-class TestRetentionCandidates:
-    def test_starts_at_everything_and_ends_at_the_floor(self):
-        candidates = agg._retention_candidates(100, 10)
-        assert candidates[0] == 100
-        assert candidates[-1] == 10
-
-    def test_converges_quickly_rather_than_stepping_one_at_a_time(self):
-        assert len(agg._retention_candidates(10_000, 14)) < 15
-
-    def test_never_offers_less_than_the_floor(self):
-        assert min(agg._retention_candidates(100, 30)) == 30
-
-    def test_a_floor_above_what_exists_is_still_tried(self):
-        assert agg._retention_candidates(3, 14) == [14]
-
-    def test_descends_monotonically(self):
-        candidates = agg._retention_candidates(500, 7)
-        assert candidates == sorted(candidates, reverse=True)
 
 
 class TestBaselinesArePublished:

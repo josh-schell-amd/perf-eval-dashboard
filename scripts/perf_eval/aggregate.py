@@ -85,9 +85,8 @@ DEFAULT_OUTPUT = ROOT / "data" / "perf_eval.json"
 PERF_REL_THRESHOLD = 0.005
 ACCURACY_ABS_THRESHOLD = 0.01
 
-# How many days the dashboard renders. Published in the payload so the page
-# and this module cannot drift apart, and so retention can guarantee the page
-# is never handed less history than it claims to show.
+# Days the dashboard shows, and so the days the payload publishes. The page
+# reads it from the payload, so the two cannot drift apart.
 DISPLAY_WINDOW_DAYS = 14
 
 # The regression model, published so the page labels it from data rather than
@@ -525,22 +524,6 @@ def aggregate(events: list[dict], *, generated_at: datetime | None = None) -> di
     }
 
 
-def _retention_candidates(available: int, floor: int) -> list[int]:
-    """Descending nightly counts to try, always ending at ``floor``.
-
-    Starts by publishing everything and halves down, so a payload that fits
-    needs one pass and a large one converges in a handful. There is no fixed
-    ceiling: the only limits are what the store holds and the byte budget.
-    """
-    candidates: list[int] = []
-    limit = max(available, floor)
-    while limit > floor:
-        candidates.append(limit)
-        limit = max(floor, limit // 2)
-    candidates.append(floor)
-    return candidates
-
-
 def bounded_aggregate(
     events: list[dict],
     *,
@@ -548,17 +531,12 @@ def bounded_aggregate(
     max_bytes: int = SUMMARY_MAX_BYTES,
     display_window_days: int = DISPLAY_WINDOW_DAYS,
 ) -> dict:
-    """Build a payload, shedding only history the dashboard does not render.
+    """Build the payload from the nightlies the page can show.
 
-    Publishes as much history as fits the byte budget, starting from
-    everything the store holds. History is shed a whole nightly at a time, so
-    a partial nightly is never presented as a complete comparison.
-
-    Nightlies inside the display window are never shed. The window is a
-    promise the page makes to the reader; quietly publishing less than it
-    would make the page show a shorter history than it claims, with nothing
-    on screen saying so. If even the window cannot fit, this raises rather
-    than publishing a payload that silently under-delivers.
+    Publishes the nightlies inside the display window, plus the newest one
+    whatever its age, so a stalled nightly still tells the page how old the
+    last run is. Older history stays in the event store; the page never reads
+    it. Fails rather than trimming if even that exceeds the byte ceiling.
     """
     max_bytes = enforced_byte_budget(max_bytes, cap=SUMMARY_MAX_BYTES)
     timestamp = (generated_at or datetime.now(UTC)).astimezone(UTC)
@@ -569,50 +547,36 @@ def bounded_aggregate(
         identity = nightly_identity(event)
         observed_at = _parse_ts(event)
         nightly_latest[identity] = max(nightly_latest.get(identity, observed_at), observed_at)
-    ordered_nightlies = [
-        identity
-        for identity, _ in sorted(nightly_latest.items(), key=lambda item: (item[1], item[0]))
-    ]
 
     window_start = timestamp - timedelta(days=display_window_days)
-    protected = {
+    published = {
         identity for identity, last_seen in nightly_latest.items() if last_seen >= window_start
     }
+    if nightly_latest:
+        published.add(
+            max(nightly_latest, key=lambda identity: (nightly_latest[identity], identity))
+        )
 
-    payload: dict | None = None
-    for limit in _retention_candidates(len(ordered_nightlies), len(protected)):
-        allowed = set(ordered_nightlies[-limit:]) | protected
-        selected = [
-            event
-            for event in events
-            if not _is_in_scope(event) or nightly_identity(event) in allowed
-        ]
-        payload = aggregate(selected, generated_at=timestamp)
-        payload["retention"] = {
-            "display_window_days": display_window_days,
-            "event_history_days": PERF_EVAL_HISTORY_DAYS,
-            "artifact_identity_days": ARTIFACT_IDENTITY_DAYS,
-            "max_bytes": max_bytes,
-            "nightlies_available": len(ordered_nightlies),
-            "nightlies_published": len(allowed),
-            "trimmed": len(allowed) < len(ordered_nightlies),
-            # Deliberately not publishing the in-window nightly count. It is
-            # derived from "now" rather than from the data, so it drifts as the
-            # window slides and would trigger a deploy every day with no new
-            # results — the same problem `generated_at` causes, which the
-            # deploy gate exists to suppress. The page counts in-window
-            # nightlies itself for the footer.
-        }
-        if len(encoded_json(payload)) <= max_bytes:
-            return payload
-
-    required = len(encoded_json(payload)) if payload is not None else 0
-    raise RuntimeError(
-        f"perf_eval.json needs {required} bytes for just the {len(protected)} nightlies "
-        f"inside the {display_window_days}-day display window, over the {max_bytes} byte "
-        "budget. Raise SUMMARY_MAX_BYTES or narrow DISPLAY_WINDOW_DAYS — do not let the "
-        "published payload fall short of what the page renders."
-    )
+    selected = [
+        event for event in events if not _is_in_scope(event) or nightly_identity(event) in published
+    ]
+    payload = aggregate(selected, generated_at=timestamp)
+    # Nothing here derives from the clock, so an unchanged store publishes an
+    # unchanged block and the deploy check can skip.
+    payload["retention"] = {
+        "display_window_days": display_window_days,
+        "event_history_days": PERF_EVAL_HISTORY_DAYS,
+        "artifact_identity_days": ARTIFACT_IDENTITY_DAYS,
+        "max_bytes": max_bytes,
+    }
+    size = len(encoded_json(payload))
+    if size > max_bytes:
+        raise RuntimeError(
+            f"perf_eval.json needs {size} bytes for the {len(published)} nightlies in the "
+            f"{display_window_days}-day display window, over the {max_bytes} byte ceiling. "
+            "Raise SUMMARY_MAX_BYTES or narrow DISPLAY_WINDOW_DAYS; nothing is trimmed to fit."
+        )
+    return payload
 
 
 def main() -> int:

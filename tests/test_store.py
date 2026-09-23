@@ -173,6 +173,41 @@ class TestCompaction:
         assert len([e for e in compacted if e["event"] == "perf_result"]) == 1
 
 
+class TestRetentionPolicy:
+    def _night(self, days_ago: int, n: int) -> dict:
+        day = NOW - datetime.timedelta(days=days_ago)
+        return perf_result(
+            commit=f"{n:040x}",
+            date=day.strftime("%Y-%m-%d %H:%M:%S"),
+            received_at=day.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            build_number=n,
+        )
+
+    def test_history_covers_the_collector_lookback(self):
+        # Shorter than the lookback, a backfill would re-download pruned results.
+        assert store.PERF_EVAL_HISTORY_DAYS >= store.MAX_ARTIFACT_LOOKBACK_DAYS
+
+    def test_thirty_days_are_kept_and_older_results_dropped(self):
+        events = [self._night(1, 1), self._night(2, 2), self._night(20, 3), self._night(40, 4)]
+        compacted = store.compact_events(events, now=NOW)
+        kept = {e["build_number"] for e in compacted if e["event"] == "perf_result"}
+        assert kept == {1, 2, 3}
+
+    def test_the_newest_nightlies_survive_however_old(self):
+        # A stalled nightly must still let the page say how old the last run is.
+        events = [self._night(90, 1), self._night(100, 2)]
+        compacted = store.compact_events(events, now=NOW)
+        assert len([e for e in compacted if e["event"] == "perf_result"]) == 2
+
+    def test_over_the_ceiling_fails_instead_of_dropping_history(self):
+        events = [self._night(1, 1), self._night(2, 2), self._night(20, 3)]
+        # Enough for the two newest nights alone, not for all three: an older
+        # design would have dropped night 3 to fit.
+        fits_without_oldest = len(store.encoded_events(store.compact_events(events[:2], now=NOW)))
+        with pytest.raises(RuntimeError, match="Nothing was written"):
+            store.compact_events(events, now=NOW, max_bytes=fits_without_oldest)
+
+
 class TestExpectedConfigsSnapshot:
     """The recipe expectation is a singleton that retention must not discard.
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -117,11 +118,13 @@ class TestMergeEventFiles:
         # A compacted remote store can legitimately hold fewer lines while
         # covering the same nightlies, which is why we merge identities rather
         # than compare line counts.
+        # Recent dates: the merge compacts against the real clock.
+        days = [datetime.now(UTC) - timedelta(days=5 - index) for index in range(5)]
         local = write_store(
             tmp_path / "local.jsonl",
             [
-                perf_result(commit=f"{index:040x}", date=f"2026-01-{index + 1:02d} 00:00:00")
-                for index in range(5)
+                perf_result(commit=f"{index:040x}", date=day.strftime("%Y-%m-%d %H:%M:%S"))
+                for index, day in enumerate(days)
             ],
         )
         remote = write_store(tmp_path / "remote.jsonl", [perf_result(commit=f"{0:040x}")])

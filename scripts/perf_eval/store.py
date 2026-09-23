@@ -1,18 +1,14 @@
-"""Bounded, atomic event store for perf-eval results.
+"""Atomic event store for perf-eval results.
 
-``events.jsonl`` is an append-only-ish JSONL log of canonical events. Every
-write goes through :func:`write_events_atomic`, which applies deterministic
-retention until the encoded bytes fit the budget, then replaces the file
-atomically. That keeps the store from growing without bound while guaranteeing
-a crash mid-write can never leave a truncated log behind.
+``events.jsonl`` is a JSONL log of canonical events. Every write goes through
+:func:`write_events_atomic`, which applies retention (a fixed number of days)
+and replaces the file atomically, so a crash mid-write never leaves a
+truncated log.
 
-Two separate budgets apply, for different reasons:
+Both budgets are ceilings that fail the write, never targets that trim to fit:
 
-* :data:`EVENTS_MAX_BYTES` bounds the private event log, which only ever lives
-  on the ``dashboard-state`` branch and is read by CI.
-* :data:`SUMMARY_MAX_BYTES` bounds the published ``perf_eval.json``, which a
-  browser downloads on every page load, so it is held deliberately tighter
-  than the event log.
+* :data:`EVENTS_MAX_BYTES` for the unpublished event log.
+* :data:`SUMMARY_MAX_BYTES` for the published ``perf_eval.json``.
 """
 
 from __future__ import annotations
@@ -26,22 +22,22 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# The private event log is server-side only: CI reads it, nobody downloads it.
+# Ceilings, far above normal use (30 days of the event log is about 1 MB). A
+# write that would exceed one fails instead of dropping history to fit.
 EVENTS_MAX_BYTES = 24 * 1024 * 1024
-# The published payload is fetched by every browser that opens the dashboard,
-# so it stays well below the event log's allowance.
 SUMMARY_MAX_BYTES = 8 * 1024 * 1024
 
-# Six months normally remain available for trend inspection. If an unusually
-# wide workload set reaches the byte budget first, the policy ladder below
-# shortens history while retaining at least two complete nightlies for deltas.
-PERF_EVAL_HISTORY_DAYS = 180
-PERF_EVAL_MIN_NIGHTLIES = 30
-
-# Artifact collection supports at most a 30-day Buildkite lookback. Retain
-# exact artifact identities longer than that window so pruning result history
-# cannot make an already-ingested artifact eligible for a repeated download.
+# The collector can re-scan up to 30 days of Buildkite builds, so results are
+# kept that long: dropping them sooner would let a backfill download them
+# again. The page itself shows 14 days.
 MAX_ARTIFACT_LOOKBACK_DAYS = 30
+PERF_EVAL_HISTORY_DAYS = MAX_ARTIFACT_LOOKBACK_DAYS
+# The newest nightlies are kept whatever their age, so if the nightly stops,
+# the page can still say how old the last run is.
+PERF_EVAL_MIN_NIGHTLIES = 2
+
+# Downloaded-artifact identities outlive the results a little, so pruning a
+# result never makes its artifact look new to the collector.
 ARTIFACT_IDENTITY_DAYS = 45
 
 ARTIFACT_MARKER_EVENT = "buildkite_artifact_ingested"
@@ -57,16 +53,8 @@ EXPECTED_CONFIGS_EVENT = "expected_configs"
 
 RESULT_EVENTS = frozenset({"perf_result", "accuracy_result"})
 
-# (history_days, min_nightlies_retained, auxiliary_event_days)
-_STORE_POLICIES = (
-    (PERF_EVAL_HISTORY_DAYS, PERF_EVAL_MIN_NIGHTLIES, 30),
-    (120, 20, 30),
-    (90, 14, 30),
-    (60, 10, 30),
-    (45, 7, 30),
-    (30, 4, 30),
-    (14, 2, 14),
-)
+# Days to keep non-nightly and bookkeeping events.
+AUXILIARY_EVENT_DAYS = 30
 
 _EPOCH = datetime.datetime.min.replace(tzinfo=datetime.UTC)
 
@@ -374,26 +362,24 @@ def compact_events(
     now: datetime.datetime | None = None,
     max_bytes: int = EVENTS_MAX_BYTES,
 ) -> list[dict]:
-    """Apply deterministic retention until the exact JSONL bytes fit budget."""
+    """Apply the fixed retention; fail rather than drop history to fit."""
     max_bytes = enforced_byte_budget(max_bytes, cap=EVENTS_MAX_BYTES)
     current_time = (now or datetime.datetime.now(datetime.UTC)).astimezone(datetime.UTC)
-    smallest: list[dict] = []
-    for history_days, min_nightlies, auxiliary_days in _STORE_POLICIES:
-        candidate = _compact_events_once(
-            events,
-            current_time,
-            history_days=history_days,
-            min_nightlies=min_nightlies,
-            auxiliary_days=auxiliary_days,
-        )
-        smallest = candidate
-        if len(encoded_events(candidate)) <= max_bytes:
-            return candidate
-    required = len(encoded_events(smallest))
-    raise RuntimeError(
-        "perf-eval events cannot fit the byte budget while preserving two "
-        f"nightlies and the artifact dedup horizon: {required} > {max_bytes} bytes"
+    compacted = _compact_events_once(
+        events,
+        current_time,
+        history_days=PERF_EVAL_HISTORY_DAYS,
+        min_nightlies=PERF_EVAL_MIN_NIGHTLIES,
+        auxiliary_days=AUXILIARY_EVENT_DAYS,
     )
+    size = len(encoded_events(compacted))
+    if size > max_bytes:
+        raise RuntimeError(
+            f"perf-eval events need {size} bytes for {PERF_EVAL_HISTORY_DAYS} days of "
+            f"history, over the {max_bytes} byte ceiling. Nothing was written. Raise "
+            "EVENTS_MAX_BYTES rather than letting history be dropped to fit."
+        )
+    return compacted
 
 
 def _atomic_write_bytes(path: Path, payload: bytes, *, max_bytes: int) -> None:

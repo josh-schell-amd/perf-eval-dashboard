@@ -1996,16 +1996,9 @@ function renderChrome() {
   const url = safeUrl((DATA.pipeline || {}).url) || 'https://buildkite.com/vllm/perf-eval';
   document.getElementById('pipeline-link').href = url;
   document.getElementById('pipeline-link-footer').href = url;
-  // Describe this view's window, not the store's retention.
-  const retention = DATA.retention || {};
   const parts = ['Showing the last ' + WINDOW_DAYS + ' days'];
   const nightlies = nightliesInWindow();
   if (nightlies) parts.push(nightlies + (nightlies === 1 ? ' nightly' : ' nightlies'));
-  // Nightlies inside the window are never trimmed, only older history.
-  if (retention.trimmed && retention.nightlies_published) {
-    parts.push('older history trimmed to ' + retention.nightlies_published
-      + ' of ' + retention.nightlies_available + ' nightlies to fit the payload budget');
-  }
   document.getElementById('retention-note').textContent = parts.join(' · ');
 }
 

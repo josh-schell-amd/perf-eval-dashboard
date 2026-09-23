@@ -98,7 +98,7 @@ Buildkite vllm/perf-eval            GitHub vllm-project/perf-eval
 
 Two branches, on purpose:
 
-- **`dashboard-state`** holds `data/events.jsonl`, the private event log. It
+- **`dashboard-state`** holds `data/events.jsonl`, the unpublished event log. It
   churns on every collection and is never published to the site.
 - **`gh-pages`** holds the built site and `perf_eval.json`.
 - **`main`** holds only source, so data commits never pollute its history.
@@ -345,7 +345,7 @@ deliberately pass non-boolean values to prove only a literal `True` counts.
     }]
   }],
   "summary":   { "models": 1, "amd_devices": ["mi355x"], "nightlies": 12, "perf_points": 96, "accuracy_points": 12 },
-  "retention": { "event_history_days": 180, "nightly_limit": 180, "adaptive": false }
+  "retention": { "display_window_days": 14, "event_history_days": 30, "artifact_identity_days": 45, "max_bytes": 8388608 }
 }
 ```
 
@@ -642,18 +642,26 @@ direction is one redundant deploy rather than a silently unpublished update.
 
 ## Retention
 
-Both stores are byte-bounded and written atomically, so a crash mid-write
-cannot leave a truncated file behind.
+Fixed rules, never size-driven. Both files are written atomically, so a crash
+mid-write cannot leave a truncated file.
 
-| Store | Budget | Why |
+| File | Keeps | Ceiling |
 |---|---|---|
-| `data/events.jsonl` | 24 MiB | Server-side only; CI reads it, nobody downloads it |
-| `data/perf_eval.json` | 8 MiB | Downloaded by every browser that opens the page |
+| `data/events.jsonl` | 30 days, plus the 2 newest nightlies whatever their age | 24 MiB |
+| `data/perf_eval.json` | The 14-day display window, plus the newest nightly | 8 MiB |
 
-Retention targets 180 days. If an unusually wide workload set hits the byte
-budget first, history is shed a **whole nightly at a time**, newest kept, so a
-partial nightly is never presented as a complete comparison. When that
-happens, `retention.adaptive` is `true` and the page says so in the footer.
+The event log keeps 30 days because the collector can re-scan up to 30 days of
+builds; dropping results sooner would let a backfill download them again. The
+payload publishes only what the page shows. The newest nightly is always kept
+so that, if the nightly stops, the page can still say how old the last run is.
+
+The ceilings are far above normal use (30 days of the log is about 1 MB). A
+write that would exceed one **fails** and leaves the previous file in place;
+nothing is dropped to make it fit.
+
+The `dashboard-state` branch is an ordinary branch in this repository: it is
+unpublished (Pages serves `gh-pages` only), but anyone who can read the
+repository can read it.
 
 ## Licence
 

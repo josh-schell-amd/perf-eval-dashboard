@@ -8,6 +8,7 @@ be asserted exactly rather than estimated.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -22,16 +23,19 @@ def nightly_build(number: int) -> dict:
     # reusing one would make the store correctly fold every build into a single
     # nightly and the request accounting would measure the wrong thing.
     commit = f"{number:040x}"
+    # Dated relative to today: collect() compacts the store against the real
+    # clock, so fixed dates would age out of retention as the calendar moves.
+    day = (datetime.now(UTC) - timedelta(days=15 - (number - 1000))).strftime("%Y-%m-%d")
     return {
         "number": number,
         "branch": "main",
-        "message": f"Nightly run 2026-06-{number - 999:02d}: commit {commit}",
+        "message": f"Nightly run {day}: commit {commit}",
         "state": "finished",
         "source": "schedule",
         "web_url": f"https://buildkite.com/vllm/perf-eval/builds/{number}",
         "commit": "f" * 40,
-        "created_at": f"2026-06-{number - 999:02d}T02:00:00Z",
-        "finished_at": f"2026-06-{number - 999:02d}T05:00:00Z",
+        "created_at": f"{day}T02:00:00Z",
+        "finished_at": f"{day}T05:00:00Z",
         "env": {},
     }
 

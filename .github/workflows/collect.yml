@@ -4,7 +4,7 @@ name: Collect and Deploy
 # published payload, and deploys the static site.
 #
 # Branch model:
-#   dashboard-state  private data/events.jsonl (never published)
+#   dashboard-state  data/events.jsonl (unpublished, but readable by anyone who can read the repo)
 #   gh-pages         built site + perf_eval.json
 #   main             source only
 on:
@@ -103,7 +103,7 @@ jobs:
       # (ls-remote exit 2) is a first run; any other failure stops the run,
       # because starting from an empty store would later overwrite the real
       # one and lose everything older than the lookback.
-      - name: Restore the private event store
+      - name: Restore the event store
         env:
           STATE_BRANCH: dashboard-state
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -212,7 +212,7 @@ jobs:
             --current data/perf_eval.json \
             --previous /tmp/previous_perf_eval.json
 
-      - name: Persist the private event store
+      - name: Persist the event store
         env:
           STATE_BRANCH: dashboard-state
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
