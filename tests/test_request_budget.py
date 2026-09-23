@@ -71,7 +71,7 @@ class FakeBuildkite:
             for index in range(self.artifacts_per_build)
         ]
 
-    def download(self, url, token, budget=None):
+    def download(self, url, token, budget=None, label=""):
         self.downloads.append(url)
         if budget:
             budget.charge("download")
@@ -270,6 +270,67 @@ class TestRetriesAreCharged:
         with pytest.raises(RuntimeError):
             ca._bk_get("/x", "token", budget=budget)
         assert budget.listings == attempts["n"] == ca.BK_GET_MAX_ATTEMPTS
+
+
+class _DownloadResponse:
+    def __init__(self, status_code, body=None):
+        self.status_code = status_code
+        self._body = body
+        self.headers: dict = {}
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("not json")
+        return self._body
+
+
+class TestDownloads:
+    SIGNED = "https://bucket.s3.amazonaws.com/a.json?X-Amz-Signature=secret"
+
+    def _serve(self, monkeypatch, responses):
+        calls = {"n": 0}
+
+        def fake_get(*_args, **_kwargs):
+            response = responses[min(calls["n"], len(responses) - 1)]
+            calls["n"] += 1
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+        monkeypatch.setattr(ca.requests, "get", fake_get)
+        monkeypatch.setattr(ca.time, "sleep", lambda _s: None)
+        return calls
+
+    def test_a_transient_failure_is_retried(self, monkeypatch):
+        calls = self._serve(monkeypatch, [_DownloadResponse(503), _DownloadResponse(200, {"a": 1})])
+        budget = ca.RequestBudget()
+        assert ca._bk_download_json(self.SIGNED, "t", budget=budget) == {"a": 1}
+        assert calls["n"] == budget.downloads == 2
+
+    def test_exhausted_retries_fail_the_run(self, monkeypatch):
+        # Returning None would lose the artifact for good: a build that has
+        # other results is never listed again.
+        self._serve(monkeypatch, [_DownloadResponse(429)])
+        with pytest.raises(RuntimeError, match="after 3 attempts"):
+            ca._bk_download_json(self.SIGNED, "t", label="#1 results/wl/bench-a.json")
+
+    def test_a_connection_error_is_retried_then_fails(self, monkeypatch):
+        self._serve(monkeypatch, [ca.requests.exceptions.ConnectionError(self.SIGNED)])
+        with pytest.raises(RuntimeError) as excinfo:
+            ca._bk_download_json(self.SIGNED, "t")
+        assert "Signature" not in str(excinfo.value)
+
+    @pytest.mark.parametrize("response", [_DownloadResponse(404), _DownloadResponse(200)])
+    def test_a_permanent_failure_is_skipped(self, monkeypatch, response):
+        self._serve(monkeypatch, [response])
+        assert ca._bk_download_json(self.SIGNED, "t") is None
+
+    def test_the_signed_url_is_never_logged(self, monkeypatch, caplog):
+        self._serve(monkeypatch, [_DownloadResponse(503), _DownloadResponse(404)])
+        with caplog.at_level("WARNING"):
+            ca._bk_download_json(self.SIGNED, "t", label="#1 results/wl/bench-a.json")
+        assert "results/wl/bench-a.json" in caplog.text
+        assert "Signature" not in caplog.text and "amazonaws" not in caplog.text
 
 
 class TestBudgetSummary:

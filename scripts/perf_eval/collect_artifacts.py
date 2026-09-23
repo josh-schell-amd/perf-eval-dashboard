@@ -27,7 +27,8 @@ and ``GITHUB_TOKEN`` (to read the public workload recipes), we:
 3. download each AMD workload's raw ``bench-*.json`` (perf) and
    ``results_*.json`` (accuracy) artifacts;
 4. transform them into canonical events; and
-5. append only new events, deduped by build + workload + config/task.
+5. append only new events, deduped by build plus model, device, TP, precision
+   and shape (perf) or workload and tasks (accuracy).
 
 Every request is a GET. This collector never writes to Buildkite or GitHub.
 """
@@ -58,6 +59,7 @@ from perf_eval.normalize import (  # noqa: E402
     commit_from_image,
     is_amd_workload,
     normalize_eval_payload,
+    to_float,
     transform_perf,
     utcnow_iso,
 )
@@ -409,6 +411,17 @@ def perf_event(
     image = identity.get("image") or ""
     if not is_amd_workload(image=image, device=device, workload=entry.get("name")):
         return None
+    # A crashed or empty benchmark still writes a bench json. transform_perf
+    # would turn it into zero throughput, which reads as a 100% regression
+    # tonight and a false recovery tomorrow, so it is skipped instead.
+    total = to_float(raw.get("total_token_throughput"))
+    if total is None or total <= 0:
+        log.warning(
+            "Skipping bench result with no positive total_token_throughput (workload=%s build=%s)",
+            entry.get("name"),
+            identity.get("build_number"),
+        )
+        return None
     metrics = transform_perf(raw, tp=entry.get("tp") or 1)
     if not metrics:
         return None
@@ -475,11 +488,16 @@ def accuracy_event(
 def event_key(event: dict) -> tuple:
     """Stable dedupe identity so re-runs never double-append the same result."""
     if event.get("event") == "perf_result":
+        # TP and precision are part of the identity: two recipes can run one
+        # model on one device at the same shape (a TP 4 and a TP 8 variant),
+        # and those are different results, not a retry of one.
         return (
             "perf",
             event.get("build_number"),
             (event.get("model") or "").strip(),
             event.get("device"),
+            event.get("tp"),
+            event.get("precision") or "",
             event.get("isl"),
             event.get("osl"),
             event.get("conc"),
@@ -639,27 +657,74 @@ def _bk_result_artifacts(
 
 
 def _bk_download_json(
-    download_url: str, token: str, budget: RequestBudget | None = None
+    download_url: str,
+    token: str,
+    budget: RequestBudget | None = None,
+    *,
+    label: str = "",
 ) -> dict | None:
     """Download a JSON artifact.
 
     Buildkite redirects to a presigned URL; requests drops the auth header on
     the cross-host hop automatically.
+
+    Transient failures retry like listings do and, once exhausted, fail the
+    run: a build that already has other results is never listed again, so
+    returning None here would lose the artifact for good. A permanent failure
+    (4xx, or a body that is not JSON) is skipped, so one broken artifact cannot
+    block every later collection.
+
+    Logs name the artifact by ``label`` (its path), never by URL: the URL after
+    the redirect carries a signature.
     """
-    if budget:
-        budget.charge("download")
-    try:
-        resp = requests.get(
-            download_url,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=60,
-            allow_redirects=True,
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except (requests.RequestException, ValueError) as exc:
-        log.warning("Failed to download artifact %s: %s", download_url, exc)
-        return None
+    for attempt in range(1, BK_GET_MAX_ATTEMPTS + 1):
+        if budget:
+            budget.charge("download")
+        try:
+            resp = requests.get(
+                download_url,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=60,
+                allow_redirects=True,
+            )
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        ) as exc:
+            if attempt == BK_GET_MAX_ATTEMPTS:
+                raise RuntimeError(
+                    f"Download of artifact {label or '?'} failed after "
+                    f"{BK_GET_MAX_ATTEMPTS} attempts: {type(exc).__name__}"
+                ) from None
+            time.sleep(BK_GET_RETRY_BACKOFF_SECONDS * attempt)
+            continue
+
+        if resp.status_code in BK_GET_RETRYABLE_STATUS_CODES:
+            if attempt == BK_GET_MAX_ATTEMPTS:
+                raise RuntimeError(
+                    f"Download of artifact {label or '?'} returned HTTP "
+                    f"{resp.status_code} after {BK_GET_MAX_ATTEMPTS} attempts"
+                )
+            log.warning(
+                "Artifact %s returned HTTP %d, retry %d/%d",
+                label or "?",
+                resp.status_code,
+                attempt,
+                BK_GET_MAX_ATTEMPTS,
+            )
+            time.sleep(BK_GET_RETRY_BACKOFF_SECONDS * attempt)
+            continue
+
+        if resp.status_code >= 400:
+            log.warning("Skipping artifact %s: HTTP %d", label or "?", resp.status_code)
+            return None
+        try:
+            return resp.json()
+        except ValueError:
+            log.warning("Skipping artifact %s: body is not JSON", label or "?")
+            return None
+    raise AssertionError("unreachable")
 
 
 def fetch_workload_map(gh_token: str) -> dict[str, tuple[dict, dict]]:
@@ -829,7 +894,12 @@ def collect(
             would_download += 1
             if dry_run:
                 continue
-            payload = _bk_download_json(artifact.get("download_url") or "", bk_token, budget=budget)
+            payload = _bk_download_json(
+                artifact.get("download_url") or "",
+                bk_token,
+                budget=budget,
+                label=f"#{number} {provenance['buildkite_artifact_path']}",
+            )
             if payload is None:
                 continue
             if kind[0] == "perf":

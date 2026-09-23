@@ -390,16 +390,20 @@ class TestPerfEvent:
         )
         assert event is None
 
-    def test_result_without_usable_metrics_is_dropped(self):
-        event = ca.perf_event(
-            {"model_id": "org/Model"},
-            entry=self._entry(),
-            config={},
-            identity=self._identity(),
-        )
-        # Throughput defaults to zero, which still yields metrics; a payload
-        # with nothing numeric at all must not fabricate a data point.
-        assert event is not None and event["metrics"]["tput_per_gpu"] == 0.0
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            {"model_id": "org/Model"},  # nothing numeric at all
+            {"error": "server crashed", "completed": 0},
+            {"total_token_throughput": 0.0, "mean_ttft_ms": 120.0},
+            {"total_token_throughput": float("nan")},
+        ],
+    )
+    def test_a_failed_benchmark_is_skipped_not_published_as_zero(self, raw):
+        # Zero throughput would read as a 100% regression tonight and a false
+        # recovery tomorrow.
+        event = ca.perf_event(raw, entry=self._entry(), config={}, identity=self._identity())
+        assert event is None
 
 
 class TestAccuracyEvent:
@@ -434,6 +438,18 @@ class TestEventKey:
             "osl": 1,
         }
         assert ca.event_key({**base, "conc": 1}) != ca.event_key({**base, "conc": 2})
+
+    def test_perf_key_separates_tp_variants_of_one_shape(self):
+        base = {
+            "event": "perf_result",
+            "build_number": 1,
+            "model": "m",
+            "device": "mi355x",
+            "isl": 1,
+            "osl": 1,
+            "conc": 1,
+        }
+        assert ca.event_key({**base, "tp": 4}) != ca.event_key({**base, "tp": 8})
 
     def test_accuracy_key_folds_task_rows(self):
         event = {

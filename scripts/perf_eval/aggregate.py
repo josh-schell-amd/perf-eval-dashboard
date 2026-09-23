@@ -229,12 +229,17 @@ def _strip_internal(series: list[dict]) -> list[dict]:
 
 
 def build_perf_configs(perf_events: list[dict]) -> list[dict]:
-    """Group perf events into per-config metric time series."""
+    """Group perf events into per-config metric time series.
+
+    Keyed on TP and precision as well as shape, the same identity the page
+    uses: a TP 4 and a TP 8 recipe for one model and device are two series.
+    """
     configs: dict[tuple, dict] = {}
     for event in perf_events:
         device = (event.get("device") or "").strip()
         isl, osl, conc = event.get("isl"), event.get("osl"), event.get("conc")
-        key = (device, isl, osl, conc)
+        tp, precision = event.get("tp"), event.get("precision") or ""
+        key = (device, tp, precision, isl, osl, conc)
         config = configs.setdefault(
             key,
             {
@@ -242,8 +247,8 @@ def build_perf_configs(perf_events: list[dict]) -> list[dict]:
                 "isl": isl,
                 "osl": osl,
                 "conc": conc,
-                "tp": event.get("tp"),
-                "precision": event.get("precision") or "",
+                "tp": tp,
+                "precision": precision,
                 "label": _config_label(device, isl, osl, conc),
                 "_metric_points": {},
             },
@@ -283,7 +288,16 @@ def build_perf_configs(perf_events: list[dict]) -> list[dict]:
         config["metrics"] = metrics_out
         out.append(config)
     # Stable, human-friendly ordering: device, then concurrency, then ISL/OSL.
-    out.sort(key=lambda c: (c["device"], c.get("conc") or 0, c.get("isl") or 0, c.get("osl") or 0))
+    out.sort(
+        key=lambda c: (
+            c["device"],
+            c.get("conc") or 0,
+            c.get("isl") or 0,
+            c.get("osl") or 0,
+            c.get("tp") or 0,
+            c["precision"],
+        )
+    )
     return out
 
 
@@ -300,11 +314,15 @@ def build_accuracy_tasks(eval_events: list[dict]) -> list[dict]:
         night = nightly_identity(event)
         provenance = _provenance(event)
         device = (event.get("device") or "").strip()
+        workload = (event.get("workload") or "").strip()
         for row in score_rows(event.get("results") or []):
-            key = (device, row["task"], row["metric"])
+            # Workload too: two recipes for one model and device would
+            # otherwise share a series and each nightly would keep one of them.
+            key = (workload, device, row["task"], row["metric"])
             entry = tasks.setdefault(
                 key,
                 {
+                    "workload": workload,
                     "device": device,
                     "task": row["task"],
                     "metric": row["metric"],
@@ -331,7 +349,7 @@ def build_accuracy_tasks(eval_events: list[dict]) -> list[dict]:
         entry.update(_status(ACCURACY_DIRECTION, latest, previous, rel=False))
         entry["series"] = _strip_internal(series)
         out.append(entry)
-    out.sort(key=lambda t: (not t["primary"], t["device"], t["task"], t["metric"]))
+    out.sort(key=lambda t: (not t["primary"], t["device"], t["workload"], t["task"], t["metric"]))
     return out
 
 
@@ -353,7 +371,9 @@ def _accuracy_model(event: dict, workload_models: dict[str, str]) -> str:
     parts = (event.get("buildkite_artifact_path") or "").strip().lstrip("./").split("/")
     if len(parts) == 5 and "__" in parts[3]:
         return parts[3].replace("__", "/", 1)
-    return model or workload
+    # The workload before the backend name: a backend name would fold every
+    # unresolved workload into one "model".
+    return workload or model
 
 
 def _latest_identity(events: list[dict]) -> dict:

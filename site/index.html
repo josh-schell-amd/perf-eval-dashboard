@@ -584,9 +584,9 @@ function buildAccuracy(payload){
         .sort((a,b)=>a.t-b.t);
       if(!pts.length)return;
       out.push({
-        key:[model.model,task.device||'',task.task,task.metric].join('|'),
+        key:[model.model,task.workload||'',task.device||'',task.task,task.metric].join('|'),
         model:model.model, shortModel:shortModel(model.model),
-        device:task.device||'',
+        device:task.device||'', workload:task.workload||'',
         task:task.task, metric:task.metric, primary:!!task.primary, points:pts,
       });
     });
@@ -599,7 +599,7 @@ function buildAccuracy(payload){
 function accuracyGroups(series){
   const groups=new Map();
   series.forEach(s=>{
-    const k=[s.model,s.device,s.task].join('|');
+    const k=[s.model,s.workload,s.device,s.task].join('|');
     if(!groups.has(k))groups.set(k,{model:s.model,shortModel:s.shortModel,device:s.device,
                                      task:s.task,primary:null,others:[]});
     const g=groups.get(k);

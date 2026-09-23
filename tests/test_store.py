@@ -95,6 +95,26 @@ class TestCompaction:
             "acc,none",
         }
 
+    def test_the_newer_build_of_a_commit_wins_even_when_stored_first(self):
+        # The collector appends newest builds first, so a backfill puts an
+        # older rebuild of the same commit later in the file.
+        newer = perf_result(build_number=601, date="2026-01-09 12:00:00", value=200.0)
+        older = perf_result(build_number=600, date="2026-01-08 12:00:00", value=100.0)
+        compacted = store.compact_events([newer, older], now=NOW)
+        results = [e for e in compacted if e["event"] == "perf_result"]
+        assert len(results) == 1
+        assert results[0]["build_number"] == 601
+        assert results[0]["metrics"]["tput_per_gpu"] == 200.0
+
+    def test_nightlies_without_a_vllm_commit_stay_separate(self):
+        # The perf-eval repo's commit is shared by many nightlies, so it must
+        # not stand in for the vLLM commit.
+        events = [perf_result(commit="", build_number=n) for n in (700, 701)]
+        for event in events:
+            event["build_commit"] = "f" * 40
+        compacted = store.compact_events(events, now=NOW)
+        assert len([e for e in compacted if e["event"] == "perf_result"]) == 2
+
     def test_distinct_commits_are_distinct_results(self):
         events = [perf_result(commit="a" * 40), perf_result(commit="b" * 40)]
         compacted = store.compact_events(events, now=NOW)
@@ -241,6 +261,10 @@ class TestIdentities:
 
     def test_nightly_identity_falls_back_to_build_number(self):
         assert store.nightly_identity({"build_number": 42}) == "build:42"
+
+    def test_nightly_identity_ignores_the_perf_eval_commit(self):
+        event = {"vllm_commit": "", "build_commit": "f" * 40, "build_number": 42}
+        assert store.nightly_identity(event) == "build:42"
 
     def test_result_identity_separates_perf_configs(self):
         left = store.result_identity(perf_result(conc=128))

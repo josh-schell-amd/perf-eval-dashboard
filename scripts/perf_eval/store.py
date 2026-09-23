@@ -120,8 +120,12 @@ def nightly_identity(event: dict) -> str:
     this dashboard ingests scheduled nightlies only, one commit means one
     nightly, so a retried nightly on the same commit correctly folds into a
     single observation rather than appearing twice.
+
+    Only the vLLM commit counts. ``build_commit`` is the perf-eval repo's own
+    commit, which stays the same across many nightlies, so falling back to it
+    would fold separate nights into one.
     """
-    commit = str(event.get("vllm_commit") or event.get("build_commit") or "").strip()
+    commit = str(event.get("vllm_commit") or "").strip()
     if commit:
         return f"commit:{commit}"
     if event.get("build_number") is not None:
@@ -316,9 +320,16 @@ def _compact_events_once(
             if previous is None:
                 deduped_results[key] = (position, event, observed_at)
             else:
+                # Newest observation wins, by timestamp rather than position:
+                # the collector appends newest builds first, so on a backfill
+                # an older rebuild of the same commit lands later in the file.
+                if observed_at >= previous[2]:
+                    merged = merge_result_events(previous[1], event)
+                else:
+                    merged = merge_result_events(event, previous[1])
                 deduped_results[key] = (
                     previous[0],
-                    merge_result_events(previous[1], event),
+                    merged,
                     max(previous[2], observed_at),
                 )
             continue

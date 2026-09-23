@@ -204,6 +204,13 @@ class TestGrouping:
         model = _only_model(agg.aggregate(events, generated_at=NOW))
         assert [config["conc"] for config in model["perf_configs"]] == [128, 256]
 
+    def test_tp_variants_of_one_shape_are_separate_configs(self):
+        events = [perf_result(tp=4, value=40.0), perf_result(tp=8, value=60.0)]
+        model = _only_model(agg.aggregate(events, generated_at=NOW))
+        assert sorted(
+            (c["tp"], c["metrics"]["tput_per_gpu"]["latest"]) for c in model["perf_configs"]
+        ) == [(4, 40.0), (8, 60.0)]
+
     def test_config_label_abbreviates_power_of_two_lengths(self):
         events = [perf_result(isl=8192, osl=1024, conc=128, device="mi355x")]
         model = _only_model(agg.aggregate(events, generated_at=NOW))
@@ -289,6 +296,22 @@ class TestAccuracyGrouping:
         )
         models = agg.aggregate([event], generated_at=NOW)["models"]
         assert [m["model"] for m in models] == ["openai/gpt-oss-120b"]
+
+    def test_an_unresolvable_backend_name_falls_back_to_the_workload(self):
+        event = accuracy_result(model="local-completions", workload="gone_mi355x")
+        models = agg.aggregate([event], generated_at=NOW)["models"]
+        assert [m["model"] for m in models] == ["gone_mi355x"]
+
+    def test_two_workloads_for_one_model_and_device_are_separate_series(self):
+        events = [
+            accuracy_result(workload="x_tp4-mi355x", value=0.9),
+            accuracy_result(workload="x_tp8-mi355x", value=0.5),
+        ]
+        tasks = _only_model(agg.aggregate(events, generated_at=NOW))["accuracy_tasks"]
+        assert sorted((t["workload"], t["series"][0]["value"]) for t in tasks) == [
+            ("x_tp4-mi355x", 0.9),
+            ("x_tp8-mi355x", 0.5),
+        ]
 
     def test_workloads_are_not_folded_into_each_other(self):
         events = [

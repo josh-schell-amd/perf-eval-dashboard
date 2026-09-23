@@ -540,7 +540,8 @@ takes every config in that workload with it.
 ### Nightly identity
 
 A nightly is identified by its vLLM commit, falling back to build number and
-then date. That means **a nightly re-run on the same commit folds into one
+then date. The perf-eval repo's own commit (`build_commit`) is deliberately
+not a fallback: it stays the same across many nightlies. That means **a nightly re-run on the same commit folds into one
 data point** rather than appearing twice, which is the intended behaviour: it
 is one nightly that happened to be executed twice.
 
