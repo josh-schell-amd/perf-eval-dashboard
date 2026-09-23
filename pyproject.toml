@@ -1,0 +1,66 @@
+[project]
+name = "perf-eval-dashboard"
+version = "0.1.0"
+description = "Static dashboard for AMD nightly results from the vllm/perf-eval Buildkite pipeline"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = [
+    "requests>=2.32",
+    "PyYAML>=6.0",
+    # Verify TLS against the OS trust store rather than certifi's bundle, so
+    # the collector works behind a TLS-inspecting corporate proxy without
+    # weakening verification. See use_system_certificates().
+    "truststore>=0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    # Pyright is the engine behind Pylance, so the editor's verdict and CI's
+    # verdict are the same tool with the same config.
+    "pyright>=1.1.400",
+    # ty is Astral's type checker. Still 0.0.x, so it runs as a non-blocking
+    # second opinion rather than a gate; see the CI workflow.
+    "ty>=0.0.80",
+]
+
+[tool.pytest.ini_options]
+# The collectors live under scripts/ rather than an installed package, so the
+# test suite imports them the same way the workflows invoke them.
+pythonpath = ["scripts"]
+testpaths = ["tests"]
+
+[tool.pyright]
+# Pyright is the engine behind Pylance, so this is what makes the editor's
+# verdict reproducible in CI and on the command line. Keep typeCheckingMode in
+# step with the Pylance setting developers actually use.
+include = ["scripts", "tests"]
+exclude = ["**/__pycache__", ".venv", "_site", "site/vendor"]
+extraPaths = ["scripts", "tests"]
+# Without these, third-party imports resolve to nothing and every test file
+# reports a spurious "Import pytest could not be resolved".
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+
+[tool.ty.environment]
+# The collectors live under scripts/ rather than an installed package, so the
+# type checker needs the same import root pytest uses.
+extra-paths = ["scripts", "tests"]
+python-version = "3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    # The ported collectors use explicit if/else chains where a ternary would
+    # hurt readability of the Buildkite retry and nightly-detection logic.
+    "SIM108",
+]

@@ -1,0 +1,227 @@
+name: Collect and Deploy
+
+# Ingests AMD nightly perf-eval results from Buildkite artifacts, rebuilds the
+# published payload, and deploys the static site.
+#
+# Branch model:
+#   dashboard-state  private data/events.jsonl (never published)
+#   gh-pages         built site + perf_eval.json
+#   main             source only
+on:
+  schedule:
+    # The upstream nightly's schedule lives in the Buildkite UI, not in the
+    # perf-eval repo, so there is nothing in code to derive this from. These
+    # hours are a hedge against not knowing; run scripts/dev_build_times.py
+    # with a Buildkite token to replace them with measured finish times.
+    - cron: '17 1,9,17 * * *'
+  # A change to the page itself has to be able to reach production. Without
+  # this, a UI edit would wait for the next scheduled run and then be skipped
+  # by the unchanged-payload check below, because the data did not move.
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'scripts/build_site.py'
+      - '.github/workflows/collect.yml'
+  repository_dispatch:
+    types: [perf_eval_build_finished]
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Days of Buildkite history to scan (1-30)'
+        required: false
+        default: '14'
+      deploy:
+        description: 'Deploy to gh-pages after collecting'
+        required: false
+        default: 'true'
+
+# Serialize: two runs pushing dashboard-state or gh-pages would race.
+concurrency:
+  group: perf-eval-collect
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Validate workflow inputs
+        env:
+          RAW_DAYS: ${{ inputs.days }}
+        run: |
+          set -euo pipefail
+          DAYS="${RAW_DAYS:-14}"
+          if ! printf '%s' "$DAYS" | grep -Eq '^[1-9][0-9]?$'; then
+            echo "::error::days must be a positive integer" && exit 1
+          fi
+          if [ "$DAYS" -gt 30 ]; then
+            echo "::error::days must be 30 or fewer" && exit 1
+          fi
+          echo "COLLECT_DAYS=$DAYS" >> "$GITHUB_ENV"
+
+      - name: Restore the private event store
+        env:
+          STATE_BRANCH: dashboard-state
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null 2>&1; then
+            git fetch --depth=1 origin "$STATE_BRANCH"
+            git show "FETCH_HEAD:data/events.jsonl" > data/events.jsonl
+            echo "Restored $(wc -l < data/events.jsonl) records from $STATE_BRANCH."
+            # Keep the previously published payload so the deploy can be
+            # skipped when this run produces identical numbers.
+            git show "FETCH_HEAD:data/perf_eval.json" > /tmp/previous_perf_eval.json \
+              || echo "No previous payload on $STATE_BRANCH; treating as changed."
+          else
+            : > data/events.jsonl
+            echo "No $STATE_BRANCH branch yet; starting from an empty store."
+          fi
+
+      # Fails closed on a malformed store before anything overwrites it, and
+      # applies retention so a legacy unbounded log is migrated in place.
+      - name: Validate and bound the event store
+        run: python scripts/perf_eval/merge_events.py --local data/events.jsonl
+
+      # The only step that receives the Buildkite token.
+      #
+      # Request cost per run: one builds listing, three artifact listings per
+      # nightly still inside the re-check window, and one download per new
+      # artifact. Already-ingested older builds are not re-listed, so steady
+      # state is single digits plus the new nightly's artifacts. The ceiling
+      # aborts rather than hammering the API if that ever stops being true.
+      - name: Ingest Buildkite artifacts
+        env:
+          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python scripts/perf_eval/collect_artifacts.py \
+            --days "$COLLECT_DAYS" \
+            --store data/events.jsonl \
+            --max-requests 1500
+
+      - name: Aggregate the published payload
+        run: |
+          set -euo pipefail
+          python scripts/perf_eval/aggregate.py \
+            --store data/events.jsonl \
+            --output data/perf_eval.json
+
+      - name: Run the test suite against the fresh payload
+        run: pytest -q
+
+      # aggregate.py restamps generated_at every run, so the payload always
+      # differs byte-wise. Publishing on that alone burns a Pages build to
+      # republish identical numbers, and Pages allows only ~10 builds an hour.
+      - name: Has anything actually changed?
+        id: changed
+        run: |
+          set -euo pipefail
+          python scripts/perf_eval/payload_changed.py \
+            --current data/perf_eval.json \
+            --previous /tmp/previous_perf_eval.json
+
+      - name: Persist the private event store
+        env:
+          STATE_BRANCH: dashboard-state
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          WORKTREE="$(mktemp -d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null 2>&1; then
+            git fetch --depth=1 origin "$STATE_BRANCH"
+            git worktree add --no-checkout "$WORKTREE" FETCH_HEAD
+            git -C "$WORKTREE" checkout FETCH_HEAD -- . 2>/dev/null || true
+          else
+            git worktree add --detach --no-checkout "$WORKTREE"
+            git -C "$WORKTREE" checkout --orphan "$STATE_BRANCH"
+            git -C "$WORKTREE" rm -rf --cached . >/dev/null 2>&1 || true
+          fi
+
+          mkdir -p "$WORKTREE/data"
+          cp data/events.jsonl "$WORKTREE/data/events.jsonl"
+          cp data/perf_eval.json "$WORKTREE/data/perf_eval.json"
+          git -C "$WORKTREE" add data
+          if git -C "$WORKTREE" diff --cached --quiet; then
+            echo "Event store unchanged; nothing to persist."
+          else
+            git -C "$WORKTREE" commit -m "perf-eval state: run ${GITHUB_RUN_ID}"
+            git -C "$WORKTREE" push origin "HEAD:${STATE_BRANCH}"
+          fi
+          git worktree remove --force "$WORKTREE"
+
+      - name: Build the site
+        run: python scripts/build_site.py
+
+      # Skip only on the scheduled runs, which are the churn worth avoiding.
+      # Any other trigger is a deliberate act — a push to site/, a manual
+      # dispatch, a finished-build dispatch — and should republish even if the
+      # numbers are identical, since the page itself may have changed.
+      - name: Deploy to GitHub Pages
+        if: >-
+          (steps.changed.outputs.changed == 'true' || github.event_name != 'schedule') &&
+          (github.event_name != 'workflow_dispatch' || inputs.deploy != 'false')
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
+          user_name: 'github-actions[bot]'
+          user_email: '41898282+github-actions[bot]@users.noreply.github.com'
+          commit_message: 'perf-eval dashboard: run ${{ github.run_id }}'
+
+      - name: Summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "### Perf Eval collection"
+            echo ""
+            if [ "${{ steps.changed.outputs.changed }}" = "false" ] \
+               && [ "${{ github.event_name }}" = "schedule" ]; then
+              echo "- Deploy skipped: no new results since the last publish."
+            fi
+            if [ -f data/perf_eval.json ]; then
+              python - <<'PY'
+          import json, pathlib
+          payload = json.loads(pathlib.Path("data/perf_eval.json").read_text())
+          summary = payload.get("summary", {})
+          print(f"- Generated at: `{payload.get('generated_at')}`")
+          print(f"- Models: {summary.get('models')}")
+          print(f"- Nightlies: {summary.get('nightlies')}")
+          print(f"- Perf points: {summary.get('perf_points')}")
+          print(f"- Accuracy points: {summary.get('accuracy_points')}")
+          print(f"- AMD hardware: {', '.join(summary.get('amd_devices') or []) or 'none'}")
+          PY
+            else
+              echo "- No payload was produced."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

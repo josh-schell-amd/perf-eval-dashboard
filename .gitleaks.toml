@@ -1,0 +1,32 @@
+# gitleaks configuration.
+#
+# The point of using gitleaks is that its ~150 provider rules are maintained
+# by someone else, so this file extends the default ruleset rather than
+# replacing it. Do not add rules here that duplicate what gitleaks already
+# knows — that just recreates the maintenance burden we moved away from.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Paths with no credentials, skipped for cost or false positives"
+
+paths = [
+  # Vendored third-party bundle. Minified code is dense with high-entropy
+  # strings; its integrity is asserted by tests/test_vendored_assets.py
+  # against the upstream SHA-384 instead.
+  '''site/vendor/.*''',
+  # Build output: a copy of site/ plus the generated payload.
+  '''_site/.*''',
+  # Local development virtualenv, if one exists in the tree.
+  '''\.venv/.*''',
+  # Constructs sample token-shaped strings to prove detection works.
+  '''tests/test_secrets_scan\.py''',
+]
+
+# vLLM commit SHAs appear throughout the collected data and in provenance
+# fields. They are public git revisions, not credentials.
+regexes = [
+  '''vllm_commit''',
+  '''build_commit''',
+]

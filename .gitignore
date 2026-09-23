@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+_site/
+*.egg-info/
+
+# Generated data. The event store and published payload live on the
+# dashboard-state branch, so main stays clean of data commits.
+data/
+
