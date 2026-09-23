@@ -1503,14 +1503,14 @@ function renderTrendsTab() {
     host.innerHTML = '<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
     return;
   }
-  host.innerHTML = renderRegressionPanel()
-    + '<div class="card"><h3>Metric trends</h3>'
+  host.innerHTML = '<div class="card"><h3>Metric trends</h3>'
     + '<div class="card-hint">One chart per metric so a regression that only moves TTFT is '
     + 'visible without hunting through a dropdown. A red line means that configuration regressed '
     + 'by <b>' + thresholdLabel(BASELINE_BY_ID[state.baseline]) + ' or more</b> on <em>that</em> metric; '
     + 'the newest point is ringed. Click any point for its history and build. '
     + 'Narrow the lines with the filters above.</div>'
-    + renderWindowBar() + renderTrendCharts() + '</div>';
+    + renderWindowBar() + renderTrendCharts() + '</div>'
+    + renderRegressionPanel();
 
   const setDays = days => {
     state.chartDays = days >= WINDOW_DAYS ? null : days;
