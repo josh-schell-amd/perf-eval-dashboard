@@ -6,7 +6,7 @@ Run locally::
     python scripts/perf_eval/secrets_scan.py
 
 Run in CI (``.github/workflows/secrets-scan.yml``) on every push and pull
-request, alongside gitleaks. Exits non-zero if anything looks like a real
+request. Exits non-zero if anything looks like a real
 credential, so a PR is blocked before the secret reaches a default branch.
 
 Scope, deliberately narrow
@@ -20,9 +20,9 @@ is no pattern to misread in review.
 It deliberately does *not* try to detect "anything that looks secret". An
 earlier version flagged any run of 40+ hex characters, which in practice
 detected git commit SHAs rather than credentials, and needed three separate
-suppression mechanisms to stay usable. Breadth is gitleaks' job: it carries a
-maintained ruleset for ~150 providers and scans git history as well as the
-working tree, neither of which this file attempts.
+suppression mechanisms to stay usable. Other providers and git history are
+left to GitHub secret scanning and push protection; this file attempts
+neither.
 
 Allowlist
 ---------

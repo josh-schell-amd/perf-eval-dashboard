@@ -1,7 +1,8 @@
 """Tests for the local secret scanner that gates every push and pull request.
 
-The scanner deliberately detects known token shapes only. Breadth and git
-history are gitleaks' job; see the module docstring in secrets_scan.py.
+The scanner deliberately detects known token shapes only. Other providers and
+git history are left to GitHub push protection; see the module docstring in
+secrets_scan.py.
 """
 
 from __future__ import annotations

@@ -140,8 +140,6 @@ Three guards keep it that way, all enforced in CI:
 
 ### Secret scanning
 
-Two layers, because they fail in different directions.
-
 **`scripts/perf_eval/secrets_scan.py`** — instant, no install, and the same
 check you can run locally before pushing. It detects **known token shapes
 only**: a fixed prefix, then a run of at least N characters from a known
@@ -161,25 +159,15 @@ mechanisms to stay usable — an unreadable pinned-action regex, a list of
 context hints, and putting `data/` on the path allowlist. Deleting the one
 rule removed all three, and `data/` is now scanned for real.
 
-**gitleaks** — the breadth layer, with two properties the local check
-structurally cannot have:
+It runs in CI on every push and pull request (`secrets-scan.yml`).
 
-- ~150 maintained provider rules (AWS, GCP, Slack, Stripe, private keys). Our
-  table knows only the three providers we use, so an AWS key pasted into a
-  script would sail straight past it. When a provider changes its format, that
-  is gitleaks' maintenance burden rather than a stale regex in this repo.
-- It scans **git history**, not just the working tree. The classic leak is a
-  credential committed, noticed, then deleted — leaving a clean tree and a
-  dirty history that every clone still carries. The local check reports "no
-  secrets detected" on exactly that repo.
-
-`.gitleaks.toml` extends the default ruleset rather than replacing it, and
-allowlists only the vendored bundle, build output, and the test file that
-constructs sample tokens to prove detection works.
-
-Note: the gitleaks **binary** is MIT licensed and free; only the gitleaks
-*GitHub Action* requires a paid licence for organisation-owned repos. The
-workflow invokes the pinned binary directly to avoid that.
+**What it does not cover:** other providers' token formats, and git history —
+a credential committed and then deleted leaves a clean tree the scan passes.
+Enable GitHub **secret scanning with push protection** on the repository for
+those: it knows far more providers and rejects the push before a token lands,
+which beats finding it in history afterwards. It is free on public repos.
+There used to be a gitleaks job here for the same purpose; it was removed as
+an unpinned binary download duplicating what push protection does.
 
 ## Layout
 
