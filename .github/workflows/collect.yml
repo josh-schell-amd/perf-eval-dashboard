@@ -57,23 +57,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # Pinned to the same commit SHAs vllm-ci-dashboard uses.
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
           cache: 'pip'
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
 
+      # Runtime packages only, at the exact versions in constraints.txt. This
+      # job holds the Buildkite token and a write token, so nothing runs here
+      # that the collector does not need; the test and lint tools run in CI.
       - name: Install dependencies
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: pip install -c constraints.txt requests pyyaml truststore
 
       - name: Validate workflow inputs
         env:
@@ -174,8 +177,30 @@ jobs:
             --store data/events.jsonl \
             --output data/perf_eval.json
 
-      - name: Run the test suite against the fresh payload
-        run: pytest -q
+      # The unit tests run in CI against the same code. What only this run
+      # can check is the payload it just built, before anything is persisted
+      # or published.
+      - name: Sanity-check the fresh payload
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib, sys
+          payload = json.loads(pathlib.Path("data/perf_eval.json").read_text(encoding="utf-8"))
+          problems = []
+          for key in ("generated_at", "models", "summary", "baselines", "metric_meta"):
+              if key not in payload:
+                  problems.append(f"missing {key}")
+          if not isinstance(payload.get("models"), list):
+              problems.append("models is not a list")
+          summary = payload.get("summary") or {}
+          if summary.get("perf_points", 0) and not payload.get("models"):
+              problems.append("perf points counted but no models published")
+          if problems:
+              print("::error::Payload failed sanity checks: " + "; ".join(problems))
+              sys.exit(1)
+          print(f"Payload OK: {summary.get('models')} models, {summary.get('perf_points')} perf points, "
+                f"{summary.get('accuracy_points')} accuracy points.")
+          PY
 
       # aggregate.py restamps generated_at every run, so the payload always
       # differs byte-wise. Publishing on that alone burns a Pages build to
@@ -240,11 +265,15 @@ jobs:
         if: >-
           (steps.changed.outputs.changed == 'true' || github.event_name != 'schedule') &&
           (github.event_name != 'workflow_dispatch' || inputs.deploy)
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_site
           publish_branch: gh-pages
+          # One commit, replaced on every deploy, as vllm-ci-dashboard does.
+          # Otherwise gh-pages keeps every ~600 KB payload in history forever.
+          keep_files: false
+          force_orphan: true
           user_name: 'github-actions[bot]'
           user_email: '41898282+github-actions[bot]@users.noreply.github.com'
           commit_message: 'perf-eval dashboard: run ${{ github.run_id }}'

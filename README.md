@@ -191,8 +191,17 @@ tests/
 
 ```bash
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+pip install -c constraints.txt -e ".[dev]"
 ```
+
+`constraints.txt` pins the exact version of every package, the same way
+`vllm-ci-dashboard` does, so CI and your machine run identical tools and a new
+ruff or pyright release cannot break CI on its own. A test fails if a direct
+dependency in `pyproject.toml` has no pin there. To upgrade, change the pin,
+reinstall, and run the checks. The collect workflow installs only the three
+runtime packages (`requests`, `PyYAML`, `truststore`), since it runs next to
+the Buildkite and write tokens. Actions are pinned to commit SHAs, matching
+`vllm-ci-dashboard`.
 
 ### Previewing the page without credentials
 
