@@ -22,9 +22,8 @@ def payload(**overrides):
 
 class TestVolatileFields:
     def test_a_new_timestamp_alone_is_not_a_change(self):
-        # This is the whole point: aggregate.py restamps generated_at every
-        # run, so without this the site would republish identical numbers
-        # three times a day.
+        # aggregate.py restamps generated_at every run, so without this the
+        # site would republish identical numbers on every scheduled run.
         old = payload(generated_at="2026-01-01T00:00:00Z")
         new = payload(generated_at="2026-06-01T12:34:56Z")
         assert pc.payload_changed(old, new) is False

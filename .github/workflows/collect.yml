@@ -9,10 +9,9 @@ name: Collect and Deploy
 #   main             source only
 on:
   schedule:
-    # The nightly's schedule lives in the Buildkite UI, so these hours are a
-    # hedge. Recent nightlies mostly finished 10:30-13:00 UTC; 17:17 usually
-    # picks the new one up.
-    - cron: '17 1,9,17 * * *'
+    # Once a day, around noon US Central, after the nightly (recent ones
+    # finished 10:30-13:00 UTC; its schedule lives in the Buildkite UI).
+    - cron: '17 17 * * *'
   # A change to the page itself has to be able to reach production. Without
   # this, a UI edit would wait for the next scheduled run and then be skipped
   # by the unchanged-payload check below, because the data did not move.
