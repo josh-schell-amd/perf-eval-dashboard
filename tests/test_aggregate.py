@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import datetime
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from conftest import accuracy_result, perf_result
+from conftest import accuracy_result, days_ago, perf_result
 from perf_eval import aggregate as agg
-
-NOW = datetime.datetime(2026, 2, 1, tzinfo=datetime.UTC)
 
 
 def _only_model(payload):
@@ -30,24 +27,24 @@ class TestScopeFilter:
             perf_result(device="h200", model="nvidia-model"),
             perf_result(device="mi355x", model="amd-model"),
         ]
-        payload = agg.aggregate(events, generated_at=NOW)
+        payload = agg.aggregate(events)
         assert [m["model"] for m in payload["models"]] == ["amd-model"]
         assert payload["summary"]["amd_devices"] == ["mi355x"]
 
     def test_non_nightly_results_are_excluded(self):
         events = [perf_result(nightly=False)]
-        assert agg.aggregate(events, generated_at=NOW)["models"] == []
+        assert agg.aggregate(events)["models"] == []
 
     def test_nightly_flag_must_be_exactly_true(self):
         events = [perf_result(nightly="yes")]
-        assert agg.aggregate(events, generated_at=NOW)["models"] == []
+        assert agg.aggregate(events)["models"] == []
 
     def test_non_result_events_are_ignored(self):
         events = [{"event": "build", "nightly": True}, perf_result()]
-        assert len(agg.aggregate(events, generated_at=NOW)["models"]) == 1
+        assert len(agg.aggregate(events)["models"]) == 1
 
     def test_scope_is_declared_in_the_payload(self):
-        payload = agg.aggregate([perf_result()], generated_at=NOW)
+        payload = agg.aggregate([perf_result()])
         assert payload["scope"]["hardware"] == "amd"
         assert payload["scope"]["runs"] == "nightly"
         assert "NVIDIA" in payload["scope"]["description"]
@@ -62,7 +59,7 @@ class TestSeriesOrdering:
             perf_result(commit="a" * 40, value=100.0, date="2026-01-02 00:00:00"),
             perf_result(commit="a" * 40, value=50.0, date="2026-01-01 00:00:00"),
         ]
-        block = _metric(agg.aggregate(events, generated_at=NOW))
+        block = _metric(agg.aggregate(events))
         assert block["latest"] == 100.0
         assert len(block["series"]) == 1
 
@@ -71,7 +68,7 @@ class TestSeriesOrdering:
             perf_result(commit="a" * 40, value=50.0, date="2026-01-01 00:00:00"),
             perf_result(commit="a" * 40, value=100.0, date="2026-01-02 00:00:00"),
         ]
-        block = _metric(agg.aggregate(events, generated_at=NOW))
+        block = _metric(agg.aggregate(events))
         assert block["latest"] == 100.0
 
     def test_retried_nightly_on_the_same_commit_is_one_point(self):
@@ -81,28 +78,26 @@ class TestSeriesOrdering:
             perf_result(commit="a" * 40, build_number=1, value=100.0),
             perf_result(commit="a" * 40, build_number=2, value=110.0),
         ]
-        block = _metric(agg.aggregate(events, generated_at=NOW))
+        block = _metric(agg.aggregate(events))
         assert len(block["series"]) == 1
-        assert _only_model(agg.aggregate(events, generated_at=NOW))["nightly_count"] == 1
+        assert _only_model(agg.aggregate(events))["nightly_count"] == 1
 
     def test_distinct_nightlies_are_distinct_points_sorted_oldest_first(self):
         events = [
             perf_result(commit="b" * 40, value=200.0, date="2026-01-03 00:00:00"),
             perf_result(commit="a" * 40, value=100.0, date="2026-01-01 00:00:00"),
         ]
-        block = _metric(agg.aggregate(events, generated_at=NOW))
+        block = _metric(agg.aggregate(events))
         assert [point["value"] for point in block["series"]] == [100.0, 200.0]
         assert block["latest"] == 200.0
         assert block["previous"] == 100.0
 
-    def test_unparseable_timestamp_is_logged_not_crashed(self, caplog):
-        event = perf_result()
-        event["date"] = "not-a-date"
-        event["received_at"] = "also-not-a-date"
+    def test_unparseable_date_is_logged_not_crashed(self, caplog):
+        event = perf_result(date="not-a-date")
         with caplog.at_level("WARNING"):
-            payload = agg.aggregate([event], generated_at=NOW)
+            payload = agg.aggregate([event])
         assert len(payload["models"]) == 1
-        assert "no parseable timestamp" in caplog.text
+        assert "no parseable date" in caplog.text
 
 
 class TestStatusThresholds:
@@ -125,19 +120,19 @@ class TestStatusThresholds:
             perf_result(commit="a" * 40, value=previous, date="2026-01-01 00:00:00"),
             perf_result(commit="b" * 40, value=latest, date="2026-01-02 00:00:00"),
         ]
-        assert _metric(agg.aggregate(events, generated_at=NOW))["status"] == expected
+        assert _metric(agg.aggregate(events))["status"] == expected
 
     def test_lower_is_better_inverts_the_verdict(self):
         events = [
             perf_result(commit="a" * 40, metrics={"mean_ttft": 0.10}, date="2026-01-01 00:00:00"),
             perf_result(commit="b" * 40, metrics={"mean_ttft": 0.05}, date="2026-01-02 00:00:00"),
         ]
-        block = _metric(agg.aggregate(events, generated_at=NOW), "mean_ttft")
+        block = _metric(agg.aggregate(events), "mean_ttft")
         assert block["direction"] == "lower"
         assert block["status"] == "good"
 
     def test_first_nightly_is_neutral_with_no_previous(self):
-        block = _metric(agg.aggregate([perf_result()], generated_at=NOW))
+        block = _metric(agg.aggregate([perf_result()]))
         assert block["previous"] is None
         assert block["status"] == "neutral"
         assert block["delta"] is None
@@ -158,7 +153,7 @@ class TestStatusThresholds:
             accuracy_result(commit="a" * 40, value=previous, date="2026-01-01 00:00:00"),
             accuracy_result(commit="b" * 40, value=latest, date="2026-01-02 00:00:00"),
         ]
-        task = _only_model(agg.aggregate(events, generated_at=NOW))["accuracy_tasks"][0]
+        task = _only_model(agg.aggregate(events))["accuracy_tasks"][0]
         assert task["status"] == expected
 
     def test_zero_previous_never_divides(self):
@@ -166,12 +161,12 @@ class TestStatusThresholds:
             perf_result(commit="a" * 40, value=0.0, date="2026-01-01 00:00:00"),
             perf_result(commit="b" * 40, value=5.0, date="2026-01-02 00:00:00"),
         ]
-        block = _metric(agg.aggregate(events, generated_at=NOW))
+        block = _metric(agg.aggregate(events))
         assert block["delta_pct"] is None
         assert block["status"] == "neutral"
 
     def test_thresholds_are_published_for_the_frontend(self):
-        payload = agg.aggregate([perf_result()], generated_at=NOW)
+        payload = agg.aggregate([perf_result()])
         assert payload["thresholds"] == {"perf_rel": 0.005, "accuracy_abs": 0.01}
 
     def test_the_thresholds_are_pinned(self):
@@ -185,7 +180,7 @@ class TestStatusThresholds:
             perf_result(commit="a" * 40, value=100.0, date="2026-01-01 00:00:00"),
             perf_result(commit="b" * 40, value=100.0, date="2026-01-02 00:00:00"),
         ]
-        block = _metric(agg.aggregate(events, generated_at=NOW))
+        block = _metric(agg.aggregate(events))
         assert block["delta"] == 0
         assert block["status"] == "neutral"
 
@@ -194,45 +189,49 @@ class TestStatusThresholds:
             accuracy_result(commit="a" * 40, value=0.8, date="2026-01-01 00:00:00"),
             accuracy_result(commit="b" * 40, value=0.8, date="2026-01-02 00:00:00"),
         ]
-        task = _only_model(agg.aggregate(events, generated_at=NOW))["accuracy_tasks"][0]
+        task = _only_model(agg.aggregate(events))["accuracy_tasks"][0]
         assert task["status"] == "neutral"
 
 
 class TestGrouping:
     def test_configs_are_keyed_by_device_shape_and_concurrency(self):
         events = [perf_result(conc=128), perf_result(conc=256)]
-        model = _only_model(agg.aggregate(events, generated_at=NOW))
+        model = _only_model(agg.aggregate(events))
         assert [config["conc"] for config in model["perf_configs"]] == [128, 256]
 
     def test_tp_variants_of_one_shape_are_separate_configs(self):
         events = [perf_result(tp=4, value=40.0), perf_result(tp=8, value=60.0)]
-        model = _only_model(agg.aggregate(events, generated_at=NOW))
+        model = _only_model(agg.aggregate(events))
         assert sorted(
             (c["tp"], c["metrics"]["tput_per_gpu"]["latest"]) for c in model["perf_configs"]
         ) == [(4, 40.0), (8, 60.0)]
 
     def test_config_label_abbreviates_power_of_two_lengths(self):
         events = [perf_result(isl=8192, osl=1024, conc=128, device="mi355x")]
-        model = _only_model(agg.aggregate(events, generated_at=NOW))
+        model = _only_model(agg.aggregate(events))
         assert model["perf_configs"][0]["label"] == "8K in / 1K out @ conc 128 (MI355X)"
 
     def test_workload_set_is_discovered_not_hard_coded(self):
         events = [perf_result(model="brand-new/Model-1T")]
-        assert _only_model(agg.aggregate(events, generated_at=NOW))["model"] == (
-            "brand-new/Model-1T"
-        )
+        assert _only_model(agg.aggregate(events))["model"] == ("brand-new/Model-1T")
 
     def test_missing_model_gets_a_placeholder_rather_than_being_dropped(self):
         events = [perf_result(model="")]
-        assert _only_model(agg.aggregate(events, generated_at=NOW))["model"] == ("(unknown model)")
+        assert _only_model(agg.aggregate(events))["model"] == ("(unknown model)")
 
     def test_provenance_is_kept_on_every_series_point(self):
-        block = _metric(agg.aggregate([perf_result()], generated_at=NOW))
+        block = _metric(agg.aggregate([perf_result()]))
         point = block["series"][0]
         for field in ("vllm_commit", "image", "build_url", "build_number", "date"):
             assert field in point
         assert "nightly_key" not in point
         assert not any(key.startswith("_") for key in point)
+
+    def test_failed_requests_are_kept_on_every_series_point(self):
+        event = perf_result()
+        event.update(completed_requests=500.0, failed_requests=12.0)
+        point = _metric(agg.aggregate([event]))["series"][0]
+        assert (point["completed_requests"], point["failed_requests"]) == (500.0, 12.0)
 
     def test_summary_counts_points_and_nightlies(self):
         events = [
@@ -240,7 +239,7 @@ class TestGrouping:
             perf_result(commit="b" * 40, date="2026-01-02 00:00:00"),
             accuracy_result(commit="a" * 40, date="2026-01-01 00:00:00"),
         ]
-        summary = agg.aggregate(events, generated_at=NOW)["summary"]
+        summary = agg.aggregate(events)["summary"]
         assert summary["models"] == 1
         assert summary["nightlies"] == 2
         assert summary["perf_points"] == 2
@@ -252,7 +251,7 @@ class TestGrouping:
             accuracy_result(task="a_task", metric="acc,none"),
         ]
         events[0]["results"][0]["primary"] = False
-        tasks = _only_model(agg.aggregate(events, generated_at=NOW))["accuracy_tasks"]
+        tasks = _only_model(agg.aggregate(events))["accuracy_tasks"]
         assert tasks[0]["primary"] is True
 
 
@@ -262,7 +261,7 @@ class TestAccuracyGrouping:
             accuracy_result(device="mi300x", value=0.92),
             accuracy_result(device="mi355x", value=0.94),
         ]
-        tasks = _only_model(agg.aggregate(events, generated_at=NOW))["accuracy_tasks"]
+        tasks = _only_model(agg.aggregate(events))["accuracy_tasks"]
         assert sorted((t["device"], t["series"][0]["value"]) for t in tasks) == [
             ("mi300x", 0.92),
             ("mi355x", 0.94),
@@ -273,7 +272,7 @@ class TestAccuracyGrouping:
         event["results"].append(
             {"task": "gsm8k", "metric": "exact_match,strict-match", "value": 0.9, "primary": False}
         )
-        tasks = _only_model(agg.aggregate([event], generated_at=NOW))["accuracy_tasks"]
+        tasks = _only_model(agg.aggregate([event]))["accuracy_tasks"]
         assert [(t["metric"], t["primary"]) for t in tasks] == [("exact_match,strict-match", True)]
 
     def test_a_backend_name_is_resolved_from_the_recipe_expectation(self):
@@ -286,7 +285,7 @@ class TestAccuracyGrouping:
             "configs": [{"workload": "test_8b_mi355x", "model": "meta-llama/Test-8B"}],
         }
         event = accuracy_result(model="local-completions", workload="test_8b_mi355x")
-        models = agg.aggregate([expected, event], generated_at=NOW)["models"]
+        models = agg.aggregate([expected, event])["models"]
         assert [m["model"] for m in models] == ["meta-llama/Test-8B"]
 
     def test_a_backend_name_falls_back_to_lm_evals_output_directory(self):
@@ -294,12 +293,12 @@ class TestAccuracyGrouping:
         event["buildkite_artifact_path"] = (
             "results/other_mi355x/gsm8k/openai__gpt-oss-120b/results_2026-01-01.json"
         )
-        models = agg.aggregate([event], generated_at=NOW)["models"]
+        models = agg.aggregate([event])["models"]
         assert [m["model"] for m in models] == ["openai/gpt-oss-120b"]
 
     def test_an_unresolvable_backend_name_falls_back_to_the_workload(self):
         event = accuracy_result(model="local-completions", workload="gone_mi355x")
-        models = agg.aggregate([event], generated_at=NOW)["models"]
+        models = agg.aggregate([event])["models"]
         assert [m["model"] for m in models] == ["gone_mi355x"]
 
     def test_two_workloads_for_one_model_and_device_are_separate_series(self):
@@ -307,7 +306,7 @@ class TestAccuracyGrouping:
             accuracy_result(workload="x_tp4-mi355x", value=0.9),
             accuracy_result(workload="x_tp8-mi355x", value=0.5),
         ]
-        tasks = _only_model(agg.aggregate(events, generated_at=NOW))["accuracy_tasks"]
+        tasks = _only_model(agg.aggregate(events))["accuracy_tasks"]
         assert sorted((t["workload"], t["series"][0]["value"]) for t in tasks) == [
             ("x_tp4-mi355x", 0.9),
             ("x_tp8-mi355x", 0.5),
@@ -320,7 +319,7 @@ class TestAccuracyGrouping:
         ]
         events[0]["buildkite_artifact_path"] = "results/a_mi355x/gsm8k/org__A/results_1.json"
         events[1]["buildkite_artifact_path"] = "results/b_mi355x/gsm8k/org__B/results_1.json"
-        models = agg.aggregate(events, generated_at=NOW)["models"]
+        models = agg.aggregate(events)["models"]
         assert {m["model"]: m["accuracy_tasks"][0]["series"][0]["value"] for m in models} == {
             "org/A": 0.9,
             "org/B": 0.5,
@@ -351,18 +350,18 @@ class TestWhatCountsAsANightly:
 
     def test_several_runs_a_day_on_distinct_commits_count_separately(self):
         # 5 runs a day for 14 days on different commits is 70 nightlies.
-        payload = agg.aggregate(self._events(14, 5, distinct_commits=True), generated_at=NOW)
+        payload = agg.aggregate(self._events(14, 5, distinct_commits=True))
         assert payload["summary"]["nightlies"] == 70
 
     def test_several_runs_a_day_on_one_commit_collapse(self):
         # The same commit re-run 5 times a night is still one nightly: that is
         # the retry dedupe, not data loss.
-        payload = agg.aggregate(self._events(14, 5, distinct_commits=False), generated_at=NOW)
+        payload = agg.aggregate(self._events(14, 5, distinct_commits=False))
         assert payload["summary"]["nightlies"] == 14
 
     def test_one_run_a_day_is_one_nightly_a_day(self):
         # The real pipeline shape: one scheduled nightly per new vLLM commit.
-        payload = agg.aggregate(self._events(14, 1, distinct_commits=True), generated_at=NOW)
+        payload = agg.aggregate(self._events(14, 1, distinct_commits=True))
         assert payload["summary"]["nightlies"] == 14
 
     def test_a_run_without_a_commit_falls_back_to_build_number(self):
@@ -370,32 +369,28 @@ class TestWhatCountsAsANightly:
         for event in events:
             event["vllm_commit"] = ""
             event["build_commit"] = ""
-        assert agg.aggregate(events, generated_at=NOW)["summary"]["nightlies"] == 3
+        assert agg.aggregate(events)["summary"]["nightlies"] == 3
 
 
 class TestBuildPayload:
     """The payload publishes the nightlies from the last WINDOW_DAYS."""
 
-    def _nights(self, days_ago: list[int]):
+    def _nights(self, ages: list[float]):
         return [
-            perf_result(
-                commit=f"{index:040x}",
-                date=(NOW - timedelta(days=ago)).strftime("%Y-%m-%d %H:%M:%S"),
-                build_number=1000 + index,
-            )
-            for index, ago in enumerate(days_ago)
+            perf_result(commit=f"{index:040x}", date=days_ago(age), build_number=1000 + index)
+            for index, age in enumerate(ages)
         ]
 
     def test_only_nightlies_inside_the_window_are_published(self):
-        payload = agg.build_payload(self._nights([1, 5, 13, 20, 29]), generated_at=NOW)
+        payload = agg.build_payload(self._nights([1, 5, 13.5, 14.5, 29]))
         assert len(_metric(payload)["series"]) == 3
 
     def test_nothing_in_the_window_publishes_no_models(self):
-        payload = agg.build_payload(self._nights([40, 25]), generated_at=NOW)
+        payload = agg.build_payload(self._nights([40, 25]))
         assert payload["models"] == []
 
     def test_the_window_is_published_so_the_page_cannot_drift(self):
-        payload = agg.build_payload([perf_result()], generated_at=NOW)
+        payload = agg.build_payload([perf_result()])
         assert payload["retention"] == {"display_window_days": agg.WINDOW_DAYS}
 
 
@@ -417,14 +412,12 @@ class TestExpectedIsPublished:
         }
 
     def test_absent_snapshot_publishes_an_empty_expectation(self):
-        payload = agg.aggregate([perf_result()], generated_at=NOW)
+        payload = agg.aggregate([perf_result()])
         assert payload["expected"] == {"recorded_at": "", "configs": []}
 
     def test_the_snapshot_is_published(self):
         configs = [{"workload": "wl-mi355x", "device": "mi355x", "conc": 64}]
-        payload = agg.aggregate(
-            [perf_result(), self._snapshot("2026-01-05T00:00:00Z", configs)], generated_at=NOW
-        )
+        payload = agg.aggregate([perf_result(), self._snapshot("2026-01-05T00:00:00Z", configs)])
         assert payload["expected"]["configs"] == configs
         assert payload["expected"]["recorded_at"] == "2026-01-05T00:00:00Z"
 
@@ -432,17 +425,17 @@ class TestExpectedIsPublished:
         old = self._snapshot("2026-01-01T00:00:00Z", [{"workload": "old"}])
         new = self._snapshot("2026-02-01T00:00:00Z", [{"workload": "new"}])
         # Listed oldest-last to prove order in the store does not decide it.
-        payload = agg.aggregate([new, old], generated_at=NOW)
+        payload = agg.aggregate([new, old])
         assert payload["expected"]["configs"] == [{"workload": "new"}]
 
     def test_malformed_entries_are_dropped_rather_than_published(self):
         snapshot = self._snapshot("2026-01-05T00:00:00Z", [{"workload": "ok"}, "nonsense", 7])
-        payload = agg.aggregate([snapshot], generated_at=NOW)
+        payload = agg.aggregate([snapshot])
         assert payload["expected"]["configs"] == [{"workload": "ok"}]
 
     def test_the_snapshot_is_not_mistaken_for_a_result(self):
         snapshot = self._snapshot("2026-01-05T00:00:00Z", [{"workload": "wl"}])
-        payload = agg.aggregate([snapshot], generated_at=NOW)
+        payload = agg.aggregate([snapshot])
         assert payload["models"] == []
         assert payload["summary"]["nightlies"] == 0
 
@@ -452,7 +445,7 @@ class TestBaselinesArePublished:
 
     @pytest.fixture
     def payload(self):
-        return agg.aggregate([perf_result()], generated_at=NOW)
+        return agg.aggregate([perf_result()])
 
     def test_one_model_is_published(self, payload):
         assert [b["id"] for b in payload["baselines"]] == ["previous"]
@@ -495,7 +488,7 @@ class TestBaselinesArePublished:
 class TestMetricDisplayMetadata:
     @pytest.fixture
     def metric_meta(self):
-        return agg.aggregate([perf_result()], generated_at=NOW)["metric_meta"]
+        return agg.aggregate([perf_result()])["metric_meta"]
 
     def test_display_order_is_explicit(self, metric_meta):
         # The published JSON is key-sorted, so insertion order cannot survive
@@ -532,10 +525,11 @@ class TestMetricDisplayMetadata:
 
 class TestGeneratedAt:
     def test_is_utc_iso_with_a_trailing_z(self):
-        payload = agg.aggregate([perf_result()], generated_at=NOW)
-        assert payload["generated_at"] == "2026-02-01T00:00:00Z"
+        stamp = agg.aggregate([perf_result()])["generated_at"]
+        parsed = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+        assert abs(datetime.now(UTC) - parsed) < timedelta(minutes=5)
 
     def test_pipeline_provenance_is_published(self):
-        payload = agg.aggregate([perf_result()], generated_at=NOW)
+        payload = agg.aggregate([perf_result()])
         assert payload["pipeline"]["org"] == "vllm"
         assert payload["pipeline"]["slug"] == "perf-eval"

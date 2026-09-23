@@ -1,11 +1,6 @@
 """The event store, data/events.jsonl: one event per line.
 
-collect_artifacts.py appends to it and aggregate.py reads it. Every write
-compacts the log (merges duplicate results, drops anything older than
-WINDOW_DAYS) and replaces the file atomically, so a crash never leaves it
-half-written.
-
-Event kinds, all written by the collector:
+Every write compacts it and replaces the file atomically. Event kinds:
 
     perf_result, accuracy_result   one nightly result, timed by `date`
     expected_configs               the configs the recipes define; newest kept
@@ -46,11 +41,14 @@ def parse_time(value: object) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-def event_time(event: dict) -> datetime | None:
-    """When a result's nightly finished (`date`); for other events, when they
-    were recorded (`received_at`)."""
-    field = "date" if event.get("event") in RESULT_EVENTS else "received_at"
-    return parse_time(event.get(field))
+def finished_at(result: dict) -> datetime | None:
+    """When the nightly behind a result finished: its `date`."""
+    return parse_time(result.get("date"))
+
+
+def received_at(event: dict) -> datetime | None:
+    """When the collector recorded an event: its `received_at`."""
+    return parse_time(event.get("received_at"))
 
 
 def iso(value: datetime) -> str:
@@ -68,14 +66,19 @@ def nightly_identity(event: dict) -> str:
 
 
 def result_identity(event: dict) -> tuple:
-    """What makes two result events the same result, for dedupe."""
+    """What makes two result events the same result, for dedupe.
+
+    A perf result is one config (TP, precision, ISL/OSL, concurrency); an
+    accuracy result is one workload, whose tasks are rows inside it.
+    """
+    kind = event.get("event")
     base = (
-        event.get("event"),
+        kind,
         nightly_identity(event),
         str(event.get("model") or "").strip(),
         str(event.get("device") or "").strip(),
     )
-    if event.get("event") == "perf_result":
+    if kind == "perf_result":
         return base + (
             event.get("tp"),
             event.get("precision"),
@@ -83,23 +86,31 @@ def result_identity(event: dict) -> tuple:
             event.get("osl"),
             event.get("conc"),
         )
-    return base + (str(event.get("workload") or "").strip(),)
+    if kind == "accuracy_result":
+        return base + (str(event.get("workload") or "").strip(),)
+    raise ValueError(f"not a result event: {kind!r}")
 
 
 def merge_result_events(older: dict, newer: dict) -> dict:
-    """Combine two events for one result; newer fields win, metrics and
-    accuracy rows are unioned (one nightly can report a result across several
-    artifacts)."""
+    """Combine two events for one result; newer fields win.
+
+    One nightly can report a result across several artifacts, so the
+    measurements are unioned: perf metrics by name, accuracy rows by
+    (task, metric).
+    """
+    kind = newer.get("event")
     merged = {**older, **newer}
-    if newer.get("event") == "perf_result":
+    if kind == "perf_result":
         merged["metrics"] = {**(older.get("metrics") or {}), **(newer.get("metrics") or {})}
-    else:
+    elif kind == "accuracy_result":
         rows = {}
         for event in (older, newer):
             for row in event.get("results") or []:
                 if isinstance(row, dict):
                     rows[(str(row.get("task") or ""), str(row.get("metric") or ""))] = row
         merged["results"] = [rows[key] for key in sorted(rows)]
+    else:
+        raise ValueError(f"not a result event: {kind!r}")
     return merged
 
 
@@ -109,15 +120,25 @@ def artifact_key(record: dict) -> str | None:
 
 
 def _artifact_rows(event: dict) -> list[tuple[str, datetime | None]]:
-    """(artifact ID, when it was recorded) for every artifact an event names."""
-    if event.get("event") == ARTIFACT_INDEX_EVENT:
-        return [
-            (str(row[1]).strip(), parse_time(row[2]))
-            for row in event.get("identities") or []
-            if isinstance(row, list) and len(row) == 3 and row[0] == "id" and str(row[1]).strip()
-        ]
-    key = artifact_key(event)
-    return [(key, parse_time(event.get("received_at")))] if key else []
+    """(artifact ID, when it was downloaded) for every artifact an event names.
+
+    A result or marker names its own artifact in ``buildkite_artifact_id``. The
+    index event names many, one ``["id", <artifact ID>, <received_at>]`` row
+    each. Malformed rows are skipped here; read_events_strict refuses a store
+    that has any.
+    """
+    if event.get("event") != ARTIFACT_INDEX_EVENT:
+        key = artifact_key(event)
+        return [(key, received_at(event))] if key else []
+    rows = []
+    for row in event.get("identities") or []:
+        if not (isinstance(row, list) and len(row) == 3 and row[0] == "id"):
+            continue
+        _, artifact_id, downloaded_at = row
+        artifact_id = str(artifact_id).strip()
+        if artifact_id:
+            rows.append((artifact_id, parse_time(downloaded_at)))
+    return rows
 
 
 def artifact_keys_from_event(event: dict) -> tuple[str, ...]:
@@ -125,22 +146,35 @@ def artifact_keys_from_event(event: dict) -> tuple[str, ...]:
     return tuple(key for key, _ in _artifact_rows(event))
 
 
-def compact_events(events: list[dict], *, now: datetime | None = None) -> list[dict]:
-    """The events worth keeping, in first-seen order.
+def _recorded(event: dict) -> datetime:
+    """``received_at`` for ordering; an unparseable one sorts oldest."""
+    return received_at(event) or datetime.min.replace(tzinfo=UTC)
 
-    Keeps nightly results from the last WINDOW_DAYS (duplicates merged, the
-    newest observation winning), the newest expected_configs snapshot, and the
-    IDs of artifacts downloaded in that time, folded into one index event.
-    Everything else is dropped.
 
-    ``now`` is only for tests, which pass a fixed date so the 14-day cutoff
-    gives the same result on any day.
-    """
-    now = (now or datetime.now(UTC)).astimezone(UTC)
-    cutoff = now - timedelta(days=WINDOW_DAYS)
+def _add_result(
+    results: dict[tuple, tuple[int, dict, datetime]], position: int, event: dict, when: datetime
+) -> None:
+    """Fold a result into ``results`` by identity, keeping its first-seen position.
+    Older and newer are by nightly time: a backfill can append an older rebuild later."""
+    key = result_identity(event)
+    if key not in results:
+        results[key] = (position, event, when)
+        return
+    first_seen, kept, kept_when = results[key]
+    if when >= kept_when:
+        results[key] = (first_seen, merge_result_events(older=kept, newer=event), when)
+    else:
+        results[key] = (first_seen, merge_result_events(older=event, newer=kept), kept_when)
+
+
+def compact_events(events: list[dict]) -> list[dict]:
+    """The events worth keeping, in first-seen order: nightly results from the
+    last WINDOW_DAYS (duplicates merged), the newest expected_configs snapshot,
+    and one index of the artifacts downloaded in that time."""
+    cutoff = datetime.now(UTC) - timedelta(days=WINDOW_DAYS)
 
     results: dict[tuple, tuple[int, dict, datetime]] = {}
-    newest_expected: tuple[datetime, dict] | None = None
+    newest_expected: dict | None = None
     artifacts: dict[str, datetime] = {}
     for position, event in enumerate(events):
         for artifact_id, seen in _artifact_rows(event):
@@ -148,30 +182,19 @@ def compact_events(events: list[dict], *, now: datetime | None = None) -> list[d
                 artifacts[artifact_id] = seen
 
         kind = event.get("event")
-        when = event_time(event)
         if kind == EXPECTED_CONFIGS_EVENT:
             # The current recipe set, so it is kept however old it is.
-            stamp = when or datetime.min.replace(tzinfo=UTC)
-            if newest_expected is None or stamp >= newest_expected[0]:
-                newest_expected = (stamp, event)
-        elif kind in RESULT_EVENTS and event.get("nightly") is True and when and when >= cutoff:
-            key = result_identity(event)
-            if key not in results:
-                results[key] = (position, event, when)
-            else:
-                first_seen, kept, kept_when = results[key]
-                # By time, not file position: a backfill can append an older
-                # rebuild of a commit after the newer one.
-                merged = (
-                    merge_result_events(kept, event)
-                    if when >= kept_when
-                    else merge_result_events(event, kept)
-                )
-                results[key] = (first_seen, merged, max(when, kept_when))
+            if newest_expected is None or _recorded(event) >= _recorded(newest_expected):
+                newest_expected = event
+        elif kind in RESULT_EVENTS and event.get("nightly") is True:
+            when = finished_at(event)
+            if when is not None and when >= cutoff:
+                _add_result(results, position, event, when)
+        # Every other kind is dropped; artifact IDs were collected above.
 
     compacted = [event for _, event, _ in sorted(results.values(), key=lambda row: row[0])]
     if newest_expected is not None:
-        compacted.append(newest_expected[1])
+        compacted.append(newest_expected)
 
     # Artifacts whose result event is kept already carry their ID.
     carried = {artifact_key(event) for event in compacted}
@@ -222,18 +245,16 @@ def _write_atomic(path: Path, data: bytes) -> None:
             temp_path.unlink()
 
 
-def write_events_atomic(
-    store_path: Path, events: list[dict], *, now: datetime | None = None
-) -> int:
+def write_events_atomic(store_path: Path, events: list[dict]) -> int:
     """Compact events and replace the store with them; return how many were kept."""
-    compacted = compact_events(events, now=now)
+    compacted = compact_events(events)
     _write_atomic(store_path, encoded_events(compacted))
     return len(compacted)
 
 
-def append_events(store_path: Path, events: list[dict], *, now: datetime | None = None) -> int:
+def append_events(store_path: Path, events: list[dict]) -> int:
     """Add events to the store, then compact and rewrite it."""
-    return write_events_atomic(store_path, [*read_events_strict(store_path), *events], now=now)
+    return write_events_atomic(store_path, [*read_events_strict(store_path), *events])
 
 
 def write_json_atomic(path: Path, payload: dict) -> None:

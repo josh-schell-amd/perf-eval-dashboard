@@ -62,9 +62,9 @@ class TestNightlyScopeFilter:
 
 
 class TestNightlyInfo:
-    def test_extracts_date_and_commit_from_the_message(self):
+    def test_extracts_the_commit_from_the_message(self):
         info = ca.nightly_info(build())
-        assert info == {"date": "2026-06-30", "vllm_commit": COMMIT, "branch": "main"}
+        assert info == {"vllm_commit": COMMIT, "branch": "main"}
 
     def test_falls_back_to_vllm_commit_env(self):
         info = ca.nightly_info(build(message="manual", env={"NIGHTLY": "1", "VLLM_COMMIT": COMMIT}))
@@ -80,14 +80,6 @@ class TestNightlyInfo:
         )
         assert info is not None
         assert info["vllm_commit"] == COMMIT
-
-    def test_falls_back_to_the_build_date(self):
-        info = ca.nightly_info(
-            build(message="manual", env={"NIGHTLY": "1"}, created_at="2026-05-04T03:00:00Z")
-        )
-        assert info is not None
-        assert info["date"] == "2026-05-04"
-        assert info["vllm_commit"] == ""
 
 
 class TestAmdImage:
@@ -368,6 +360,12 @@ class TestPerfEvent:
         assert event["metrics"]["tput_per_gpu"] == 200.0
         assert event["conc"] == 128
         assert event["vllm_commit"] == COMMIT
+
+    def test_request_counts_are_recorded(self):
+        raw = {"total_token_throughput": 800.0, "completed": 500, "failed": 12}
+        event = ca.perf_event(raw, entry=self._entry(), config={}, identity=self._identity())
+        assert event is not None
+        assert (event["completed_requests"], event["failed_requests"]) == (500.0, 12.0)
 
     def test_concurrency_falls_back_to_the_raw_result(self):
         event = ca.perf_event(

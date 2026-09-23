@@ -7,10 +7,8 @@ import json
 
 import pytest
 
-from conftest import accuracy_result, perf_result
+from conftest import accuracy_result, days_ago, perf_result, received_days_ago
 from perf_eval import store
-
-NOW = datetime.datetime(2026, 1, 10, tzinfo=datetime.UTC)
 
 
 def _read_lines(path):
@@ -20,7 +18,7 @@ def _read_lines(path):
 class TestRoundTrip:
     def test_append_then_read(self, tmp_path):
         path = tmp_path / "events.jsonl"
-        store.append_events(path, [perf_result()], now=NOW)
+        store.append_events(path, [perf_result()])
         events = store.read_events_strict(path)
         assert len(events) == 1
         assert events[0]["event"] == "perf_result"
@@ -30,7 +28,7 @@ class TestRoundTrip:
 
     def test_written_file_ends_with_newline_per_record(self, tmp_path):
         path = tmp_path / "events.jsonl"
-        store.append_events(path, [perf_result(), accuracy_result()], now=NOW)
+        store.append_events(path, [perf_result(), accuracy_result()])
         assert path.read_text(encoding="utf-8").endswith("\n")
         assert len(_read_lines(path)) == 2
 
@@ -74,7 +72,7 @@ class TestCompaction:
     def test_duplicate_results_merge_metrics(self):
         first = perf_result(metrics={"tput_per_gpu": 100.0})
         second = perf_result(metrics={"mean_ttft": 0.25})
-        compacted = store.compact_events([first, second], now=NOW)
+        compacted = store.compact_events([first, second])
         results = [e for e in compacted if e["event"] == "perf_result"]
         assert len(results) == 1
         assert results[0]["metrics"] == {"tput_per_gpu": 100.0, "mean_ttft": 0.25}
@@ -82,7 +80,7 @@ class TestCompaction:
     def test_duplicate_accuracy_rows_union_by_task_and_metric(self):
         first = accuracy_result(task="gsm8k", metric="exact_match,strict-match", value=0.8)
         second = accuracy_result(task="gsm8k", metric="acc,none", value=0.9)
-        compacted = store.compact_events([first, second], now=NOW)
+        compacted = store.compact_events([first, second])
         results = [e for e in compacted if e["event"] == "accuracy_result"]
         assert len(results) == 1
         assert {row["metric"] for row in results[0]["results"]} == {
@@ -93,9 +91,9 @@ class TestCompaction:
     def test_the_newer_build_of_a_commit_wins_even_when_stored_first(self):
         # The collector appends newest builds first, so a backfill puts an
         # older rebuild of the same commit later in the file.
-        newer = perf_result(build_number=601, date="2026-01-09 12:00:00", value=200.0)
-        older = perf_result(build_number=600, date="2026-01-08 12:00:00", value=100.0)
-        compacted = store.compact_events([newer, older], now=NOW)
+        newer = perf_result(build_number=601, date=days_ago(1), value=200.0)
+        older = perf_result(build_number=600, date=days_ago(2), value=100.0)
+        compacted = store.compact_events([newer, older])
         results = [e for e in compacted if e["event"] == "perf_result"]
         assert len(results) == 1
         assert results[0]["build_number"] == 601
@@ -107,27 +105,27 @@ class TestCompaction:
         events = [perf_result(commit="", build_number=n) for n in (700, 701)]
         for event in events:
             event["build_commit"] = "f" * 40
-        compacted = store.compact_events(events, now=NOW)
+        compacted = store.compact_events(events)
         assert len([e for e in compacted if e["event"] == "perf_result"]) == 2
 
     def test_distinct_commits_are_distinct_results(self):
         events = [perf_result(commit="a" * 40), perf_result(commit="b" * 40)]
-        compacted = store.compact_events(events, now=NOW)
+        compacted = store.compact_events(events)
         assert len([e for e in compacted if e["event"] == "perf_result"]) == 2
 
     def test_distinct_configs_are_distinct_results(self):
         events = [perf_result(conc=128), perf_result(conc=256)]
-        compacted = store.compact_events(events, now=NOW)
+        compacted = store.compact_events(events)
         assert len([e for e in compacted if e["event"] == "perf_result"]) == 2
 
     def test_artifact_markers_fold_into_an_index(self):
         marker = {
             "event": store.ARTIFACT_MARKER_EVENT,
-            "received_at": "2026-01-09T00:00:00Z",
+            "received_at": received_days_ago(1),
             "build_number": 5,
             "buildkite_artifact_id": "artifact-1",
         }
-        compacted = store.compact_events([marker], now=NOW)
+        compacted = store.compact_events([marker])
         assert not [e for e in compacted if e["event"] == store.ARTIFACT_MARKER_EVENT]
         index = [e for e in compacted if e["event"] == store.ARTIFACT_INDEX_EVENT]
         assert len(index) == 1
@@ -137,7 +135,7 @@ class TestCompaction:
     def test_identity_carried_on_a_result_is_not_duplicated_into_the_index(self):
         event = perf_result()
         event["buildkite_artifact_id"] = "artifact-1"
-        compacted = store.compact_events([event], now=NOW)
+        compacted = store.compact_events([event])
         assert not [e for e in compacted if e["event"] == store.ARTIFACT_INDEX_EVENT]
 
     def test_rewriting_an_unchanged_store_changes_nothing(self):
@@ -145,32 +143,30 @@ class TestCompaction:
         # every run even with no new data.
         marker = {
             "event": store.ARTIFACT_MARKER_EVENT,
-            "received_at": "2026-01-09T00:00:00Z",
+            "received_at": received_days_ago(1),
             "buildkite_artifact_id": "artifact-1",
         }
-        once = store.compact_events([perf_result(date="2026-01-09 00:00:00"), marker], now=NOW)
-        later = NOW + datetime.timedelta(hours=8)
-        assert store.compact_events(once, now=later) == once
+        once = store.compact_events([perf_result(), marker])
+        assert store.compact_events(once) == once
 
     def test_unknown_and_non_nightly_events_are_dropped(self):
-        events = [{"event": "build", "received_at": "2026-01-09T00:00:00Z"}]
-        events.append(perf_result(nightly=False, date="2026-01-09 00:00:00"))
-        assert store.compact_events(events, now=NOW) == []
+        events = [{"event": "build", "received_at": received_days_ago(1)}]
+        events.append(perf_result(nightly=False))
+        assert store.compact_events(events) == []
 
 
 class TestRetention:
-    def _night(self, days_ago: float, n: int) -> dict:
-        day = NOW - datetime.timedelta(days=days_ago)
+    def _night(self, age: float, n: int) -> dict:
         return perf_result(
             commit=f"{n:040x}",
-            date=day.strftime("%Y-%m-%d %H:%M:%S"),
-            received_at=day.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            date=days_ago(age),
+            received_at=received_days_ago(age),
             build_number=n,
         )
 
     def test_results_inside_the_window_are_kept_and_older_ones_dropped(self):
         events = [self._night(1, 1), self._night(13.5, 2), self._night(14.5, 3), self._night(40, 4)]
-        compacted = store.compact_events(events, now=NOW)
+        compacted = store.compact_events(events)
         assert {e["build_number"] for e in compacted if e["event"] == "perf_result"} == {1, 2}
 
     def test_the_window_matches_the_dashboard(self):
@@ -181,10 +177,10 @@ class TestRetention:
     def test_artifact_ids_expire_with_the_results(self):
         old = {
             "event": store.ARTIFACT_MARKER_EVENT,
-            "received_at": "2025-12-01T00:00:00Z",
+            "received_at": received_days_ago(30),
             "buildkite_artifact_id": "old",
         }
-        assert store.compact_events([old], now=NOW) == []
+        assert store.compact_events([old]) == []
 
 
 class TestExpectedConfigsSnapshot:
@@ -207,7 +203,7 @@ class TestExpectedConfigsSnapshot:
             self._snapshot("2026-01-01T00:00:00Z", "old"),
             self._snapshot("2026-01-09T00:00:00Z", "new"),
         ]
-        compacted = store.compact_events(events, now=NOW)
+        compacted = store.compact_events(events)
         snapshots = [e for e in compacted if e["event"] == store.EXPECTED_CONFIGS_EVENT]
         assert len(snapshots) == 1
         assert snapshots[0]["configs"] == [{"workload": "new"}]
@@ -217,21 +213,19 @@ class TestExpectedConfigsSnapshot:
             self._snapshot("2026-01-09T00:00:00Z", "new"),
             self._snapshot("2026-01-01T00:00:00Z", "old"),
         ]
-        compacted = store.compact_events(events, now=NOW)
+        compacted = store.compact_events(events)
         snapshots = [e for e in compacted if e["event"] == store.EXPECTED_CONFIGS_EVENT]
         assert snapshots[0]["configs"] == [{"workload": "new"}]
 
     def test_an_old_snapshot_is_not_aged_out(self):
         # Far outside every retention cutoff, but still the current recipes.
         events = [self._snapshot("2020-01-01T00:00:00Z", "ancient")]
-        compacted = store.compact_events(events, now=NOW)
+        compacted = store.compact_events(events)
         assert [e for e in compacted if e["event"] == store.EXPECTED_CONFIGS_EVENT]
 
     def test_it_survives_a_round_trip_alongside_results(self, tmp_path):
         path = tmp_path / "events.jsonl"
-        store.append_events(
-            path, [perf_result(), self._snapshot("2026-01-09T00:00:00Z", "wl")], now=NOW
-        )
+        store.append_events(path, [perf_result(), self._snapshot("2026-01-09T00:00:00Z", "wl")])
         events = store.read_events_strict(path)
         assert any(e["event"] == store.EXPECTED_CONFIGS_EVENT for e in events)
         assert any(e["event"] == "perf_result" for e in events)
@@ -240,14 +234,14 @@ class TestExpectedConfigsSnapshot:
 class TestAtomicWrite:
     def test_no_temp_files_are_left_behind(self, tmp_path):
         path = tmp_path / "events.jsonl"
-        store.append_events(path, [perf_result()], now=NOW)
+        store.append_events(path, [perf_result()])
         assert [p.name for p in tmp_path.iterdir()] == ["events.jsonl"]
 
     def test_a_malformed_store_is_not_overwritten(self, tmp_path):
         path = tmp_path / "events.jsonl"
         path.write_text("not json\n", encoding="utf-8")
         with pytest.raises(ValueError):
-            store.append_events(path, [perf_result()], now=NOW)
+            store.append_events(path, [perf_result()])
         assert path.read_text(encoding="utf-8") == "not json\n"
 
 
@@ -278,16 +272,20 @@ class TestIdentities:
         assert store.artifact_key({"build_number": 3}) is None
 
 
-class TestEventTime:
-    def test_a_result_is_timed_by_when_its_nightly_finished(self):
+class TestTimestamps:
+    def test_finished_at_is_the_nightly_date(self):
         event = perf_result(date="2026-01-01 00:00:00", received_at="2026-06-01T00:00:00Z")
-        assert store.event_time(event) == datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+        assert store.finished_at(event) == datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
 
-    def test_other_events_are_timed_by_when_they_were_recorded(self):
-        marker = {"event": store.ARTIFACT_MARKER_EVENT, "received_at": "2026-01-02T03:04:05Z"}
-        assert store.event_time(marker) == datetime.datetime(
+    def test_received_at_is_when_the_collector_recorded_it(self):
+        event = perf_result(date="2026-01-01 00:00:00", received_at="2026-01-02T03:04:05Z")
+        assert store.received_at(event) == datetime.datetime(
             2026, 1, 2, 3, 4, 5, tzinfo=datetime.UTC
         )
+
+    def test_neither_falls_back_to_the_other(self):
+        assert store.finished_at({"received_at": "2026-01-02T00:00:00Z"}) is None
+        assert store.received_at({"date": "2026-01-01 00:00:00"}) is None
 
     def test_unparseable_returns_none(self):
         assert store.parse_time("not-a-date") is None

@@ -35,13 +35,14 @@
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg-primary); color: var(--text-secondary); font-size: 13px; }
-    .container { max-width: 1440px; margin: 0 auto; padding: var(--gap-lg); }
+    .container { max-width: 1440px; margin: 0 auto; padding: 0 var(--gap-lg) var(--gap-lg); }
     a { color: var(--ui-bright); text-decoration: none; }
     a:hover { text-decoration: underline; }
     code { font-family: "SF Mono", Consolas, monospace; font-size: 11px; background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; }
     .mono { font-family: "SF Mono", Consolas, monospace; }
 
-    header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--gap-md); padding-bottom: var(--gap-md); border-bottom: 2px solid var(--brand); margin-bottom: var(--gap-lg); }
+    /* Pinned while scrolling; the page's top padding lives here so nothing shows above it. */
+    header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--gap-md); padding: var(--gap-lg) 0 var(--gap-md); border-bottom: 2px solid var(--brand); margin-bottom: var(--gap-lg); position: sticky; top: 0; z-index: 50; background: var(--bg-primary); }
     h1 { font-size: 19px; color: var(--text-primary); font-weight: 600; display: flex; align-items: center; gap: 9px; }
     .brand-logo { width: 22px; height: 22px; flex: none; }
     .scope-note { font-size: 12px; color: var(--text-secondary); margin-top: 5px; line-height: 1.5; }
@@ -99,7 +100,9 @@
     .facet-opt.on .facet-box::after { content: ''; position: absolute; left: 3.5px; top: 1px; width: 3px; height: 6px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
     .facet-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .facet-count { margin-left: auto; font-size: 10px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; padding-left: 6px; }
-    .facet-reset { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-light); }
+    .facet-actions { display: flex; gap: var(--gap-sm); margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-light); }
+    .facet-actions .btn.on { background: var(--accent-red); border-color: var(--accent-red); color: #fff; }
+    .facet-actions .btn:disabled { opacity: 0.45; cursor: default; }
 
     /* ============================================================
        KPI ROW
@@ -196,6 +199,7 @@
     /* Space between the direction triangle and the number. */
     .reg-chip .dir { margin-right: 5px; }
     .reg-build { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
+    .reg-failed { color: var(--accent-yellow); }
 
     /* ============================================================
        SHARED LEGEND
@@ -204,16 +208,7 @@
     .window-bar input[type=range] { width: 160px; accent-color: var(--ui); }
     .window-value { font-size: 12px; color: var(--text-primary); font-variant-numeric: tabular-nums; min-width: 86px; }
     .window-note { font-size: 11px; color: var(--text-tertiary); }
-    .series-bar { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-bottom: var(--gap-md); padding-bottom: var(--gap-md); border-bottom: 1px solid var(--border-light); }
-    .series-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 12px; padding: 3px 10px; font-size: 11px; cursor: pointer; color: var(--text-secondary); user-select: none; }
-    .series-chip:hover { color: var(--text-primary); }
-    .series-chip.off { opacity: 0.35; }
-    .series-chip .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; }
-    /* Outline: the chip means "regressed on some metric", a red line
-       "regressed on this one". */
-    .series-chip.regressed { border-color: var(--accent-red); border-width: 2px; padding: 2px 9px; background: rgba(242,92,78,0.10); color: var(--text-primary); }
-    .series-bar .bar-label, .window-bar .bar-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-tertiary); font-weight: 600; margin-right: 2px; }
-    .series-bar .btn.on { background: var(--accent-red); border-color: var(--accent-red); color: #fff; }
+    .window-bar .bar-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-tertiary); font-weight: 600; margin-right: 2px; }
 
     /* ============================================================
        STACKED TREND CHARTS
@@ -305,10 +300,10 @@
   <div id="notice-host"></div>
   <!-- KPI row first: read the state of the night, then narrow down. -->
   <div class="kpi-row" id="kpi-host"></div>
-  <div id="coverage-host"></div>
   <div id="controls-host"></div>
   <div class="tabs" id="tabs-host"></div>
   <div id="main"></div>
+  <div id="coverage-host"></div>
 
   <footer>
     <span id="retention-note"></span>
@@ -374,6 +369,13 @@ function safeUrl(v) {
 }
 
 function integer(v) { return Number(v || 0).toLocaleString('en-US'); }
+
+// A run with failed requests is not comparable to a clean one; say so wherever it shows.
+function failedNote(p) {
+  if (!(p && p.failed_requests > 0)) return '';
+  const total = p.failed_requests + (p.completed_requests || 0);
+  return integer(Math.round(p.failed_requests)) + ' of ' + integer(Math.round(total)) + ' requests failed';
+}
 
 function fmt(v, d) { return v == null || !isFinite(v) ? '—' : Number(v).toFixed(d == null ? 1 : d); }
 
@@ -490,7 +492,9 @@ function buildConfigs(payload) {
             vllm_commit: p.vllm_commit,
             image: p.image,
             build_url: safeUrl(p.build_url),
-            build_number: p.build_number
+            build_number: p.build_number,
+            completed_requests: p.completed_requests,
+            failed_requests: p.failed_requests
           }))
           .filter(p => p.t > 0 && Number.isFinite(p.value))
           .sort((a, b) => a.t - b.t);
@@ -516,6 +520,12 @@ function buildConfigs(payload) {
         builds: builds,
       });
     });
+  });
+  // A recipe change (TP, precision) starts a new series; name both apart.
+  const seen = new Map();
+  out.forEach(c => seen.set(c.label, (seen.get(c.label) || 0) + 1));
+  out.forEach(c => {
+    if (seen.get(c.label) > 1) c.label += ' · ' + (c.precision || '?') + ' · TP' + c.tp;
   });
   return out.sort(compareConfigs);
 }
@@ -602,7 +612,7 @@ const state = {
   tab: 'trends',
   baseline: 'previous',
   selected: {}, // facet key -> Set of allowed values (empty = all)
-  hidden: new Set(), // config keys toggled off in the shared legend
+  onlyRegressed: false, // charts and table show only regressed configs
   chartDays: null, // trend chart window in days; null = the full window
 };
 FACETS.forEach(f => state.selected[f.key] = new Set());
@@ -640,7 +650,7 @@ function chartPointsIn(cfg, metricKey) {
 }
 // Only metrics the shown series have points for, so no empty chart cards.
 function chartedMetrics() {
-  const shown = seriesList().filter(s => !state.hidden.has(s.key));
+  const shown = seriesList();
   return METRICS.filter(m => shown.some(s => chartPointsIn(s.config, m.key).length > 0));
 }
 
@@ -664,6 +674,15 @@ function hasPointsInWindow(cfg) {
 
 function visibleConfigs() {
   return CONFIGS.filter(c => facetMatches(c) && hasPointsInWindow(c));
+}
+
+// What the charts and table draw. Not visibleConfigs, which the regression
+// scan itself runs over.
+function shownConfigs() {
+  const configs = visibleConfigs();
+  if (!state.onlyRegressed) return configs;
+  const regressed = regressedKeys(state.baseline);
+  return configs.filter(c => regressed.has(c.key));
 }
 
 /* ================================================================
@@ -809,9 +828,9 @@ function nightOverNight() {
   };
 }
 
-// Coverage: did the configs the recipes define (payload `expected`) report
-// in the latest nightly? Expected comes from the recipes, not recent data,
-// so a workload broken for weeks, or never working, stays missing.
+// Coverage: did the configs in the recipes the latest nightly ran (payload
+// `expected`) report? Expected comes from the recipes, not recent data, so a
+// workload broken for weeks, or never working, stays missing.
 function configKeyOf(parts) {
   return [parts.model, parts.device, parts.precision, parts.tp, parts.isl, parts.osl, parts.conc].join('|');
 }
@@ -945,14 +964,20 @@ function renderControls() {
   });
   html += '</div>';
 
-  // Shown only once something is filtered or the legend changed.
-  const activeFilters = FACETS.reduce((n, f) => n + state.selected[f.key].size, 0);
-  if (activeFilters || state.hidden.size) {
-    html += '<div class="facet-reset"><button class="btn" id="reset-facets">'
-      + (activeFilters
-        ? 'Clear ' + activeFilters + (activeFilters === 1 ? ' filter' : ' filters')
-        : 'Reset view') + '</button></div>';
-  }
+  const activeFilters = FACETS.reduce((n, f) => n + state.selected[f.key].size, 0)
+    + (state.onlyRegressed ? 1 : 0);
+  const regressedCount = regressedKeys(state.baseline).size;
+  html += '<div class="facet-actions">'
+    + '<button class="btn' + (state.onlyRegressed ? ' on' : '') + '" id="only-regressed"'
+    + ' aria-pressed="' + (state.onlyRegressed ? 'true' : 'false') + '"'
+    + (regressedCount || state.onlyRegressed ? '' : ' disabled')
+    + ' title="Charts and the Configurations table show only configurations that regressed">'
+    + 'Only regressed (' + integer(regressedCount) + ')</button>'
+    + (activeFilters
+      ? '<button class="btn" id="reset-facets">Clear ' + activeFilters
+        + (activeFilters === 1 ? ' filter' : ' filters') + '</button>'
+      : '')
+    + '</div>';
   html += '</div></div>';
   host.innerHTML = html;
 
@@ -963,18 +988,23 @@ function renderControls() {
       const sel = state.selected[k];
       if (sel.has(v)) sel.delete(v);
       else sel.add(v);
-      // Reset the legend: its selection names configs the new filters may hide.
-      state.hidden.clear();
       invalidateScan();
       syncToHash();
       renderAll();
       focusAfterRender('.facet-opt[data-facet="' + cssEscape(k) + '"][data-value="' + cssEscape(v) + '"]');
     });
   });
+  const only = document.getElementById('only-regressed');
+  if (only) only.addEventListener('click', () => {
+    state.onlyRegressed = !state.onlyRegressed;
+    syncToHash();
+    renderAll();
+    focusAfterRender('#only-regressed');
+  });
   const reset = document.getElementById('reset-facets');
   if (reset) reset.addEventListener('click', () => {
     FACETS.forEach(f => state.selected[f.key].clear());
-    state.hidden.clear();
+    state.onlyRegressed = false;
     invalidateScan();
     syncToHash();
     renderAll();
@@ -1128,7 +1158,7 @@ function accuracyTonight() {
 /* ================================================================
    7b. COVERAGE PANEL
    ================================================================ */
-// Under the KPI row, not in a tab, so it is visible from every tab.
+// Below the tabs, not in one, so it shows on every tab.
 function renderCoveragePanel() {
   const host = document.getElementById('coverage-host');
   const cov = coverage();
@@ -1263,7 +1293,9 @@ function renderRegressionPanel() {
             + '" title="' + esc(detail) + '">'
             + esc(d.metric.label) + ' <b>' + pctDirection(d.ratio, 1) + '</b></span>';
         }).join('') + '</span>'
-        + '<span class="reg-build">build #' + esc(g.row.build_number || '?')
+        + '<span class="reg-build">'
+        + (failedNote(g.row) ? '<span class="reg-failed">' + esc(failedNote(g.row)) + '</span> · ' : '')
+        + 'build #' + esc(g.row.build_number || '?')
         + (linked ? EXT_INLINE : '') + '</span>';
       // The whole row links to the build.
       const tier = REG_TIERS[g.tier].cls;
@@ -1275,42 +1307,15 @@ function renderRegressionPanel() {
 }
 
 /* ================================================================
-   10. SHARED LEGEND + STACKED TREND CHARTS
+   10. STACKED TREND CHARTS
    ================================================================ */
 function seriesList() {
-  const regressed = regressedKeys(state.baseline);
-  return visibleConfigs().map(c => ({
+  return shownConfigs().map(c => ({
     config: c,
     key: c.key,
     label: c.label,
     color: BASE_COLOR[c.key] || PALETTE[0],
-    regressed: regressed.has(c.key),
   }));
-}
-
-// "Only regressed" sets the legend selection rather than adding a filter,
-// so chips and charts share one state. On whenever exactly the regressed
-// set is shown.
-function onlyRegressedSelected(series) {
-  const hasReg = series.some(s => s.regressed);
-  return hasReg && series.every(s => state.hidden.has(s.key) !== s.regressed);
-}
-
-function renderSeriesBar() {
-  const series = seriesList();
-  const anyReg = series.some(s => s.regressed);
-  return '<div class="series-bar"><span class="bar-label">Configurations</span>'
-    + series.map(s =>
-      '<span class="series-chip' + (state.hidden.has(s.key) ? ' off' : '')
-      + (s.regressed ? ' regressed' : '') + '" role="button" aria-pressed="'
-      + (state.hidden.has(s.key) ? 'false' : 'true') + '" data-series="' + esc(s.key)
-      + '" title="' + esc(s.label) + (s.regressed ? ' — regressed on at least one metric' : '')
-      + '\nClick to select · click others to add them">'
-      + '<span class="swatch" style="background:' + esc(s.color) + '"></span>' + esc(s.label) + '</span>').join('')
-    + '<div class="spacer"></div>'
-    + (anyReg ? '<button class="btn' + (onlyRegressedSelected(series) ? ' on' : '') + '" id="only-reg"'
-      + ' aria-pressed="' + (onlyRegressedSelected(series) ? 'true' : 'false') + '">Only regressed</button>' : '')
-    + '<button class="btn" id="show-all-series">Show all</button></div>';
 }
 
 function daysLabel(days) { return 'Last ' + days + ' day' + (days === 1 ? '' : 's'); }
@@ -1358,7 +1363,7 @@ function floorYSpan(scale) {
 }
 
 function renderTrendCharts() {
-  const series = seriesList().filter(s => !state.hidden.has(s.key));
+  const series = seriesList();
   const present = chartedMetrics();
   if (!present.length || !series.length) {
     return '<div class="card"><div class="empty">Nothing to plot for the current filters.</div></div>';
@@ -1387,7 +1392,6 @@ function drawTrendChart(metric) {
   const ringColor = cssVar('--text-primary') || '#fff';
   const regForMetric = regressedKeysForMetric(state.baseline, metric.key);
   const datasets = seriesList()
-    .filter(s => !state.hidden.has(s.key))
     .map(s => {
       const pts = chartPointsIn(s.config, metric.key);
       if (!pts.length) return null;
@@ -1481,7 +1485,8 @@ function drawTrendChart(metric) {
             label: item => {
               const p = item.dataset.data[item.dataIndex]._p;
               const sha = p.vllm_commit ? ' · ' + shortSha(p.vllm_commit) : '';
-              return item.dataset.label + ': ' + fmt(item.parsed.y, metric.digits) + ' ' + unitOf(metric) + sha;
+              const failed = failedNote(p) ? ' · ' + failedNote(p) : '';
+              return item.dataset.label + ': ' + fmt(item.parsed.y, metric.digits) + ' ' + unitOf(metric) + sha + failed;
             },
             // Nothing else says the points are clickable.
             afterBody: () => '\nClick for history',
@@ -1504,9 +1509,8 @@ function renderTrendsTab() {
     + 'visible without hunting through a dropdown. A red line means that configuration regressed '
     + 'by <b>' + thresholdLabel(BASELINE_BY_ID[state.baseline]) + ' or more</b> on <em>that</em> metric; '
     + 'the newest point is ringed. Click any point for its history and build. '
-    + 'Click a configuration to show only it, then click others to add them; '
-    + '<em>Show all</em> resets.</div>'
-    + renderWindowBar() + renderSeriesBar() + renderTrendCharts() + '</div>';
+    + 'Narrow the lines with the filters above.</div>'
+    + renderWindowBar() + renderTrendCharts() + '</div>';
 
   const setDays = days => {
     state.chartDays = days >= WINDOW_DAYS ? null : days;
@@ -1531,43 +1535,6 @@ function renderTrendsTab() {
   }
 
   chartedMetrics().forEach(drawTrendChart);
-
-  // First click isolates a config; later clicks add or remove one. Removing
-  // the last one shows everything again.
-  host.querySelectorAll('.series-chip').forEach(el => {
-    const k = el.getAttribute('data-series');
-    activatable(el, null, () => {
-      const keys = seriesList().map(s => s.key);
-      if (keys.every(key => !state.hidden.has(key))) {
-        state.hidden.clear();
-        keys.filter(key => key !== k).forEach(key => state.hidden.add(key));
-      } else {
-        if (state.hidden.has(k)) state.hidden.delete(k);
-        else state.hidden.add(k);
-        if (keys.every(key => state.hidden.has(key))) state.hidden.clear();
-      }
-      syncToHash();
-      renderAll();
-      focusAfterRender('.series-chip[data-series="' + cssEscape(k) + '"]');
-    });
-  });
-  const only = document.getElementById('only-reg');
-  if (only) only.addEventListener('click', () => {
-    const series = seriesList();
-    const wasOn = onlyRegressedSelected(series);
-    state.hidden.clear();
-    if (!wasOn) series.filter(s => !s.regressed).forEach(s => state.hidden.add(s.key));
-    syncToHash();
-    renderAll();
-    focusAfterRender('#only-reg');
-  });
-  const all = document.getElementById('show-all-series');
-  if (all) all.addEventListener('click', () => {
-    state.hidden.clear();
-    syncToHash();
-    renderAll();
-    focusAfterRender('#show-all-series');
-  });
 }
 
 /* ================================================================
@@ -1679,7 +1646,7 @@ function accuracyPoints(delta, signed) {
    ================================================================ */
 function renderConfigsTab() {
   const host = document.getElementById('main');
-  const configs = visibleConfigs();
+  const configs = shownConfigs();
   if (!configs.length) {
     host.innerHTML = '<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
     return;
@@ -1822,7 +1789,8 @@ function openHistory(title, subtitle, metric, points, v) {
             title: items => fmtDate(items[0].parsed.x),
             afterBody: items => {
               const p = points[items[0].dataIndex] || {};
-              return ['vLLM commit: ' + shortSha(p.vllm_commit), 'Build: #' + (p.build_number || '?')];
+              const lines = ['vLLM commit: ' + shortSha(p.vllm_commit), 'Build: #' + (p.build_number || '?')];
+              return failedNote(p) ? lines.concat(failedNote(p)) : lines;
             },
           }
         },
@@ -1912,10 +1880,7 @@ function syncToHash() {
     const sel = [...state.selected[f.key]];
     if (sel.length) parts.push(f.key + '=' + sel.map(encodeURIComponent).join(','));
   });
-  if (state.hidden.size) {
-    const shown = seriesList().map(s => s.key).filter(k => !state.hidden.has(k));
-    if (shown.length) parts.push('show=' + shown.map(encodeURIComponent).join(','));
-  }
+  if (state.onlyRegressed) parts.push('regressed=1');
   suppressHash = true;
   window.location.hash = parts.join('&');
   setTimeout(() => { suppressHash = false; }, 0);
@@ -1927,7 +1892,7 @@ function readFromHash() {
   state.baseline = DATA.default_baseline || 'previous';
   state.chartDays = null;
   FACETS.forEach(f => state.selected[f.key].clear());
-  const shown = new Set();
+  state.onlyRegressed = false;
   raw.split('&').forEach(chunk => {
     const i = chunk.indexOf('=');
     if (i < 0) return;
@@ -1936,7 +1901,7 @@ function readFromHash() {
     if (k === 'tab' && TABS.some(t => t.id === v)) state.tab = v;
     else if (k === 'base' && BASELINE_BY_ID[v]) state.baseline = v;
     else if (k === 'days' && /^\d+$/.test(v)) state.chartDays = Number(v);
-    else if (k === 'show') v.split(',').map(safeDecode).filter(Boolean).forEach(key => shown.add(key));
+    else if (k === 'regressed') state.onlyRegressed = v === '1';
     else {
       const facet = FACETS.find(f => f.key === k);
       if (facet) {
@@ -1945,9 +1910,6 @@ function readFromHash() {
       }
     }
   });
-  // Stored as the configs shown (short when isolating); the rest are hidden.
-  state.hidden.clear();
-  if (shown.size) CONFIGS.forEach(c => { if (!shown.has(c.key)) state.hidden.add(c.key); });
   invalidateScan();
 }
 // A truncated or hand-edited link must not take the page down with it.

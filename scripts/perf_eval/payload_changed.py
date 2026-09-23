@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
-"""Decide whether a freshly built payload is materially different.
+"""Whether a freshly built payload differs from the published one, ignoring
+``generated_at``.
 
-``aggregate.py`` stamps ``generated_at`` on every run, so ``perf_eval.json``
-differs on every collection even when no new nightly arrived. Deploying on
-that alone spends a GitHub Pages build to republish identical numbers, and
-Pages allows only about ten builds an hour — so the timestamp is excluded from
-the comparison and everything else is included.
-
-Prints ``true`` or ``false`` and, when ``GITHUB_OUTPUT`` is set, writes
-``changed=<value>`` for the workflow to gate its deploy step on.
-
-A missing or unreadable previous payload counts as changed: the safe direction
-is to publish.
+Prints ``true`` or ``false`` and writes ``changed=<value>`` to ``GITHUB_OUTPUT``
+for the deploy step. A missing or unreadable previous payload counts as changed.
 """
 
 from __future__ import annotations
@@ -22,9 +14,7 @@ import os
 import sys
 from pathlib import Path
 
-# Fields that move on every run without conveying anything new. Keep this list
-# as short as possible — anything else in the payload is real data whose change
-# should trigger a deploy.
+# Fields that change on every run; any other change deploys.
 VOLATILE_FIELDS = ("generated_at",)
 
 

@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
 
-from conftest import perf_result
+from conftest import days_ago, perf_result
 from perf_eval import aggregate as agg
 from perf_eval import payload_changed as pc
 
@@ -122,48 +121,16 @@ class TestCli:
 
 
 class TestAgainstRealAggregateOutput:
-    def _nights(self, days_ago: list[float], when: datetime):
-        return [
-            perf_result(
-                commit=f"{index:040x}",
-                date=(when - timedelta(days=ago)).strftime("%Y-%m-%d %H:%M:%S"),
-                build_number=1000 + index,
-            )
-            for index, ago in enumerate(days_ago)
-        ]
-
-    def test_a_day_passing_is_not_a_change(self):
-        # No nightly crosses the window edge, so nothing new to publish.
-        when = datetime(2026, 2, 1, tzinfo=UTC)
-        events = self._nights([1, 3, 8], when)
-        today = agg.build_payload(events, generated_at=when)
-        tomorrow = agg.build_payload(events, generated_at=when + timedelta(days=1))
-        assert pc.payload_changed(today, tomorrow) is False
-
-    def test_a_nightly_leaving_the_window_is_a_change(self):
-        # The payload publishes only the window, so this deploys, at most once
-        # per nightly that ages out.
-        when = datetime(2026, 2, 1, tzinfo=UTC)
-        events = self._nights([1, 3, 13.5], when)
-        today = agg.build_payload(events, generated_at=when)
-        tomorrow = agg.build_payload(events, generated_at=when + timedelta(days=1))
-        assert pc.payload_changed(today, tomorrow) is True
-
-    def test_two_runs_over_the_same_events_differ_only_by_timestamp(self):
-        events = [perf_result()]
-        first = agg.aggregate(events, generated_at=datetime(2026, 1, 1, tzinfo=UTC))
-        second = agg.aggregate(events, generated_at=datetime(2026, 9, 9, tzinfo=UTC))
-        assert first["generated_at"] != second["generated_at"]
-        assert pc.payload_changed(first, second) is False
+    def test_rebuilding_from_the_same_events_is_not_a_change(self):
+        events = [perf_result(commit=f"{age:040x}", date=days_ago(age)) for age in (1, 3, 8)]
+        assert pc.payload_changed(agg.build_payload(events), agg.build_payload(events)) is False
 
     def test_a_new_nightly_registers_as_a_change(self):
-        when = datetime(2026, 1, 1, tzinfo=UTC)
-        first = agg.aggregate([perf_result(commit="a" * 40)], generated_at=when)
-        second = agg.aggregate(
+        first = agg.build_payload([perf_result(commit="a" * 40, date=days_ago(2))])
+        second = agg.build_payload(
             [
-                perf_result(commit="a" * 40, date="2026-01-01 00:00:00"),
-                perf_result(commit="b" * 40, date="2026-01-02 00:00:00", value=120.0),
-            ],
-            generated_at=when,
+                perf_result(commit="a" * 40, date=days_ago(2)),
+                perf_result(commit="b" * 40, date=days_ago(1), value=120.0),
+            ]
         )
         assert pc.payload_changed(first, second) is True

@@ -79,6 +79,11 @@ class TestTransformPerf:
         # Interactivity is derived from TPOT as 1000 / tpot_ms.
         assert metrics["mean_intvty"] == 50.0
 
+    def test_latency_keeps_sub_millisecond_precision(self):
+        # One 0.1 ms step on a 5 ms TPOT is 2%, four times the regression threshold.
+        metrics = nz.transform_perf({"mean_tpot_ms": 5.234}, tp=1)
+        assert metrics["mean_tpot"] == pytest.approx(0.005234)
+
     def test_tp_zero_or_none_is_treated_as_one(self):
         raw = {"total_token_throughput": 10.0, "output_throughput": 4.0}
         assert nz.transform_perf(raw, tp=0)["tput_per_gpu"] == 10.0

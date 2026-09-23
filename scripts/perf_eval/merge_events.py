@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
-"""Atomically merge a local and a published perf-eval event store.
+"""Merge a local and a published event store by result identity, atomically.
 
-Stores are merged by result identity, not line count: compaction folds
-duplicates, so a newer store can hold fewer lines. Duplicate results are
-ordered by when they were recorded, and two conflicting results recorded at
-the same moment fail the merge rather than one silently winning. The store's
-own writer then compacts the result. With only --local, this just validates
-and compacts that store.
-
-No network requests.
+Duplicates are ordered by ``received_at``; two conflicting results recorded at
+the same moment fail the merge instead of one silently winning.
 """
 
 from __future__ import annotations
@@ -24,9 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from perf_eval.store import (  # noqa: E402
     RESULT_EVENTS,
-    event_time,
-    parse_time,
     read_events_strict,
+    received_at,
     result_identity,
     write_events_atomic,
 )
@@ -47,15 +40,10 @@ def _canonical_event(event: dict) -> str:
 
 
 def _revision_timestamp(event: dict) -> datetime:
-    """When a result was recorded (`received_at`), else when its nightly ran."""
-    if event.get("received_at"):
-        parsed = parse_time(event["received_at"])
-        if parsed is None:
-            raise ValueError(f"perf-eval result has invalid received_at: {event['received_at']!r}")
-        return parsed
-    parsed = event_time(event)
+    """When the collector recorded a result (`received_at`)."""
+    parsed = received_at(event)
     if parsed is None:
-        raise ValueError("perf-eval result has no valid received_at or date")
+        raise ValueError(f"perf-eval result has no valid received_at: {event.get('received_at')!r}")
     return parsed
 
 
@@ -88,7 +76,9 @@ def _assert_equal_revision_compatible(left: dict, right: dict, identity: tuple) 
     for field in sorted((set(left) & set(right)) - ignored):
         _assert_compatible_value(left[field], right[field], identity=identity, field=field)
 
-    if left.get("event") == "perf_result":
+    kind = left.get("event")
+    if kind == "perf_result":
+        # Perf measurements are metrics, by name.
         left_metrics = left.get("metrics") or {}
         right_metrics = right.get("metrics") or {}
         for metric in sorted(set(left_metrics) & set(right_metrics)):
@@ -98,20 +88,22 @@ def _assert_equal_revision_compatible(left: dict, right: dict, identity: tuple) 
                 identity=identity,
                 field=f"metrics.{metric}",
             )
-        return
-
-    left_rows = _accuracy_rows(left)
-    right_rows = _accuracy_rows(right)
-    for row_key in sorted(set(left_rows) & set(right_rows)):
-        left_row = left_rows[row_key]
-        right_row = right_rows[row_key]
-        for field in sorted(set(left_row) & set(right_row)):
-            _assert_compatible_value(
-                left_row[field],
-                right_row[field],
-                identity=identity,
-                field=f"results.{row_key[0]}.{row_key[1]}.{field}",
-            )
+    elif kind == "accuracy_result":
+        # Accuracy measurements are rows, by (task, metric).
+        left_rows = _accuracy_rows(left)
+        right_rows = _accuracy_rows(right)
+        for row_key in sorted(set(left_rows) & set(right_rows)):
+            left_row = left_rows[row_key]
+            right_row = right_rows[row_key]
+            for field in sorted(set(left_row) & set(right_row)):
+                _assert_compatible_value(
+                    left_row[field],
+                    right_row[field],
+                    identity=identity,
+                    field=f"results.{row_key[0]}.{row_key[1]}.{field}",
+                )
+    else:
+        raise ValueError(f"not a result event: {kind!r}")
 
 
 def reconcile_events(local_events: list[dict], remote_events: list[dict]) -> list[dict]:
@@ -146,19 +138,14 @@ def reconcile_events(local_events: list[dict], remote_events: list[dict]) -> lis
     return reconciled
 
 
-def merge_event_files(
-    local_path: Path,
-    remote_path: Path | None = None,
-    *,
-    now: datetime | None = None,
-) -> int:
+def merge_event_files(local_path: Path, remote_path: Path | None = None) -> int:
     """Merge remote history into local, replacing local only after validation."""
     local_events = read_events_strict(local_path)
     remote_events = read_events_strict(remote_path) if remote_path else []
     if remote_path is not None and not remote_events:
         raise ValueError(f"invalid perf-eval remote store {remote_path}: no events")
 
-    return write_events_atomic(local_path, reconcile_events(local_events, remote_events), now=now)
+    return write_events_atomic(local_path, reconcile_events(local_events, remote_events))
 
 
 def main() -> int:

@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
-"""Build the deployable site.
+"""Build the deployable site: copy site/ into a fresh _site/ with perf_eval.json.
 
-    source   site/       the page, checked in: index.html and vendor/
-    output   _site/      what gets deployed to gh-pages, rebuilt from scratch
-
-The build copies the source into the output, adds data/perf_eval.json next to
-index.html (the page fetches it from there), and changes the page's
-``fetch('perf_eval.json')`` to ``fetch('perf_eval.json?v=<hash>')`` so a
-browser holding an old copy of the data loads the new one after a deploy.
-
-Only perf_eval.json is published; the events.jsonl event store never is.
+The page's data fetch gets a content-hash query so browsers pick up new data
+after a deploy. The events.jsonl store is never published.
 """
 
 from __future__ import annotations

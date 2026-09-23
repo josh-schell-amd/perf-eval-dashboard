@@ -222,9 +222,10 @@ Ingest is read-only against Buildkite, so it is safe to re-run as often as you
 like.
 
 **Set `GITHUB_TOKEN` too if you can.** It is only used to read the public
-workload recipes from `vllm-project/perf-eval`, but that is one directory
-listing plus one fetch per recipe — around 29 requests against the 28 recipes
-currently in that repo. Anonymous GitHub API access allows 60 requests an
+workload recipes from `vllm-project/perf-eval`, at the commit each build ran.
+That is one directory listing plus one fetch per recipe — around 29 requests
+against the 28 recipes currently in that repo — for each recipe commit with
+something new to download. Anonymous GitHub API access allows 60 requests an
 hour, so you would get roughly two local runs before being throttled; with a
 token it is 5,000. If the recipes fail to load you will see
 `No recipe for workload <name>; skipping` and an empty dashboard, which is the
@@ -335,7 +336,8 @@ deliberately pass non-boolean values to prove only a literal `True` counts.
         "tput_per_gpu": {
           "latest": 1234.5, "previous": 1200.0, "delta": 34.5, "delta_pct": 2.875,
           "direction": "higher", "status": "good", "label": "...", "unit": "tok/s",
-          "series": [{ "date": "...", "value": 1200.0, "vllm_commit": "...", "build_url": "..." }]
+          "series": [{ "date": "...", "value": 1200.0, "vllm_commit": "...", "build_url": "...",
+                       "completed_requests": 512, "failed_requests": 0 }]
         }
       }
     }],
@@ -361,8 +363,8 @@ scale). Smaller moves are neutral.
 
 **The 0.5% threshold is chosen, not measured.** With no threshold, about half
 of the regressions flagged on a typical night were under 0.5% (the smallest
-was 0.015%), and latencies stored at 0.1 ms resolution make a single rounding
-step on a fast metric look like a regression. Because a threshold hides
+was 0.015%). Latencies are stored unrounded, as the benchmark reports them.
+Because a threshold hides
 movement, the page states it wherever it reports a count: the regression and
 improvement KPI cards and the regression panel (each with how many smaller
 moves were not counted), the trend-chart hint and the Configurations table.
@@ -370,6 +372,10 @@ moves were not counted), the trend-chart hint and the Configurations table.
 Once `repetitions: 3` lands on the AMD recipes, the spread *across* those
 repetitions is a real noise floor, and the threshold should be derived from it
 instead.
+
+A run where some requests failed is not comparable to a clean one, so its
+failed count (from the bench result) shows in the chart tooltips and on its
+regression row.
 
 **Accuracy is not reproducible night to night**, despite the fixed dataset:
 every AMD workload's gsm8k score moves every night. One gsm8k question out of
@@ -493,7 +499,7 @@ they report which config happens to be largest and barely move night to night.
 | Regressions overnight | Config-metric pairs that got worse by at least 0.5% in the newest nightly; red when there are any |
 | Improvements overnight | The same scan in the other direction, to confirm an optimization landed; green when there are any |
 | Accuracy overnight | Models whose headline accuracy dropped at least 1 point in the newest nightly; opens the Accuracy tab |
-| Coverage | Perf configs reporting in the newest build vs those defined in the perf-eval recipes, and accuracy results reporting vs models with accuracy in the window |
+| Coverage | Perf configs reporting in the newest build vs those defined in the perf-eval recipes that build ran, and accuracy results reporting vs models with accuracy in the window |
 
 Every card except *Latest nightly*, Coverage included, follows the Device,
 Model, Precision, ISL/OSL and Concurrency filters. *Latest nightly* names the
@@ -502,8 +508,10 @@ precision or concurrency, so only the Device and Model filters narrow it.
 
 When nothing could be compared — no configuration has both a run in the newest
 nightly and an earlier one in the window — the regression panel says *Nothing
-to compare* rather than showing a green *No regressions*. The legend selection
-is kept in the URL as `show=`, so a copied link shows the same configurations.
+to compare* rather than showing a green *No regressions*. *Only regressed*, in
+the filter panel, narrows the charts and the Configurations table to the
+configurations that regressed; it is kept in the URL as `regressed=1`, like the
+filters, so a copied link shows the same view.
 
 The overnight cards only count configs that reported in the newest
 nightly. A config that skipped tonight still has two earlier points, but its
@@ -514,8 +522,16 @@ instead.
 Coverage is the one that is easy to omit and expensive to miss: a workload that
 OOMs simply stops emitting rows, so it silently disappears from every average
 rather than showing up as a regression. Missing configurations are listed in a
-panel under the KPI row, grouped by workload, because a failed build step
-takes every config in that workload with it.
+panel at the bottom of the page, grouped by workload, because a failed build
+step takes every config in that workload with it.
+
+Recipes change: configs are added, removed and retuned. Each build is read
+against the recipes at the perf-eval commit it ran, never against `main`, so a
+change landing after a nightly does not relabel it. A series is what ran —
+model, device, precision, TP, ISL/OSL and concurrency — so changing any of
+those starts a new line (a regression is only ever measured within one), while
+renaming a run with the same values continues it. A removed config's line stops
+and ages out of the window; it is not reported missing.
 
 ### Nightly identity
 

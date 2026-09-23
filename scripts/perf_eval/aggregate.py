@@ -1,25 +1,8 @@
 #!/usr/bin/env python3
-"""Fold the perf-eval event store into the published ``perf_eval.json``.
+"""Fold the event store into the published ``perf_eval.json``.
 
-SCOPE: **AMD only, nightly only.** Both filters are re-applied here rather
-than trusted from ingest, so a hand-seeded or legacy event can never widen
-what the dashboard presents. See ``README.md`` for why nightly-only is the
-right window: an ad-hoc run may cover a single workload at one concurrency,
-so mixing it into a trend line would make latest-vs-previous meaningless.
-
-Design goals:
-
-* **Self-updating workload set** — models, perf configs and accuracy tasks are
-  discovered from the data, never hard-coded, so adding, removing or renaming
-  a workload upstream is reflected automatically while older runs stay in each
-  metric's time series.
-* **Traceable provenance** — every series point keeps the vLLM commit, image
-  and Buildkite build URL that produced it.
-* **Data-driven framing** — each metric carries its ``direction`` (higher or
-  lower is better) and a red/green ``status`` derived from the latest-versus-
-  previous nightly delta.
-
-This collector performs no network requests; it only reads the local store.
+Scope: AMD only, nightly only, re-applied here instead of trusted from ingest
+so a stray event cannot widen what the page shows. Reads only the local store.
 """
 
 from __future__ import annotations
@@ -48,9 +31,10 @@ from perf_eval.normalize import (  # noqa: E402
 from perf_eval.store import (  # noqa: E402
     EXPECTED_CONFIGS_EVENT,
     RESULT_EVENTS,
-    event_time,
+    finished_at,
     nightly_identity,
     read_events_strict,
+    received_at,
     write_json_atomic,
 )
 
@@ -63,45 +47,12 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_STORE = ROOT / "data" / "events.jsonl"
 DEFAULT_OUTPUT = ROOT / "data" / "perf_eval.json"
 
-# A perf metric has to move by at least 0.5% relative to count as a regression
-# or improvement. Below that, the movement is still shown as a number but is
-# neutral.
-#
-# Chosen, not measured: the AMD workloads run at `repetitions: 1`, so there is
-# no run-to-run spread to derive a floor from. With no floor at all, about half
-# of the regressions flagged on a typical night were under 0.5%, down to 0.015%,
-# and latencies stored at 0.1 ms resolution make one rounding step on a fast
-# metric look like a regression. The page states this threshold wherever it
-# reports a count, so what it hides is never invisible.
-#
-# Once `repetitions: 3` lands on the AMD recipes upstream, the spread across
-# those repetitions is a measurable noise floor and should replace this value.
-#
-# Accuracy scores are on a 0..1 scale and must move by 0.01 (one point)
-# absolute. They are not reproducible night to night: every AMD workload's
-# gsm8k score moves every night, and one gsm8k question out of 1319 is worth
-# 0.00076. The expected run-to-run spread on gsm8k is about 0.007, so a point
-# sits just above it.
+# Smallest move that counts as a regression or improvement: 0.5% relative for
+# perf, one point absolute for accuracy (0..1 scale). README: Regression detection.
 PERF_REL_THRESHOLD = 0.005
 ACCURACY_ABS_THRESHOLD = 0.01
 
-# The regression model, published so the page labels it from data rather than
-# hard-coding the rule. A list of one, because the structure makes adding a
-# second model later a data change rather than a frontend change.
-#
-# Why only "newest versus the run before it", and no smoothing across
-# nightlies: reducing measurement noise is the benchmark's job, not the
-# dashboard's. perf-eval already does it properly — ``lib/aggregate_perf.py``
-# repeats a benchmark on the same warm server ``repetitions`` times and
-# median-aggregates every numeric field before ingestion. Smoothing again here
-# would blur the night-to-night change this dashboard exists to show, while
-# only pretending to fix noise that belongs upstream. If a metric is too noisy
-# to compare night to night, the fix is a higher ``repetitions`` in the
-# workload recipe.
-#
-# The page recomputes this from the series inside the time window; the
-# per-metric ``status`` on each metric block is the same rule applied over
-# whole history, kept for machine consumers of this JSON.
+# The regression rule, published so the page labels it from data.
 BASELINES = [
     {
         "id": "previous",
@@ -126,21 +77,21 @@ DEFAULT_BASELINE = "previous"
 _EPOCH = datetime.min.replace(tzinfo=UTC)
 
 
-def _parse_ts(event: dict) -> datetime:
-    """Sortable timestamp for an event.
+def _finished_at(result: dict) -> datetime:
+    """When a result's nightly finished, sortable.
 
     Unparseable timestamps sort first rather than crashing the build, but they
     are logged: a silently mis-ordered series is far harder to notice than a
     warning in the collector output.
     """
-    parsed = event_time(event)
+    parsed = finished_at(result)
     if parsed is None:
         log.warning(
-            "perf-eval event has no parseable timestamp; sorting it oldest "
+            "perf-eval result has no parseable date; sorting it oldest "
             "(event=%s model=%s build=%s)",
-            event.get("event"),
-            event.get("model"),
-            event.get("build_number"),
+            result.get("event"),
+            result.get("model"),
+            result.get("build_number"),
         )
         return _EPOCH
     return parsed
@@ -201,13 +152,8 @@ def _status(direction: str, latest: float, previous: float | None, *, rel: bool)
 
 
 def _series_from_points(points: list[dict]) -> list[dict]:
-    """One entry per nightly, newest observation winning, sorted oldest-first.
-
-    Resolution is by timestamp, not by position in the event store. The store
-    is append-ordered rather than time-ordered, so picking the last matching
-    row would let a re-ingested older observation silently override a newer
-    one for the same nightly.
-    """
+    """One point per nightly, the newest winning by time (the store is not
+    time-ordered), sorted oldest first."""
     by_night: dict[str, dict] = {}
     for point in points:
         current = by_night.get(point["nightly_key"])
@@ -224,11 +170,7 @@ def _strip_internal(series: list[dict]) -> list[dict]:
 
 
 def build_perf_configs(perf_events: list[dict]) -> list[dict]:
-    """Group perf events into per-config metric time series.
-
-    Keyed on TP and precision as well as shape, the same identity the page
-    uses: a TP 4 and a TP 8 recipe for one model and device are two series.
-    """
+    """Per-config metric series, a config being device, TP, precision and shape."""
     configs: dict[tuple, dict] = {}
     for event in perf_events:
         device = (event.get("device") or "").strip()
@@ -248,7 +190,7 @@ def build_perf_configs(perf_events: list[dict]) -> list[dict]:
                 "_metric_points": {},
             },
         )
-        timestamp = _parse_ts(event)
+        timestamp = _finished_at(event)
         night = nightly_identity(event)
         provenance = _provenance(event)
         for metric, value in (event.get("metrics") or {}).items():
@@ -258,6 +200,8 @@ def build_perf_configs(perf_events: list[dict]) -> list[dict]:
                     "_ts": timestamp,
                     "date": event.get("date") or "",
                     "value": value,
+                    "completed_requests": event.get("completed_requests"),
+                    "failed_requests": event.get("failed_requests"),
                     **provenance,
                 }
             )
@@ -297,22 +241,15 @@ def build_perf_configs(perf_events: list[dict]) -> list[dict]:
 
 
 def build_accuracy_tasks(eval_events: list[dict]) -> list[dict]:
-    """Group accuracy events into per-(device, task, metric) time series.
-
-    Keyed on device as well as task: one model can run on several AMD devices
-    (MiniMax-M2.5 on mi300x and mi355x), and those are separate series, not
-    two observations of one.
-    """
+    """Per-(workload, device, task, metric) accuracy series."""
     tasks: dict[tuple, dict] = {}
     for event in eval_events:
-        timestamp = _parse_ts(event)
+        timestamp = _finished_at(event)
         night = nightly_identity(event)
         provenance = _provenance(event)
         device = (event.get("device") or "").strip()
         workload = (event.get("workload") or "").strip()
         for row in score_rows(event.get("results") or []):
-            # Workload too: two recipes for one model and device would
-            # otherwise share a series and each nightly would keep one of them.
             key = (workload, device, row["task"], row["metric"])
             entry = tasks.setdefault(
                 key,
@@ -330,7 +267,7 @@ def build_accuracy_tasks(eval_events: list[dict]) -> list[dict]:
                 {
                     "nightly_key": night,
                     "_ts": timestamp,
-                    "date": event.get("date") or event.get("received_at") or "",
+                    "date": event.get("date") or "",
                     "value": row["value"],
                     **provenance,
                 }
@@ -351,11 +288,8 @@ def build_accuracy_tasks(eval_events: list[dict]) -> list[dict]:
 def _accuracy_model(event: dict, workload_models: dict[str, str]) -> str:
     """The model an accuracy event measured.
 
-    Events collected before the collector read the model id from the recipe
-    carry lm-eval's backend name (``local-completions``) instead, which would
-    fold every workload into one "model". Those are resolved from the recipe
-    expectation for their workload, then from lm-eval's own output directory
-    (``results/<workload>/<task>/<org>__<name>/results_*.json``).
+    Older events carry lm-eval's backend name (``local-completions``) instead;
+    those resolve from the recipe, then from lm-eval's output directory.
     """
     model = (event.get("model") or "").strip()
     if model and model not in LM_EVAL_BACKENDS:
@@ -374,27 +308,21 @@ def _accuracy_model(event: dict, workload_models: dict[str, str]) -> str:
 def _latest_identity(events: list[dict]) -> dict:
     if not events:
         return {}
-    latest = max(events, key=_parse_ts)
+    latest = max(events, key=_finished_at)
     return {
-        "date": latest.get("date") or latest.get("received_at") or "",
+        "date": latest.get("date") or "",
         **_provenance(latest),
     }
 
 
 def _expected_from_events(events: list[dict]) -> dict:
-    """The newest recipe-derived expectation, for the coverage card.
-
-    Published separately from the results because it answers a different
-    question: not "what did we measure" but "what should have been measured".
-    Coverage compares the two, which is the only way a workload that has never
-    reported can show up as missing.
-    """
+    """The newest expected-configs snapshot, for the coverage card."""
     newest: dict | None = None
     newest_at: datetime | None = None
     for event in events:
         if event.get("event") != EXPECTED_CONFIGS_EVENT:
             continue
-        observed_at = _parse_ts(event)
+        observed_at = received_at(event) or _EPOCH
         if newest_at is None or observed_at >= newest_at:
             newest, newest_at = event, observed_at
     if newest is None:
@@ -416,7 +344,7 @@ def _is_in_scope(event: dict) -> bool:
     )
 
 
-def aggregate(events: list[dict], *, generated_at: datetime | None = None) -> dict:
+def aggregate(events: list[dict]) -> dict:
     """Fold the event log into the frontend payload (AMD + nightly only)."""
     perf_by_model: dict[str, list[dict]] = {}
     eval_by_model: dict[str, list[dict]] = {}
@@ -432,17 +360,15 @@ def aggregate(events: list[dict], *, generated_at: datetime | None = None) -> di
     for event in events:
         if not _is_in_scope(event):
             continue
-        if event["event"] == "accuracy_result":
-            model = _accuracy_model(event, workload_models) or "(unknown model)"
-        else:
+        if event["event"] == "perf_result":
             model = (event.get("model") or "").strip() or "(unknown model)"
+            perf_by_model.setdefault(model, []).append(event)
+        elif event["event"] == "accuracy_result":
+            model = _accuracy_model(event, workload_models) or "(unknown model)"
+            eval_by_model.setdefault(model, []).append(event)
         if event.get("device"):
             devices.add(event["device"])
         nightlies.add(nightly_identity(event))
-        if event["event"] == "perf_result":
-            perf_by_model.setdefault(model, []).append(event)
-        else:
-            eval_by_model.setdefault(model, []).append(event)
 
     models = []
     perf_points = accuracy_points = 0
@@ -484,9 +410,7 @@ def aggregate(events: list[dict], *, generated_at: datetime | None = None) -> di
     }
 
     return {
-        "generated_at": (generated_at or datetime.now(UTC))
-        .astimezone(UTC)
-        .strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "scope": {
             "hardware": "amd",
             "runs": "nightly",
@@ -520,24 +444,22 @@ def aggregate(events: list[dict], *, generated_at: datetime | None = None) -> di
     }
 
 
-def build_payload(events: list[dict], *, generated_at: datetime | None = None) -> dict:
+def build_payload(events: list[dict]) -> dict:
     """The published payload: the nightlies from the last WINDOW_DAYS.
 
     A nightly is in if its latest result is inside the window, so a nightly
     is never split across the edge.
     """
-    timestamp = (generated_at or datetime.now(UTC)).astimezone(UTC)
-    window_start = timestamp - timedelta(days=WINDOW_DAYS)
+    window_start = datetime.now(UTC) - timedelta(days=WINDOW_DAYS)
     latest: dict[str, datetime] = {}
     for event in events:
         if _is_in_scope(event):
             identity = nightly_identity(event)
-            latest[identity] = max(latest.get(identity, _EPOCH), _parse_ts(event))
+            latest[identity] = max(latest.get(identity, _EPOCH), _finished_at(event))
     published = {identity for identity, last in latest.items() if last >= window_start}
 
     payload = aggregate(
-        [e for e in events if not _is_in_scope(e) or nightly_identity(e) in published],
-        generated_at=timestamp,
+        [e for e in events if not _is_in_scope(e) or nightly_identity(e) in published]
     )
     payload["retention"] = {"display_window_days": WINDOW_DAYS}
     return payload
@@ -550,7 +472,7 @@ def main() -> int:
     args = parser.parse_args()
 
     events = read_events_strict(Path(args.store))
-    payload = build_payload(events, generated_at=datetime.now(UTC))
+    payload = build_payload(events)
     out = Path(args.output)
     write_json_atomic(out, payload)
     log.info(

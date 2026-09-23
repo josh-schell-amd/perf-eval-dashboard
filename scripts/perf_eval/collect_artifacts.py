@@ -1,36 +1,11 @@
 #!/usr/bin/env python3
-"""Ingest AMD nightly perf-eval results from Buildkite artifacts.
+"""Collect AMD nightly perf-eval results from Buildkite artifacts into the store.
 
-SCOPE, enforced by two named predicates in this module:
-
-* :func:`is_nightly_build` — **scheduled nightlies only.** Ad-hoc and
-  pull-request builds are excluded. A nightly is identified by the build
-  message ``Nightly run <date>: commit <sha>`` (which also yields the exact
-  vLLM commit for provenance), with ``NIGHTLY=1`` in the build env and a
-  scheduled build whose message merely mentions "nightly" accepted as
-  fallbacks. Both fallbacks additionally require the ``main`` branch so an
-  ad-hoc run cannot be mislabeled.
-* ``normalize.is_amd_workload`` — **AMD (MI-series) only.** NVIDIA workloads
-  (H200/B200/A100) run in the same pipeline and are dropped.
-
-Nightly-only is a product decision, not a technical limit: an ad-hoc run may
-cover a single workload at a single concurrency, so mixing it into a trend line
-would make the latest-vs-previous comparison meaningless.
-
-The upstream ``vllm/perf-eval`` pipeline uploads its entire ``results/`` tree
-as Buildkite artifacts on every build (``artifact_paths: ["results/**/*"]``).
-Using only a **read-only** ``BUILDKITE_TOKEN`` (Read Builds + Read Artifacts)
-and ``GITHUB_TOKEN`` (to read the public workload recipes), we:
-
-1. list finished ``perf-eval`` builds on ``main`` in a lookback window;
-2. keep the nightly ones;
-3. download each AMD workload's raw ``bench-*.json`` (perf) and
-   ``results_*.json`` (accuracy) artifacts;
-4. transform them into canonical events; and
-5. append only new events, deduped by build plus model, device, TP, precision
-   and shape (perf) or workload and tasks (accuracy).
-
-Every request is a GET. This collector never writes to Buildkite or GitHub.
+Scope: AMD workloads (``is_amd_workload``) in nightly builds (``is_nightly_build``).
+Lists finished nightly builds on main, downloads each AMD workload's
+``bench-*.json`` (perf) and ``results_*.json`` (accuracy), labels them from the
+recipes at the build's perf-eval commit, and appends the new ones. Every
+Buildkite and GitHub request is a GET.
 """
 
 from __future__ import annotations
@@ -71,7 +46,9 @@ from perf_eval.store import (  # noqa: E402
     append_events,
     artifact_key,
     artifact_keys_from_event,
+    finished_at,
     read_events_strict,
+    received_at,
 )
 
 logging.basicConfig(
@@ -84,36 +61,25 @@ DEFAULT_STORE = ROOT / "data" / "events.jsonl"
 
 AMD_IMAGE_REPO = "vllm/vllm-openai-rocm"
 
-# Keep transient retries bounded. Exhaustion is an error: returning an empty
-# page after a 429/5xx would make a partial Buildkite observation look complete
-# and could postpone ingestion until the next scheduled run.
+# Running out of retries is an error: an empty page would pass for a complete listing.
 BK_GET_MAX_ATTEMPTS = 3
 BK_GET_RETRYABLE_STATUS_CODES = frozenset({429, 502, 503, 504, 520, 522, 524})
 BK_GET_RETRY_BACKOFF_SECONDS = 2
 
-# "Nightly run 2026-06-30: commit 93d8f834dd8acf33eb0e2a75b2711b628cb6e226".
-# The date + commit make this the least brittle nightly signal and give us the
-# exact vLLM commit for provenance for free.
+# "Nightly run 2026-06-30: commit 93d8f834dd8acf33eb0e2a75b2711b628cb6e226"
 _NIGHTLY_MSG_RE = re.compile(
     r"nightly\s+run\s+(\d{4}-\d{2}-\d{2}).*?commit\s+([0-9a-f]{7,40})",
     re.IGNORECASE | re.DOTALL,
 )
 _NIGHTLY_WORD_RE = re.compile(r"\bnightly\b", re.IGNORECASE)
 
-# Artifact paths look like ``results/<workload>/bench-<config>.json`` (perf)
-# and ``results/<workload>/<task>/<model>/results_*.json`` (accuracy). The
-# ``<model>`` level is added by lm-eval itself: perf-eval passes
-# ``--output_path results/<workload>/<task>`` and lm-eval writes into a
-# subdirectory named after the sanitized model id (``openai__gpt-oss-120b``).
-# It is optional here so a results file written directly under the task
-# directory still matches.
+# ``results/<workload>/bench-<run>.json`` (perf) and
+# ``results/<workload>/<task>/[<model>/]results_*.json`` (accuracy; lm-eval adds <model>).
 _PERF_ARTIFACT_RE = re.compile(r"^results/(?P<wl>[^/]+)/bench-(?P<cfg>.+)\.json$")
 _ACC_ARTIFACT_RE = re.compile(
     r"^results/(?P<wl>[^/]+)/(?P<task>[^/]+)/(?:[^/]+/)?results_[^/]*\.json$"
 )
-# The REST artifact endpoint supports path globs. Keep discovery broader than
-# the local classifiers, including './results/' paths, while excluding the
-# pipeline's much larger sample/log artifact tree.
+# Buildkite path filters: just the result files, not the much larger sample/log tree.
 _RESULT_ARTIFACT_PATHS = (
     "*results/*/bench-*.json",
     "*results/*/*/results_*.json",
@@ -129,27 +95,16 @@ _ARTIFACT_PROVENANCE_FIELDS = (
     "buildkite_artifact_sha1",
 )
 
-# A finished build's artifacts are normally complete, so there is no reason to
-# re-list a build we already hold results for. The newest few are re-listed
-# anyway: a nightly can finish with a failed workload that someone retries
-# later, which adds artifacts to the same build number.
+# Ingested builds are not re-listed, except the newest few: a retried job can
+# add artifacts to a finished build.
 DEFAULT_RECHECK_BUILDS = 3
 
-# Default ceiling on outbound Buildkite requests per run. Generous enough for a
-# cold start over the full lookback, low enough that a logic error cannot turn
-# into a sustained hammering of the API. Raise it deliberately with
-# --max-requests if a first backfill needs more.
+# Enough for a cold start over the full window; a logic error stops here.
 DEFAULT_MAX_REQUESTS = 1500
 
 
 class RequestBudget:
-    """Counts outbound Buildkite requests and refuses to exceed a ceiling.
-
-    Every HTTP attempt is charged, retries included, so the number reported is
-    what Buildkite actually saw rather than what we intended. Exceeding the
-    ceiling raises instead of continuing: an unexpected request volume is a
-    bug worth stopping on, not something to push through.
-    """
+    """Counts Buildkite requests, retries included, and raises past a ceiling."""
 
     def __init__(self, max_requests: int | None = DEFAULT_MAX_REQUESTS):
         self.listings = 0
@@ -188,20 +143,8 @@ class RequestBudget:
 def use_system_certificates() -> bool:
     """Verify TLS against the OS trust store instead of certifi's bundle.
 
-    Corporate networks commonly terminate TLS at an inspecting proxy that
-    re-signs traffic with a private root CA. That CA is installed in the
-    machine's trust store — which is why ``curl`` works — but requests and
-    urllib3 verify against certifi's bundled list, which has never heard of
-    it, so every call fails with CERTIFICATE_VERIFY_FAILED.
-
-    ``truststore`` points Python at the OS store, so verification still
-    happens, just against a trust anchor the machine actually has. This is
-    deliberately not ``verify=False``: that would disable verification
-    entirely on a process holding a credential.
-
-    A no-op on CI runners, where the OS store is the ordinary CA bundle.
-    Returns False if truststore is not installed, so the collector still runs
-    on a network that does not need it.
+    Needed behind proxies that re-sign TLS with a CA only the OS trusts.
+    Returns False if truststore is not installed.
     """
     try:
         import truststore
@@ -255,14 +198,10 @@ def precision_from_model(model: str) -> str:
 
 
 def workload_entry(data: dict) -> tuple[dict, dict]:
-    """Project a workload recipe into the fields the transform needs.
+    """A recipe as (entry, configs by run name).
 
-    Configs are keyed on the **expanded run name**, not the bare config name.
-    perf-eval's ``expand_bench_config`` suffixes every run with
-    ``-conc-<value>`` — whether or not ``max_concurrency`` is a sweep — and the
-    artifact is named after the run (``bench-<run>.json``). Keying on the bare
-    name means every lookup misses, which silently drops ISL/OSL from each
-    result and merges configs that differ only in shape.
+    Runs are named ``<config>-conc-<concurrency>``, as perf-eval expands them
+    and names their artifacts (``bench-<run>.json``).
     """
     gpu = (data.get("gpu") or "").strip()
     vllm = data.get("vllm") or {}
@@ -298,14 +237,7 @@ def workload_entry(data: dict) -> tuple[dict, dict]:
 
 
 def expected_configs(workloads: dict[str, tuple[dict, dict]]) -> list[dict]:
-    """The AMD nightly configs the recipes say should run.
-
-    This is the authoritative expectation for the coverage card: derived from
-    what is *defined upstream*, not from what happened to report recently. A
-    workload that has been failing for weeks — or has never succeeded once —
-    stays visibly missing, which a data-derived expectation cannot do because
-    it forgets anything absent long enough.
-    """
+    """The AMD nightly configs the recipes say should run, for the coverage card."""
     out: list[dict] = []
     for workload, (entry, configs) in sorted(workloads.items()):
         if not entry.get("nightly"):
@@ -330,10 +262,8 @@ def expected_configs(workloads: dict[str, tuple[dict, dict]]) -> list[dict]:
 
 
 def is_nightly_build(build: dict) -> bool:
-    """Whether a Buildkite build is a scheduled nightly.
-
-    This is the nightly-only scope filter. See the module docstring.
-    """
+    """Whether a build is a scheduled nightly: the nightly-run message, or on
+    main, ``NIGHTLY=1`` or a scheduled build that says "nightly"."""
     branch = (build.get("branch") or "").strip()
     message = build.get("message") or ""
     env = build.get("env") or {}
@@ -350,26 +280,19 @@ def is_nightly_build(build: dict) -> bool:
 
 
 def nightly_info(build: dict) -> dict | None:
-    """Return ``{date, vllm_commit, branch}`` for a nightly build, else None."""
+    """Return ``{vllm_commit, branch}`` for a nightly build, else None."""
     if not is_nightly_build(build):
         return None
 
     branch = (build.get("branch") or "").strip()
     env = build.get("env") or {}
-    date = commit = None
-
     match = _NIGHTLY_MSG_RE.search(build.get("message") or "")
-    if match:
-        date, commit = match.group(1), match.group(2)
-
+    commit = match.group(2) if match else None
     if not commit:
         commit = (env.get("VLLM_COMMIT") or "").strip() or commit_from_image(
             env.get("VLLM_IMAGE") or ""
         )
-    if not date:
-        stamp = build.get("created_at") or build.get("finished_at") or ""
-        date = stamp[:10] if stamp else ""
-    return {"date": date, "vllm_commit": commit, "branch": branch or "main"}
+    return {"vllm_commit": commit, "branch": branch or "main"}
 
 
 def amd_image(env: dict, vllm_commit: str) -> str:
@@ -411,9 +334,8 @@ def perf_event(
     image = identity.get("image") or ""
     if not is_amd_workload(image=image, device=device, workload=entry.get("name")):
         return None
-    # A crashed or empty benchmark still writes a bench json. transform_perf
-    # would turn it into zero throughput, which reads as a 100% regression
-    # tonight and a false recovery tomorrow, so it is skipped instead.
+    # A crashed benchmark still writes a bench json; zero throughput would read
+    # as a 100% regression.
     total = to_float(raw.get("total_token_throughput"))
     if total is None or total <= 0:
         log.warning(
@@ -446,6 +368,9 @@ def perf_event(
         "branch": identity.get("branch") or "main",
         "image": image,
         "vllm_commit": identity.get("vllm_commit") or "",
+        # Floats: perf-eval takes the median across repetitions.
+        "completed_requests": to_float(raw.get("completed")),
+        "failed_requests": to_float(raw.get("failed")),
         "metrics": metrics,
     }
 
@@ -477,8 +402,7 @@ def accuracy_event(
     if event is None:
         return None
     event["nightly"] = True
-    if identity.get("date"):
-        event["date"] = identity["date"]
+    event["date"] = identity.get("date") or ""
     # The recipe's model id first: it is the same string the perf results for
     # this workload carry, so accuracy groups under the same model.
     event["model"] = (entry.get("model") or "").strip() or event.get("model") or workload
@@ -488,9 +412,7 @@ def accuracy_event(
 def event_key(event: dict) -> tuple:
     """Stable dedupe identity so re-runs never double-append the same result."""
     if event.get("event") == "perf_result":
-        # TP and precision are part of the identity: two recipes can run one
-        # model on one device at the same shape (a TP 4 and a TP 8 variant),
-        # and those are different results, not a retry of one.
+        # With TP and precision: two recipes can run one model at one shape.
         return (
             "perf",
             event.get("build_number"),
@@ -502,21 +424,19 @@ def event_key(event: dict) -> tuple:
             event.get("osl"),
             event.get("conc"),
         )
-    tasks = tuple(sorted((r.get("task"), r.get("metric")) for r in event.get("results") or []))
-    return (
-        "accuracy",
-        event.get("build_number"),
-        (event.get("workload") or "").strip(),
-        tasks,
-    )
+    if event.get("event") == "accuracy_result":
+        tasks = tuple(sorted((r.get("task"), r.get("metric")) for r in event.get("results") or []))
+        return (
+            "accuracy",
+            event.get("build_number"),
+            (event.get("workload") or "").strip(),
+            tasks,
+        )
+    raise ValueError(f"not a result event: {event.get('event')!r}")
 
 
 def artifact_provenance(artifact: dict, build_number: Any) -> dict:
-    """Return the stable, non-secret fields that identify one artifact.
-
-    Download URLs are intentionally excluded: their signatures expire and must
-    never be persisted.
-    """
+    """The stable fields identifying an artifact; never its signed download URL."""
     return {
         "build_number": build_number,
         "buildkite_artifact_id": str(artifact.get("id") or "").strip(),
@@ -623,13 +543,8 @@ def _bk_paginate(
 def _bk_result_artifacts(
     build_number: Any, token: str, budget: RequestBudget | None = None
 ) -> list[dict]:
-    """Discover both result kinds within the existing per-build page budget.
-
-    The API applies each path filter before pagination. A broad artifact list
-    can contain thousands of sample files the collector never consumes. Every
-    filtered listing must terminate normally before any result is returned;
-    exhausting the shared budget still fails the collection closed.
-    """
+    """A build's result artifacts: one filtered listing per path pattern,
+    sharing one page cap."""
     path = (
         f"/organizations/{BUILDKITE_ORG}/pipelines/{BUILDKITE_PIPELINE_SLUG}"
         f"/builds/{build_number}/artifacts"
@@ -663,19 +578,11 @@ def _bk_download_json(
     *,
     label: str = "",
 ) -> dict | None:
-    """Download a JSON artifact.
+    """Download a JSON artifact; None if it is permanently broken (4xx, not JSON).
 
-    Buildkite redirects to a presigned URL; requests drops the auth header on
-    the cross-host hop automatically.
-
-    Transient failures retry like listings do and, once exhausted, fail the
-    run: a build that already has other results is never listed again, so
-    returning None here would lose the artifact for good. A permanent failure
-    (4xx, or a body that is not JSON) is skipped, so one broken artifact cannot
-    block every later collection.
-
-    Logs name the artifact by ``label`` (its path), never by URL: the URL after
-    the redirect carries a signature.
+    Transient failures raise once retries run out: an ingested build is not
+    listed again, so skipping would lose the artifact. Logs use ``label``,
+    never the URL, which is signed after the redirect.
     """
     for attempt in range(1, BK_GET_MAX_ATTEMPTS + 1):
         if budget:
@@ -727,18 +634,10 @@ def _bk_download_json(
     raise AssertionError("unreachable")
 
 
-def fetch_workload_map(gh_token: str) -> dict[str, tuple[dict, dict]]:
-    """Fetch all workload recipes and index them by their ``name`` field.
-
-    The artifact path uses the recipe's ``name`` (e.g. ``minimax_m2_5-mi355x``),
-    which differs from the filename, so we parse every recipe and key on name.
-
-    Duplicate top-level keys are reported rather than silently accepted. PyYAML
-    keeps the last of a duplicated key, so a recipe declaring ``vllm_bench:``
-    twice loses the first block entirely — and the configs in it never run.
-    Since coverage is derived from these recipes, inheriting that silence would
-    produce a confidently wrong expectation.
-    """
+def fetch_workload_map(gh_token: str, ref: str) -> dict[str, tuple[dict, dict]]:
+    """Every workload recipe at commit ``ref``, keyed by its ``name`` (which
+    artifact paths use; the filename differs). A duplicated key is logged:
+    YAML keeps only the last, as perf-eval does."""
     import yaml
 
     class RecipeLoader(yaml.SafeLoader):
@@ -778,6 +677,7 @@ def fetch_workload_map(gh_token: str) -> dict[str, tuple[dict, dict]]:
     listing = requests.get(
         f"https://api.github.com/repos/{WORKLOAD_REPO}/contents/workloads",
         headers=headers,
+        params={"ref": ref},
         timeout=30,
     )
     listing.raise_for_status()
@@ -811,14 +711,11 @@ def collect(
     recheck_builds: int = DEFAULT_RECHECK_BUILDS,
     budget: RequestBudget | None = None,
 ) -> int:
-    """Pull AMD nightly perf-eval artifacts and append new canonical events.
+    """Pull AMD nightly artifacts and append the new events; return how many.
 
-    With ``dry_run`` the listings still happen — they are what reveals how much
-    work there is — but nothing is downloaded and nothing is written. Use it to
-    see a run's exact request cost before committing to it.
+    ``dry_run`` lists and reports the cost but downloads and writes nothing.
     """
-    # No further back than the store keeps: anything older would be dropped
-    # at the next write, and its artifacts are no longer marked as downloaded.
+    # No further back than the store keeps.
     if not 1 <= days <= WINDOW_DAYS:
         raise ValueError(f"perf-eval artifact lookback must be between 1 and {WINDOW_DAYS} days")
     budget = budget if budget is not None else RequestBudget()
@@ -832,7 +729,14 @@ def collect(
     }
     before = len(existing)
 
-    workloads = fetch_workload_map(gh_token)
+    # Builds are read against the recipes they ran, not main's: a recipe can
+    # change TP after a build, and TP divides throughput into per-GPU numbers.
+    recipes_at: dict[str, dict[str, tuple[dict, dict]]] = {}
+
+    def recipes_for(commit: str) -> dict[str, tuple[dict, dict]]:
+        if commit not in recipes_at:
+            recipes_at[commit] = fetch_workload_map(gh_token, ref=commit)
+        return recipes_at[commit]
 
     cutoff = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
     builds = _bk_paginate(
@@ -842,8 +746,7 @@ def collect(
         budget=budget,
     )
 
-    # Nightlies only, newest first, so the re-check window covers the builds
-    # most likely to still be gaining artifacts from a retried job.
+    # Newest first, so the re-check window is the newest builds.
     nightlies = [(build, info) for build in builds if (info := nightly_info(build)) is not None]
     nightlies.sort(key=lambda pair: pair[0].get("number") or 0, reverse=True)
     log.info(
@@ -860,19 +763,19 @@ def collect(
     pending_events: list[dict] = []
     for position, (build, night) in enumerate(nightlies):
         number = build.get("number")
-        # Already fully ingested and outside the re-check window: re-listing
-        # its artifacts costs one request per path filter and tells us nothing
-        # new.
         if position >= recheck_builds and str(number) in ingested_builds:
             budget.skipped_builds += 1
+            continue
+        if not build.get("commit"):
+            log.warning("Build #%s has no perf-eval commit, so no recipes; skipping", number)
             continue
         identity = {
             "build_number": number,
             "build_url": build.get("web_url") or "",
-            "build_commit": build.get("commit") or "",  # perf-eval repo commit
+            "build_commit": build["commit"],  # perf-eval repo commit
             "branch": night["branch"],
             "vllm_commit": night["vllm_commit"],
-            "date": build.get("finished_at") or build.get("created_at") or night["date"],
+            "date": build.get("finished_at") or "",
             "image": amd_image(build.get("env") or {}, night["vllm_commit"]),
         }
         for artifact in _bk_result_artifacts(number, bk_token, budget=budget):
@@ -887,11 +790,16 @@ def collect(
             _, workload, tail = kind
             if not is_amd_workload(workload=workload):
                 continue
-            recipe = workloads.get(workload)
+            recipe = recipes_for(identity["build_commit"]).get(workload)
             if recipe is None:
                 log.warning("No recipe for workload %s (build #%s); skipping", workload, number)
                 continue
             entry, configs = recipe
+            if kind[0] == "perf" and tail not in configs:
+                log.warning(
+                    "No run %s in workload %s (build #%s); skipping", tail, workload, number
+                )
+                continue
             would_download += 1
             if dry_run:
                 continue
@@ -904,9 +812,7 @@ def collect(
             if payload is None:
                 continue
             if kind[0] == "perf":
-                event = perf_event(
-                    payload, entry=entry, config=configs.get(tail, {}), identity=identity
-                )
+                event = perf_event(payload, entry=entry, config=configs[tail], identity=identity)
             else:
                 event = accuracy_event(
                     payload, workload=workload, task=tail, entry=entry, identity=identity
@@ -920,10 +826,7 @@ def collect(
                 seen.add(key)
                 appended += 1
             elif source_key is not None:
-                # The canonical result was ingested before artifact provenance
-                # was recorded. Persist only the exact source identity now that
-                # the payload has proved the association; aggregation ignores
-                # this marker event.
+                # Already stored without its artifact ID; record just the ID.
                 pending_events.append(artifact_marker(provenance))
                 markers_appended += 1
             if source_key is not None:
@@ -950,24 +853,31 @@ def collect(
         )
         return 0
 
-    # Record what the recipes say should run, so coverage is measured against
-    # the upstream expectation rather than against recent reporting. Only when
-    # it changed: the snapshot's timestamp is published, and a fresh one every
-    # run would make every payload look changed and defeat the deploy check.
-    expected = expected_configs(workloads)
-    previous_expected = max(
-        (e for e in existing if e.get("event") == EXPECTED_CONFIGS_EVENT),
-        key=lambda e: str(e.get("received_at") or ""),
+    # Coverage expects what the latest nightly's recipes define. Recipes at a
+    # commit never change, so a snapshot is only taken for a new commit.
+    epoch = datetime.min.replace(tzinfo=UTC)
+    latest = max(
+        (e for e in (*existing, *pending_events) if e.get("event") == "perf_result"),
+        key=lambda e: finished_at(e) or epoch,
         default=None,
     )
-    if expected and (previous_expected is None or previous_expected.get("configs") != expected):
-        pending_events.append(
-            {
-                "event": EXPECTED_CONFIGS_EVENT,
-                "received_at": utcnow_iso(),
-                "configs": expected,
-            }
-        )
+    previous_expected = max(
+        (e for e in existing if e.get("event") == EXPECTED_CONFIGS_EVENT),
+        key=lambda e: received_at(e) or epoch,
+        default=None,
+    )
+    recipe_commit = (latest or {}).get("build_commit") or ""
+    if recipe_commit and (previous_expected or {}).get("recipe_commit") != recipe_commit:
+        expected = expected_configs(recipes_for(recipe_commit))
+        if expected:
+            pending_events.append(
+                {
+                    "event": EXPECTED_CONFIGS_EVENT,
+                    "received_at": utcnow_iso(),
+                    "recipe_commit": recipe_commit,
+                    "configs": expected,
+                }
+            )
 
     # Rewrite even with nothing new, so results that aged out are dropped.
     append_events(store_path, pending_events)

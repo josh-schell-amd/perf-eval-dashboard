@@ -8,14 +8,19 @@ be asserted exactly rather than estimated.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
+from conftest import STARTED
 from perf_eval import collect_artifacts as ca
+from perf_eval import store as store_mod
 
 # One filtered artifact listing per result path filter, per build.
 LISTINGS_PER_BUILD = len(ca._RESULT_ARTIFACT_PATHS)
+
+# The recipe's runs, one per artifact FakeBuildkite serves (bench-cfg<i>.json).
+CONFIGS = {f"cfg{i}": {"isl": 1024, "osl": 1024, "conc": 2**i} for i in range(8)}
 
 
 def nightly_build(number: int) -> dict:
@@ -23,9 +28,7 @@ def nightly_build(number: int) -> dict:
     # reusing one would make the store correctly fold every build into a single
     # nightly and the request accounting would measure the wrong thing.
     commit = f"{number:040x}"
-    # Dated relative to today: collect() compacts the store against the real
-    # clock, so fixed dates would age out of retention as the calendar moves.
-    finished = datetime.now(UTC) - timedelta(hours=6 * (40 - (number - 1000)))
+    finished = STARTED - timedelta(hours=6 * (40 - (number - 1000)))
     day = finished.strftime("%Y-%m-%d")
     return {
         "number": number,
@@ -97,7 +100,7 @@ def fake(monkeypatch):
         monkeypatch.setattr(
             ca,
             "fetch_workload_map",
-            lambda _token: {
+            lambda _token, ref: {
                 "test_8b-mi355x": (
                     {
                         "name": "test_8b-mi355x",
@@ -106,7 +109,7 @@ def fake(monkeypatch):
                         "precision": "fp8",
                         "model": "org/Model",
                     },
-                    {"cfg0": {"isl": 1024, "osl": 1024, "conc": 128}},
+                    CONFIGS,
                 )
             },
         )
@@ -376,6 +379,104 @@ class TestBoundedByConstruction:
         )
 
 
+def test_each_build_is_labelled_from_the_recipes_it_ran(fake, monkeypatch, tmp_path):
+    # The recipe moved from TP=2 to TP=4 after build 1000 ran.
+    old, new = nightly_build(1000), nightly_build(1001)
+    old["commit"], new["commit"] = "1" * 40, "2" * 40
+    fake([new, old], artifacts_per_build=1)
+
+    def recipes(_token, ref):
+        entry = {
+            "name": "test_8b-mi355x",
+            "device": "mi355x",
+            "tp": 2 if ref == old["commit"] else 4,
+            "precision": "fp8",
+            "model": "org/Model",
+        }
+        return {"test_8b-mi355x": (entry, CONFIGS)}
+
+    monkeypatch.setattr(ca, "fetch_workload_map", recipes)
+    store = tmp_path / "events.jsonl"
+    ca.collect(store, days=14, bk_token="t", gh_token="", budget=ca.RequestBudget())
+
+    results = {
+        e["build_number"]: e
+        for e in store_mod.read_events_strict(store)
+        if e["event"] == "perf_result"
+    }
+    assert (results[1000]["tp"], results[1001]["tp"]) == (2, 4)
+    # 800 tok/s in total, over the GPUs each build actually used.
+    assert results[1000]["metrics"]["tput_per_gpu"] == 400.0
+    assert results[1001]["metrics"]["tput_per_gpu"] == 200.0
+
+
+def test_coverage_expects_what_the_latest_nightly_was_asked_to_run(fake, monkeypatch, tmp_path):
+    # Build 1000 ran TP=2 and build 1001 ran TP=4.
+    old, new = nightly_build(1000), nightly_build(1001)
+    old["commit"], new["commit"] = "1" * 40, "2" * 40
+    fake([new, old], artifacts_per_build=1)
+    tp_at = {old["commit"]: 2, new["commit"]: 4}
+
+    def recipes(_token, ref):
+        entry = {
+            "name": "test_8b-mi355x",
+            "device": "mi355x",
+            "tp": tp_at[ref],
+            "precision": "fp8",
+            "model": "org/Model",
+            "nightly": True,
+        }
+        return {"test_8b-mi355x": (entry, {"cfg0": CONFIGS["cfg0"]})}
+
+    monkeypatch.setattr(ca, "fetch_workload_map", recipes)
+    store = tmp_path / "events.jsonl"
+    ca.collect(store, days=14, bk_token="t", gh_token="", budget=ca.RequestBudget())
+
+    (snapshot,) = [
+        e for e in store_mod.read_events_strict(store) if e["event"] == ca.EXPECTED_CONFIGS_EVENT
+    ]
+    assert [config["tp"] for config in snapshot["configs"]] == [4]
+    assert snapshot["recipe_commit"] == new["commit"]
+
+
+def test_recipes_are_not_refetched_when_nothing_new_ran(fake, monkeypatch, tmp_path):
+    # Recipes at a commit never change, so an ingested build and a snapshot
+    # already taken for the latest nightly's commit need no GitHub requests.
+    fake([nightly_build(1000 + i) for i in range(3)])
+    fetched = []
+
+    def recipes(_token, ref):
+        fetched.append(ref)
+        entry = {"name": "test_8b-mi355x", "device": "mi355x", "tp": 4, "nightly": True}
+        return {"test_8b-mi355x": (entry, CONFIGS)}
+
+    monkeypatch.setattr(ca, "fetch_workload_map", recipes)
+    store = tmp_path / "events.jsonl"
+    ca.collect(store, days=14, bk_token="t", gh_token="", budget=ca.RequestBudget())
+    assert fetched == ["f" * 40]
+
+    fetched.clear()
+    ca.collect(store, days=14, bk_token="t", gh_token="", budget=ca.RequestBudget())
+    assert fetched == []
+
+
+def test_an_artifact_for_a_run_the_recipe_lacks_is_skipped(fake, monkeypatch, tmp_path, caplog):
+    # Without the run there is no ISL/OSL, and a result with neither is not a config.
+    fake([nightly_build(1000)], artifacts_per_build=2)
+    entry = {"name": "test_8b-mi355x", "device": "mi355x", "tp": 4, "model": "org/Model"}
+    monkeypatch.setattr(
+        ca,
+        "fetch_workload_map",
+        lambda _token, ref: {"test_8b-mi355x": (entry, {"cfg0": CONFIGS["cfg0"]})},
+    )
+    store = tmp_path / "events.jsonl"
+    with caplog.at_level("WARNING"):
+        ca.collect(store, days=14, bk_token="t", gh_token="", budget=ca.RequestBudget())
+    results = [e for e in store_mod.read_events_strict(store) if e["event"] == "perf_result"]
+    assert [(e["isl"], e["osl"]) for e in results] == [(1024, 1024)]
+    assert "No run cfg1" in caplog.text
+
+
 def test_dry_run_reports_a_plan(fake, tmp_path, caplog):
     builds = [nightly_build(1000 + i) for i in range(3)]
     fake(builds, artifacts_per_build=2)
@@ -422,7 +523,7 @@ def test_a_collection_with_nothing_new_leaves_the_payload_unchanged(fake, monkey
         },
         {"cfg0": {"isl": 1024, "osl": 1024, "conc": 128}},
     )
-    monkeypatch.setattr(ca, "fetch_workload_map", lambda _token: {"test_8b-mi355x": recipe})
+    monkeypatch.setattr(ca, "fetch_workload_map", lambda _token, ref: {"test_8b-mi355x": recipe})
     # A clock that moves on every call, so each collection stamps new times.
     ticks = iter(range(10_000))
     monkeypatch.setattr(ca, "utcnow_iso", lambda: f"2026-06-10T00:{next(ticks) % 60:02d}:00Z")
