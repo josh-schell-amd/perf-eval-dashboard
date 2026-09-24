@@ -168,7 +168,6 @@
     .tab { padding: 8px 16px; font-size: 13px; font-weight: 600; color: var(--text-tertiary); cursor: pointer; border-bottom: 2px solid transparent; user-select: none; white-space: nowrap; }
     .tab:hover { color: var(--text-secondary); }
     .tab.on { color: var(--text-primary); border-bottom-color: var(--ui); }
-    .tab-badge { display: inline-block; margin-left: 5px; font-size: 10px; font-weight: 600; padding: 0 5px; border-radius: 8px; background: rgba(242,92,78,0.2); color: var(--accent-red); }
     .card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-md); margin-bottom: var(--gap-lg); }
     .card h3 { font-size: 13px; color: var(--text-primary); font-weight: 600; margin-bottom: 4px; }
     .card-hint { font-size: 11px; color: var(--text-tertiary); margin-bottom: var(--gap-md); line-height: 1.5; }
@@ -278,6 +277,16 @@
     .perf-card.hero .perf-wrap { height: 360px; }
     .perf-wrap canvas { cursor: pointer; }
     @media (max-width: 760px) { .perf-wrap, .perf-card.hero .perf-wrap { height: 240px; } }
+
+    /* Tradeoff tab: ATOM's interactivity-vs-throughput pair, then a heatmap. */
+    .tradeoff-pair { display: grid; grid-template-columns: 1fr; gap: var(--gap-md); margin-bottom: var(--gap-md); }
+    @media (min-width: 1024px) {
+      .tradeoff-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    .heatmap-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+    .heatmap-table th { text-align: center; }
+    .heatmap-table td { text-align: center; border: 1px solid var(--border-light); }
+    .heatmap-table td.row-label { text-align: left; font-family: inherit; color: var(--text-secondary); white-space: nowrap; }
 
     /* Detail table: a data row, then its hidden detail row, so stripe in fours. */
     .perf-table tbody tr:nth-child(even) { background: none; }
@@ -1063,7 +1072,7 @@ function renderControls() {
     + '<button class="btn' + (state.onlyRegressed ? ' on' : '') + '" id="only-regressed"'
     + ' aria-pressed="' + (state.onlyRegressed ? 'true' : 'false') + '"'
     + (regressedCount || state.onlyRegressed ? '' : ' disabled')
-    + ' title="The Performance, Trends and Configurations tabs show only configurations that regressed">'
+    + ' title="The Performance, Tradeoff, Trends and Configurations tabs show only configurations that regressed">'
     + 'Only regressed (' + integer(regressedCount) + ')</button>'
     + (activeFilters
       ? '<button class="btn" id="reset-facets">Clear ' + activeFilters
@@ -1389,19 +1398,19 @@ function renderCoveragePanel() {
    ================================================================ */
 const TABS = [
   { id: 'performance', label: 'Performance' },
+  { id: 'tradeoff', label: 'Throughput vs Latency' },
   { id: 'trends', label: 'Trends' },
   { id: 'accuracy', label: 'Accuracy' },
   { id: 'configs', label: 'Configurations' },
 ];
 
 function renderTabs() {
-  const regs = visibleConfigs().length ? regressionsOf(state.baseline).length : 0;
   const host = document.getElementById('tabs-host');
   host.setAttribute('role', 'tablist');
   host.innerHTML = TABS.map(t =>
     '<div class="tab' + (state.tab === t.id ? ' on' : '') + '" data-tab="' + t.id + '" role="tab"'
     + ' aria-selected="' + (state.tab === t.id ? 'true' : 'false') + '">' + esc(t.label)
-    + (t.id === 'performance' && regs ? '<span class="tab-badge">' + regs + '</span>' : '') + '</div>').join('');
+    + '</div>').join('');
   host.querySelectorAll('.tab').forEach(el => {
     const id = el.getAttribute('data-tab');
     activatable(el, null, () => {
@@ -2084,6 +2093,396 @@ function bindPerfTable(host, configs) {
 }
 
 /* ================================================================
+   10c. THROUGHPUT VS LATENCY
+   ================================================================ */
+// ATOM's tradeoff tab, on this payload: one curve per shape (ISL/OSL, TP,
+// precision), points are concurrency. Axes are already in the metric registry
+// (interactivity = 1/TPOT, total tok/s/GPU). Pair both from the same nightly
+// so a missing latency does not borrow throughput from another build.
+function matchPoint(haystack, needle) {
+  if (!haystack.length || !needle) return null;
+  if (needle.build_number != null) {
+    const hit = haystack.find(p => String(p.build_number) === String(needle.build_number));
+    if (hit) return hit;
+  }
+  return haystack.find(p => p.t === needle.t) || null;
+}
+
+function latestPaired(cfg, xKey, yKey) {
+  const xs = pointsIn(cfg, xKey), ys = pointsIn(cfg, yKey);
+  for (let i = xs.length - 1; i >= 0; i--) {
+    const y = matchPoint(ys, xs[i]);
+    if (y) return { x: xs[i], y: y };
+  }
+  return null;
+}
+
+function tradeoffPoint(cfg) {
+  const tputKey = 'tput_per_gpu';
+  let paired = latestPaired(cfg, 'mean_intvty', tputKey);
+  let intvty = paired ? paired.x.value : null;
+  if (!paired) {
+    paired = latestPaired(cfg, 'mean_tpot', tputKey);
+    if (paired && paired.x.value > 0) intvty = 1 / paired.x.value;
+  }
+  if (!paired || !(intvty > 0) || !isFinite(paired.y.value)) return null;
+  const tpotPaired = latestPaired(cfg, 'mean_tpot', tputKey);
+  return {
+    cfg: cfg,
+    intvty: intvty,
+    tput: paired.y.value,
+    tpot: tpotPaired ? tpotPaired.x.value : null,
+    point: paired.y,
+  };
+}
+
+function tradeoffCurveKey(c) {
+  return [c.model, c.device, c.precision, c.tp, c.isl, c.osl].join('|');
+}
+
+function concLabelPlugin(id) {
+  return {
+    id: id,
+    afterDatasetsDraw(chart) {
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.font = '8px -apple-system, sans-serif';
+      chart.data.datasets.forEach((ds, di) => {
+        if (!ds._concLabels) return;
+        const meta = chart.getDatasetMeta(di);
+        ctx.fillStyle = ds.borderColor;
+        meta.data.forEach((pt, pi) => {
+          if (ds.data[pi] == null) return;
+          ctx.fillText('c' + ds._concLabels[pi], pt.x + 5, pt.y - 5);
+        });
+      });
+      ctx.restore();
+    }
+  };
+}
+
+function renderTradeoffTab() {
+  const host = document.getElementById('main');
+  const configs = shownConfigs();
+  const tputMetric = METRIC_BY_KEY.tput_per_gpu;
+  const intvtyMetric = METRIC_BY_KEY.mean_intvty;
+  const tpotMetric = METRIC_BY_KEY.mean_tpot;
+  if (!configs.length || !tputMetric) {
+    host.innerHTML = '<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
+    return;
+  }
+  const rows = configs.map(tradeoffPoint).filter(Boolean);
+  if (!rows.length) {
+    host.innerHTML = '<div class="card"><div class="empty">No configuration has both throughput and latency in this window.</div></div>';
+    return;
+  }
+
+  const groups = perfGroups(rows.map(r => r.cfg)).map(g => {
+    const groupRows = rows.filter(r => perfGroupKey(r.cfg) === g.key);
+    const shapeCount = new Map();
+    groupRows.forEach(r => {
+      const shape = String(r.cfg.isl) + '/' + String(r.cfg.osl);
+      if (!shapeCount.has(shape)) shapeCount.set(shape, new Set());
+      shapeCount.get(shape).add(tradeoffCurveKey(r.cfg));
+    });
+    const curves = new Map();
+    groupRows.forEach(r => {
+      const key = tradeoffCurveKey(r.cfg);
+      if (!curves.has(key)) {
+        const c = r.cfg;
+        const collide = (shapeCount.get(String(c.isl) + '/' + String(c.osl)) || new Set()).size > 1;
+        curves.set(key, {
+          key: key,
+          label: lenLabel(c.isl) + '/' + lenLabel(c.osl)
+            + (collide ? ' · ' + (c.precision || '?') + ' TP' + c.tp : ''),
+          color: BASE_COLOR[c.key] || g.color,
+          points: [],
+        });
+      }
+      curves.get(key).points.push(r);
+    });
+    curves.forEach(curve => curve.points.sort((a, b) => (a.cfg.conc || 0) - (b.cfg.conc || 0)));
+    return { ...g, curves: [...curves.values()].filter(c => c.points.length) };
+  }).filter(g => g.curves.length);
+
+  let html = '<div class="card"><h3>Throughput vs latency</h3>'
+    + '<div class="card-hint">Each line is one shape (ISL/OSL); each point is a concurrency, '
+    + 'labelled <b>cN</b>. X is interactivity (1 / mean TPOT), Y is total tok/s/GPU — both '
+    + 'higher-is-better, same pairing ATOM uses. A red ring is a configuration that '
+    + 'regressed on total throughput in build #' + esc(latestNightlyBuild() || '?')
+    + '. Click a point for its history.</div></div>';
+
+  groups.forEach((g, i) => {
+    html += '<div class="tradeoff-pair">'
+      + '<div class="perf-card"><h4 style="color:' + esc(g.color) + '">' + esc(g.name)
+      + ' — Interactive vs Total Throughput</h4>'
+      + '<div class="perf-wrap"><canvas id="tradeoff-hero-' + i + '"></canvas></div></div>'
+      + '<div class="perf-card"><h4 style="color:' + esc(g.color) + '">' + esc(g.name)
+      + ' — Concurrency Scaling</h4>'
+      + '<div class="perf-wrap"><canvas id="tradeoff-scale-' + i + '"></canvas></div></div>'
+      + '</div>';
+  });
+
+  html += renderTradeoffHeatmaps(rows);
+  host.innerHTML = html;
+  groups.forEach((g, i) => {
+    drawTradeoffScatter(g, 'tradeoff-hero-' + i, tputMetric, intvtyMetric);
+    drawConcurrencyScaling(g, 'tradeoff-scale-' + i, tputMetric, tpotMetric);
+  });
+}
+
+function renderTradeoffHeatmaps(rows) {
+  const tputMetric = METRIC_BY_KEY.tput_per_gpu;
+  const byModel = new Map();
+  rows.forEach(r => {
+    const mk = perfGroupKey(r.cfg);
+    if (!byModel.has(mk)) {
+      byModel.set(mk, { name: r.cfg.shortModel + ' · ' + String(r.cfg.device || '?').toUpperCase(),
+        color: MODEL_COLOR[mk] || PALETTE[0], cells: new Map(), shapes: new Set(), concs: new Set() });
+    }
+    const g = byModel.get(mk);
+    const shape = lenLabel(r.cfg.isl) + '/' + lenLabel(r.cfg.osl);
+    g.shapes.add(shape);
+    g.concs.add(Number(r.cfg.conc) || 0);
+    const cellKey = shape + '|' + r.cfg.conc;
+    const prev = g.cells.get(cellKey);
+    if (!prev || r.tput > prev.tput) g.cells.set(cellKey, r);
+  });
+  const blocks = [...byModel.values()].filter(g => g.concs.size >= 2 && g.cells.size >= 3);
+  if (!blocks.length) {
+    return '<div class="card"><div class="empty">Not enough concurrency levels for a throughput heatmap '
+      + '(need 2+ conc and 3+ cells).</div></div>';
+  }
+  let html = '<div class="card"><h3>Throughput matrix</h3>'
+    + '<div class="card-hint">Newest total tok/s/GPU per shape and concurrency. Greener is higher '
+    + 'within that model and device.</div>';
+  blocks.forEach(g => {
+    const concs = [...g.concs].sort((a, b) => a - b);
+    const shapes = [...g.shapes].sort();
+    const vals = [...g.cells.values()].map(r => display(r.tput, tputMetric)).filter(v => v != null);
+    const minV = Math.min(...vals), maxV = Math.max(...vals), range = maxV - minV || 1;
+    html += '<div class="perf-card" style="margin-bottom:var(--gap-md)"><h4 style="color:'
+      + esc(g.color) + '">' + esc(g.name) + ' — tok/s/GPU</h4>'
+      + '<div class="table-scroll"><table class="heatmap-table"><thead><tr><th>ISL/OSL</th>'
+      + concs.map(c => '<th>c=' + c + '</th>').join('') + '</tr></thead><tbody>';
+    shapes.forEach(shape => {
+      html += '<tr><td class="row-label">' + esc(shape) + '</td>';
+      concs.forEach(c => {
+        const cell = g.cells.get(shape + '|' + c);
+        if (!cell) { html += '<td class="neutral">—</td>'; return; }
+        const v = display(cell.tput, tputMetric);
+        const ratio = (v - minV) / range;
+        html += '<td style="background:hsla(' + Math.round(ratio * 120)
+          + ',50%,40%,0.35)">' + esc(compact(v, tputMetric.digits)) + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div></div>';
+  });
+  return html + '</div>';
+}
+
+function drawTradeoffScatter(group, canvasId, tputMetric, intvtyMetric) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const theme = chartTheme();
+  const regColor = cssVar('--accent-red') || REG_COLOR;
+  const ringColor = cssVar('--text-primary') || '#fff';
+  const regKeys = tputMetric ? regressedKeysForMetric(state.baseline, tputMetric.key) : new Set();
+  const datasets = group.curves.map(curve => {
+    const data = curve.points.map(r => ({
+      x: display(r.intvty, intvtyMetric || {}) ?? r.intvty,
+      y: display(r.tput, tputMetric),
+      _r: r,
+    })).sort((a, b) => a.x - b.x);
+    return {
+      label: curve.label,
+      data: data,
+      borderColor: curve.color,
+      backgroundColor: curve.color,
+      borderWidth: 2,
+      pointRadius: ctx => regKeys.has(data[ctx.dataIndex]._r.cfg.key) ? 6 : 5,
+      pointHoverRadius: 7,
+      pointBackgroundColor: curve.color,
+      pointBorderColor: ctx => regKeys.has(data[ctx.dataIndex]._r.cfg.key) ? ringColor : curve.color,
+      pointBorderWidth: ctx => regKeys.has(data[ctx.dataIndex]._r.cfg.key) ? 2 : 0,
+      showLine: true,
+      fill: false,
+      tension: 0,
+      _concLabels: data.map(p => p._r.cfg.conc),
+    };
+  }).filter(ds => ds.data.length);
+  if (!datasets.length) return;
+  new Chart(canvas, {
+    type: 'scatter',
+    data: { datasets: datasets },
+    plugins: [concLabelPlugin('tradeoffConc-' + canvasId)],
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      layout: { padding: { top: 8, right: 18 } },
+      plugins: {
+        legend: datasets.length <= 8
+          ? { labels: { color: theme.tick, font: { size: 10 }, boxWidth: 10 } }
+          : { display: false },
+        tooltip: {
+          callbacks: {
+            title: items => {
+              const p = datasets[items[0].datasetIndex].data[items[0].dataIndex]._r;
+              return group.name + ' · ' + datasets[items[0].datasetIndex].label + ' · c=' + p.cfg.conc;
+            },
+            label: item => [
+              'Interactive: ' + fmt(item.parsed.x, intvtyMetric ? intvtyMetric.digits : 1) + ' tok/s/user',
+              'Total Tput: ' + fmt(item.parsed.y, tputMetric.digits) + ' ' + unitOf(tputMetric),
+            ],
+            afterBody: items => {
+              const p = items[0].raw._r.point;
+              return ['Build #' + (p.build_number || '?') + ' · vLLM ' + shortSha(p.vllm_commit), '', 'Click for history'];
+            },
+          }
+        },
+      },
+      scales: {
+        x: {
+          title: { display: true, text: 'Interactive (tok/s/user)', color: theme.tick },
+          ticks: { color: theme.tick, font: { size: 10 } },
+          grid: { color: theme.grid },
+          grace: '5%',
+        },
+        y: {
+          title: { display: true, text: 'Total Tput (tok/s/GPU)', color: theme.tick },
+          ticks: { color: theme.tick, font: { size: 10 } },
+          grid: { color: theme.grid },
+          grace: '5%',
+        },
+      },
+      onClick: (_e, els, chart) => {
+        if (!els.length) return;
+        const ds = chart.data.datasets[els[0].datasetIndex];
+        const p = ds.data[els[0].index]._r;
+        if (p) openConfigHistory(p.cfg, tputMetric);
+      },
+    },
+  });
+}
+
+function drawConcurrencyScaling(group, canvasId, tputMetric, tpotMetric) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const theme = chartTheme();
+  const dashPatterns = [[], [6, 3], [2, 2], [8, 4, 2, 4]];
+  const datasets = [];
+  const concs = new Set();
+  group.curves.forEach((curve, i) => {
+    const dash = dashPatterns[i % dashPatterns.length];
+    const tputData = curve.points.map(r => {
+      concs.add(Number(r.cfg.conc) || 0);
+      return { x: r.cfg.conc, y: display(r.tput, tputMetric), _r: r };
+    }).sort((a, b) => a.x - b.x);
+    datasets.push({
+      label: curve.label + ' Tput',
+      data: tputData,
+      borderColor: curve.color,
+      backgroundColor: curve.color,
+      borderWidth: 2,
+      borderDash: dash,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      showLine: true,
+      fill: false,
+      tension: 0,
+      yAxisID: 'y',
+    });
+    if (tpotMetric) {
+      const tpotData = curve.points.filter(r => r.tpot != null).map(r => ({
+        x: r.cfg.conc, y: display(r.tpot, tpotMetric), _r: r
+      })).sort((a, b) => a.x - b.x);
+      if (tpotData.length) {
+        datasets.push({
+          label: curve.label + ' TPOT',
+          data: tpotData,
+          borderColor: withAlpha(curve.color, 0.85),
+          backgroundColor: curve.color,
+          borderWidth: 2,
+          borderDash: dash,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          pointStyle: 'triangle',
+          showLine: true,
+          fill: false,
+          tension: 0,
+          yAxisID: 'y2',
+        });
+      }
+    }
+  });
+  if (!datasets.length) return;
+  const allConcs = [...concs].sort((a, b) => a - b);
+  const useLog = allConcs.length > 1 && Math.min(...allConcs) > 0
+    && Math.max(...allConcs) / Math.min(...allConcs) >= 4;
+  new Chart(canvas, {
+    type: 'scatter',
+    data: { datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: datasets.length <= 8
+          ? { labels: { color: theme.tick, font: { size: 10 }, boxWidth: 10, usePointStyle: true } }
+          : { display: false },
+        tooltip: {
+          callbacks: {
+            title: items => {
+              const p = items[0].raw._r;
+              return group.name + ' · ' + items[0].dataset.label.replace(/ (Tput|TPOT)$/, '')
+                + ' · c=' + p.cfg.conc;
+            },
+            label: item => item.dataset.yAxisID === 'y2'
+              ? 'TPOT: ' + fmt(item.parsed.y, tpotMetric.digits) + ' ' + unitOf(tpotMetric)
+              : 'Total Tput: ' + fmt(item.parsed.y, tputMetric.digits) + ' ' + unitOf(tputMetric),
+            afterBody: () => '\nClick for history',
+          }
+        },
+      },
+      scales: {
+        x: {
+          type: useLog ? 'logarithmic' : 'linear',
+          title: { display: true, text: 'Concurrency', color: theme.tick },
+          ticks: {
+            color: theme.tick,
+            font: { size: 10 },
+            callback: v => allConcs.includes(v) ? v : '',
+          },
+          afterBuildTicks: axis => { axis.ticks = allConcs.map(v => ({ value: v })); },
+          grid: { color: theme.grid },
+        },
+        y: {
+          position: 'left',
+          title: { display: true, text: 'Total Tput (tok/s/GPU)', color: theme.tick },
+          ticks: { color: theme.tick, font: { size: 10 } },
+          grid: { color: theme.grid },
+          grace: '5%',
+        },
+        y2: {
+          position: 'right',
+          title: { display: true, text: 'TPOT (' + unitOf(tpotMetric || {}) + ')', color: theme.tick },
+          ticks: { color: theme.tick, font: { size: 10 } },
+          grid: { drawOnChartArea: false },
+          grace: '5%',
+        },
+      },
+      onClick: (_e, els, chart) => {
+        if (!els.length) return;
+        const p = chart.data.datasets[els[0].datasetIndex].data[els[0].index]._r;
+        if (p) openConfigHistory(p.cfg, tputMetric);
+      },
+    },
+  });
+}
+
+/* ================================================================
    11. ACCURACY TAB
    ================================================================ */
 function renderAccuracyTab() {
@@ -2487,6 +2886,7 @@ function renderAll() {
     if (chart) chart.destroy();
   });
   if (state.tab === 'performance') renderPerformanceTab();
+  else if (state.tab === 'tradeoff') renderTradeoffTab();
   else if (state.tab === 'trends') renderTrendsTab();
   else if (state.tab === 'accuracy') renderAccuracyTab();
   else renderConfigsTab();

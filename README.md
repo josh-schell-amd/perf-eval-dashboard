@@ -524,7 +524,7 @@ precision or concurrency, so only the Device and Model filters narrow it.
 When nothing could be compared — no configuration has both a run in the newest
 nightly and an earlier one in the window — the regression panel says *Nothing
 to compare* rather than showing a green *No regressions*. *Only regressed*, in
-the filter panel, narrows the Performance, Trends and Configurations tabs to the
+the filter panel, narrows the Performance, Tradeoff, Trends and Configurations tabs to the
 configurations that regressed; it is kept in the URL as `regressed=1`, like the
 filters, so a copied link shows the same view.
 
@@ -561,6 +561,23 @@ from what reported recently, because an expectation derived from recent results
 forgets whatever has been absent long enough — the longer a workload stayed
 broken, the healthier the page would claim to be. A workload dark for longer
 than the window therefore keeps reporting missing, with no run to link to.
+
+### Throughput vs Latency tab
+
+ATOM's tradeoff view, on this payload. No extra ingest: each configuration
+already carries total tok/s/GPU and mean TPOT (interactivity is 1 / TPOT).
+The page joins those two from the **same nightly**, groups by model and
+device, and draws one curve per shape through the concurrency sweep the
+recipes already run (`[1, 64, 128]` on most AMD workloads).
+
+Each model/device pair gets two charts: interactivity on X against tok/s/GPU
+on Y (both higher-is-better), and concurrency scaling with throughput on the
+left axis and TPOT on the right. A table under the charts is a heatmap of
+newest throughput by ISL/OSL × concurrency. A red ring is a throughput
+regression in the newest nightly, same rule as the Performance tab.
+
+Shapes that only run at one concurrency still plot as a point; the heatmap
+hides until a model has two conc levels and three cells.
 
 Recipes change: configs are added, removed and retuned. Each build is read
 against the recipes at the perf-eval commit it ran, never against `main`, so a
