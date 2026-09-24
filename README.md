@@ -327,7 +327,7 @@ deliberately pass non-boolean values to prove only a literal `True` counts.
   "generated_at": "2026-01-01T00:00:00Z",
   "scope":      { "hardware": "amd", "runs": "nightly", "description": "..." },
   "pipeline":   { "org": "vllm", "slug": "perf-eval", "url": "..." },
-  "metric_meta": { "tput_per_gpu": { "label": "...", "unit": "tok/s", "direction": "higher" } },
+  "metric_meta": { "tput_per_gpu": { "label": "...", "unit": "tok/s/GPU", "direction": "higher" } },
   "thresholds": { "perf_rel": 0.005, "accuracy_abs": 0.01 },
   // What the recipes say should run, for Coverage. The page cannot reach
   // GitHub, so the collector snapshots it into the store.
@@ -350,7 +350,7 @@ deliberately pass non-boolean values to prove only a literal `True` counts.
       "metrics": {
         "tput_per_gpu": {
           "latest": 1234.5, "previous": 1200.0, "delta": 34.5, "delta_pct": 2.875,
-          "direction": "higher", "status": "good", "label": "...", "unit": "tok/s",
+          "direction": "higher", "status": "good", "label": "...", "unit": "tok/s/GPU",
           "series": [{ "date": "...", "value": 1200.0, "vllm_commit": "...", "build_url": "...",
                        "completed_requests": 512, "failed_requests": 0 }]
         }
@@ -510,7 +510,7 @@ they report which config happens to be largest and barely move night to night.
 | Card | Signal |
 |---|---|
 | Latest nightly | Date, vLLM commit, build — links to the build |
-| Performance overnight | Median change in output tok/s/GPU, newest nightly vs the one before, across configs that reported in both; neutral inside ±0.5% |
+| Performance overnight | Median change in Output Throughput (tok/s/GPU), newest nightly vs the one before, across configs that reported in both; neutral inside ±0.5% |
 | Regressions overnight | Config-metric pairs that got worse by at least 0.5% in the newest nightly; red when there are any |
 | Improvements overnight | The same scan in the other direction, to confirm an optimization landed; green when there are any |
 | Accuracy overnight | Models whose headline accuracy dropped at least 1 point in the newest nightly; opens the Accuracy tab |
@@ -565,19 +565,47 @@ than the window therefore keeps reporting missing, with no run to link to.
 ### Throughput vs Latency tab
 
 ATOM's tradeoff view, on this payload. No extra ingest: each configuration
-already carries total tok/s/GPU and mean TPOT (interactivity is 1 / TPOT).
+already carries Total Throughput and Mean TPOT (Interactivity is 1 / TPOT).
 The page joins those two from the **same nightly**, groups by model and
 device, and draws one curve per shape through the concurrency sweep the
 recipes already run (`[1, 64, 128]` on most AMD workloads).
 
-Each model/device pair gets two charts: interactivity on X against tok/s/GPU
-on Y (both higher-is-better), and concurrency scaling with throughput on the
-left axis and TPOT on the right. A table under the charts is a heatmap of
-newest throughput by ISL/OSL × concurrency. A red ring is a throughput
-regression in the newest nightly, same rule as the Performance tab.
+Each model/device pair gets two charts: Interactivity on X against Total
+Throughput on Y (both higher-is-better), and concurrency scaling with
+throughput on the left axis and TPOT on the right. A table under the charts is
+a heatmap of newest throughput by ISL/OSL × concurrency. A red ring is a
+throughput regression in the newest nightly, same rule as the Performance tab.
 
 Shapes that only run at one concurrency still plot as a point; the heatmap
 hides until a model has two conc levels and three cells.
+
+Axis titles and tooltips read the label and unit out of `metric_meta` rather
+than hardcoding them, so the units on a chart cannot go stale when a metric is
+renamed.
+
+### Why our throughput numbers are not ATOM's
+
+The metrics are the same measurements under different normalization, which is
+worth knowing before anyone compares the two dashboards number for number.
+
+| ATOM | Here | Relationship |
+|---|---|---|
+| Total Throughput (tok/s) | `tput_per_gpu`, "Total Throughput" | ours = ATOM ÷ TP |
+| Output Throughput (tok/s) | `output_tput_per_gpu`, "Output Throughput" | ours = ATOM ÷ TP |
+| Interac., `1000 / TPOT` (tok/s/user) | `mean_intvty`, "Interactivity" | identical |
+| TPOT, TTFT (ms) | `mean_tpot`, `mean_ttft` (stored in s) | identical |
+
+ATOM parses its metric names out of benchmark name strings, so it reports what
+the harness emitted — absolute tok/s — and divides by GPU count only in its
+tradeoff charts. `transform_perf` divides by TP once at ingest instead, so
+every value here is already per-GPU. That is deliberate: per-GPU is what makes
+two devices comparable, which is why the Performance charts group by model and
+device.
+
+The `/GPU` therefore lives in the **unit**, not in the label. Labels used to
+carry it (`"Total tok/s/GPU"`) while `unit` said `"tok/s"`, which put a wrong
+unit on every throughput axis, since the page renders `unit` beside the label
+and as the axis title.
 
 Recipes change: configs are added, removed and retuned. Each build is read
 against the recipes at the perf-eval commit it ran, never against `main`, so a

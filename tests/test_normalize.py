@@ -245,3 +245,17 @@ class TestMetricRegistry:
 
     def test_accuracy_is_higher_better(self):
         assert nz.ACCURACY_DIRECTION == "higher"
+
+    def test_per_gpu_throughput_says_so_in_its_unit(self):
+        # transform_perf divides by TP, so these are TP times smaller than the
+        # tok/s ATOM publishes for the same run. The page draws `unit` as the
+        # axis title, so a bare "tok/s" would label the axis wrongly.
+        for key in ("tput_per_gpu", "output_tput_per_gpu", "input_tput_per_gpu"):
+            assert nz.METRIC_META[key]["unit"] == "tok/s/GPU", key
+
+    def test_labels_name_the_metric_without_repeating_the_unit(self):
+        # Label and unit are rendered side by side, so a unit in the label
+        # shows up twice and can contradict the unit field.
+        for key, meta in nz.METRIC_META.items():
+            assert "tok/s" not in meta["label"], key
+            assert meta["label"] != meta["unit"], key

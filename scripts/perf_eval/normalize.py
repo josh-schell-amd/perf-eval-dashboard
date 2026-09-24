@@ -17,16 +17,20 @@ _AMD_WORKLOAD_RE = re.compile(r"(?:^|[_-])mi\d+[a-z]?(?:$|[_-])", re.IGNORECASE)
 
 # Published perf metrics, in display order. ``unit`` is how the value is stored
 # (latencies in seconds, as perf-eval does); ``display_*`` is how it is shown.
+# Throughputs are divided by TP at ingest, so the unit carries the /GPU rather
+# than the label: ATOM publishes the same metrics unnormalized, and a bare
+# "tok/s" here would read as comparable to its numbers when it is TP times
+# smaller.
 METRIC_META: dict[str, dict] = {
     "tput_per_gpu": {
-        "label": "Total tok/s/GPU",
-        "unit": "tok/s",
+        "label": "Total Throughput",
+        "unit": "tok/s/GPU",
         "direction": "higher",
         "digits": 1,
     },
     "output_tput_per_gpu": {
-        "label": "Output tok/s/GPU",
-        "unit": "tok/s",
+        "label": "Output Throughput",
+        "unit": "tok/s/GPU",
         "direction": "higher",
         "digits": 1,
     },
@@ -93,8 +97,8 @@ METRIC_META: dict[str, dict] = {
         "digits": 2,
     },
     "input_tput_per_gpu": {
-        "label": "Input tok/s/GPU",
-        "unit": "tok/s",
+        "label": "Input Throughput",
+        "unit": "tok/s/GPU",
         "direction": "higher",
         "digits": 1,
     },

@@ -560,6 +560,14 @@ function display(value, metric) {
 
 function unitOf(metric) { return metric.display_unit || metric.unit || ''; }
 
+// "Total Throughput (tok/s/GPU)". Read from the registry, so renaming a metric
+// cannot leave a stale unit behind on an axis.
+function axisTitle(metric, fallback) {
+  if (!metric) return fallback || '';
+  const unit = unitOf(metric);
+  return metric.label + (unit ? ' (' + unit + ')' : '');
+}
+
 // Flatten model -> config -> metric -> series into (config, metric) series.
 function buildConfigs(payload) {
   const out = [];
@@ -2176,6 +2184,7 @@ function renderTradeoffTab() {
     host.innerHTML = '<div class="card"><div class="empty">No configuration has both throughput and latency in this window.</div></div>';
     return;
   }
+  const intvtyLabel = intvtyMetric ? intvtyMetric.label : 'Interactivity';
 
   const groups = perfGroups(rows.map(r => r.cfg)).map(g => {
     const groupRows = rows.filter(r => perfGroupKey(r.cfg) === g.key);
@@ -2207,15 +2216,16 @@ function renderTradeoffTab() {
 
   let html = '<div class="card"><h3>Throughput vs latency</h3>'
     + '<div class="card-hint">Each line is one shape (ISL/OSL); each point is a concurrency, '
-    + 'labelled <b>cN</b>. X is interactivity (1 / mean TPOT), Y is total tok/s/GPU — both '
-    + 'higher-is-better, same pairing ATOM uses. A red ring is a configuration that '
-    + 'regressed on total throughput in build #' + esc(latestNightlyBuild() || '?')
-    + '. Click a point for its history.</div></div>';
+    + 'labelled <b>cN</b>. X is ' + esc(intvtyLabel.toLowerCase()) + ' (1 / mean TPOT), Y is '
+    + esc(tputMetric.label.toLowerCase()) + ' in ' + esc(unitOf(tputMetric)) + ' — both '
+    + 'higher-is-better, the same pairing ATOM plots. A red ring is a configuration that '
+    + 'regressed on ' + esc(tputMetric.label.toLowerCase()) + ' in build #'
+    + esc(latestNightlyBuild() || '?') + '. Click a point for its history.</div></div>';
 
   groups.forEach((g, i) => {
     html += '<div class="tradeoff-pair">'
       + '<div class="perf-card"><h4 style="color:' + esc(g.color) + '">' + esc(g.name)
-      + ' — Interactive vs Total Throughput</h4>'
+      + ' — ' + esc(intvtyLabel) + ' vs ' + esc(tputMetric.label) + '</h4>'
       + '<div class="perf-wrap"><canvas id="tradeoff-hero-' + i + '"></canvas></div></div>'
       + '<div class="perf-card"><h4 style="color:' + esc(g.color) + '">' + esc(g.name)
       + ' — Concurrency Scaling</h4>'
@@ -2254,15 +2264,15 @@ function renderTradeoffHeatmaps(rows) {
       + '(need 2+ conc and 3+ cells).</div></div>';
   }
   let html = '<div class="card"><h3>Throughput matrix</h3>'
-    + '<div class="card-hint">Newest total tok/s/GPU per shape and concurrency. Greener is higher '
-    + 'within that model and device.</div>';
+    + '<div class="card-hint">Newest ' + esc(tputMetric.label.toLowerCase()) + ' per shape and '
+    + 'concurrency. Greener is higher within that model and device.</div>';
   blocks.forEach(g => {
     const concs = [...g.concs].sort((a, b) => a - b);
     const shapes = [...g.shapes].sort();
     const vals = [...g.cells.values()].map(r => display(r.tput, tputMetric)).filter(v => v != null);
     const minV = Math.min(...vals), maxV = Math.max(...vals), range = maxV - minV || 1;
     html += '<div class="perf-card" style="margin-bottom:var(--gap-md)"><h4 style="color:'
-      + esc(g.color) + '">' + esc(g.name) + ' — tok/s/GPU</h4>'
+      + esc(g.color) + '">' + esc(g.name) + ' — ' + esc(unitOf(tputMetric)) + '</h4>'
       + '<div class="table-scroll"><table class="heatmap-table"><thead><tr><th>ISL/OSL</th>'
       + concs.map(c => '<th>c=' + c + '</th>').join('') + '</tr></thead><tbody>';
     shapes.forEach(shape => {
@@ -2290,11 +2300,16 @@ function drawTradeoffScatter(group, canvasId, tputMetric, intvtyMetric) {
   const ringColor = cssVar('--text-primary') || '#fff';
   const regKeys = tputMetric ? regressedKeysForMetric(state.baseline, tputMetric.key) : new Set();
   const datasets = group.curves.map(curve => {
-    const data = curve.points.map(r => ({
-      x: display(r.intvty, intvtyMetric || {}) ?? r.intvty,
-      y: display(r.tput, tputMetric),
-      _r: r,
-    })).sort((a, b) => a.x - b.x);
+    const data = curve.points.map(r => {
+      // Interactivity is derived when the registry has no series for it, in
+      // which case there is no metric to scale against.
+      const scaled = display(r.intvty, intvtyMetric || {});
+      return {
+        x: scaled == null ? r.intvty : scaled,
+        y: display(r.tput, tputMetric),
+        _r: r,
+      };
+    }).sort((a, b) => a.x - b.x);
     return {
       label: curve.label,
       data: data,
@@ -2333,8 +2348,10 @@ function drawTradeoffScatter(group, canvasId, tputMetric, intvtyMetric) {
               return group.name + ' · ' + datasets[items[0].datasetIndex].label + ' · c=' + p.cfg.conc;
             },
             label: item => [
-              'Interactive: ' + fmt(item.parsed.x, intvtyMetric ? intvtyMetric.digits : 1) + ' tok/s/user',
-              'Total Tput: ' + fmt(item.parsed.y, tputMetric.digits) + ' ' + unitOf(tputMetric),
+              (intvtyMetric ? intvtyMetric.label : 'Interactivity') + ': '
+                + fmt(item.parsed.x, intvtyMetric ? intvtyMetric.digits : 1)
+                + ' ' + (intvtyMetric ? unitOf(intvtyMetric) : 'tok/s/user'),
+              tputMetric.label + ': ' + fmt(item.parsed.y, tputMetric.digits) + ' ' + unitOf(tputMetric),
             ],
             afterBody: items => {
               const p = items[0].raw._r.point;
@@ -2345,13 +2362,13 @@ function drawTradeoffScatter(group, canvasId, tputMetric, intvtyMetric) {
       },
       scales: {
         x: {
-          title: { display: true, text: 'Interactive (tok/s/user)', color: theme.tick },
+          title: { display: true, text: axisTitle(intvtyMetric, 'Interactivity (tok/s/user)'), color: theme.tick },
           ticks: { color: theme.tick, font: { size: 10 } },
           grid: { color: theme.grid },
           grace: '5%',
         },
         y: {
-          title: { display: true, text: 'Total Tput (tok/s/GPU)', color: theme.tick },
+          title: { display: true, text: axisTitle(tputMetric), color: theme.tick },
           ticks: { color: theme.tick, font: { size: 10 } },
           grid: { color: theme.grid },
           grace: '5%',
@@ -2440,8 +2457,8 @@ function drawConcurrencyScaling(group, canvasId, tputMetric, tpotMetric) {
                 + ' · c=' + p.cfg.conc;
             },
             label: item => item.dataset.yAxisID === 'y2'
-              ? 'TPOT: ' + fmt(item.parsed.y, tpotMetric.digits) + ' ' + unitOf(tpotMetric)
-              : 'Total Tput: ' + fmt(item.parsed.y, tputMetric.digits) + ' ' + unitOf(tputMetric),
+              ? tpotMetric.label + ': ' + fmt(item.parsed.y, tpotMetric.digits) + ' ' + unitOf(tpotMetric)
+              : tputMetric.label + ': ' + fmt(item.parsed.y, tputMetric.digits) + ' ' + unitOf(tputMetric),
             afterBody: () => '\nClick for history',
           }
         },
@@ -2460,14 +2477,14 @@ function drawConcurrencyScaling(group, canvasId, tputMetric, tpotMetric) {
         },
         y: {
           position: 'left',
-          title: { display: true, text: 'Total Tput (tok/s/GPU)', color: theme.tick },
+          title: { display: true, text: axisTitle(tputMetric), color: theme.tick },
           ticks: { color: theme.tick, font: { size: 10 } },
           grid: { color: theme.grid },
           grace: '5%',
         },
         y2: {
           position: 'right',
-          title: { display: true, text: 'TPOT (' + unitOf(tpotMetric || {}) + ')', color: theme.tick },
+          title: { display: true, text: axisTitle(tpotMetric), color: theme.tick },
           ticks: { color: theme.tick, font: { size: 10 } },
           grid: { drawOnChartArea: false },
           grace: '5%',
