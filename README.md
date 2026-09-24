@@ -329,6 +329,16 @@ deliberately pass non-boolean values to prove only a literal `True` counts.
   "pipeline":   { "org": "vllm", "slug": "perf-eval", "url": "..." },
   "metric_meta": { "tput_per_gpu": { "label": "...", "unit": "tok/s", "direction": "higher" } },
   "thresholds": { "perf_rel": 0.005, "accuracy_abs": 0.01 },
+  // What the recipes say should run, for Coverage. The page cannot reach
+  // GitHub, so the collector snapshots it into the store.
+  "expected": {
+    "recorded_at": "2026-01-01T00:00:00Z",
+    "configs":  [{ "workload": "wl-mi355x", "run": "8k-in-1k-out-conc-128", "model": "org/Model",
+                   "device": "mi355x", "precision": "fp8", "tp": 8,
+                   "isl": 8192, "osl": 1024, "conc": 128 }],
+    "accuracy": [{ "workload": "wl-mi355x", "model": "org/Model",
+                   "device": "mi355x", "task": "gsm8k" }]
+  },
   "models": [{
     "model": "org/Model",
     "devices": ["mi355x"],
@@ -504,7 +514,7 @@ they report which config happens to be largest and barely move night to night.
 | Regressions overnight | Config-metric pairs that got worse by at least 0.5% in the newest nightly; red when there are any |
 | Improvements overnight | The same scan in the other direction, to confirm an optimization landed; green when there are any |
 | Accuracy overnight | Models whose headline accuracy dropped at least 1 point in the newest nightly; opens the Accuracy tab |
-| Coverage | Perf configs reporting in the newest build vs those defined in the perf-eval recipes that build ran, and accuracy results reporting vs models with accuracy in the window |
+| Coverage | Perf configs and accuracy results reporting in the newest build vs those the perf-eval recipes that build ran define (`vllm_bench.configs` and `lm_eval.tasks`) |
 
 Every card except *Latest nightly*, Coverage included, follows the Device,
 Model, Precision, ISL/OSL and Concurrency filters. *Latest nightly* names the
@@ -544,6 +554,13 @@ OOMs simply stops emitting rows, so it silently disappears from every average
 rather than showing up as a regression. Missing configurations are listed in a
 panel at the bottom of the page, grouped by workload, because a failed build
 step takes every config in that workload with it.
+
+Both halves of coverage are measured against the recipes: perf against
+`vllm_bench.configs`, accuracy against `lm_eval.tasks`. Neither is inferred
+from what reported recently, because an expectation derived from recent results
+forgets whatever has been absent long enough — the longer a workload stayed
+broken, the healthier the page would claim to be. A workload dark for longer
+than the window therefore keeps reporting missing, with no run to link to.
 
 Recipes change: configs are added, removed and retuned. Each build is read
 against the recipes at the perf-eval commit it ran, never against `main`, so a

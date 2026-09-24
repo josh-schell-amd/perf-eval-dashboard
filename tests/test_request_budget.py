@@ -460,6 +460,53 @@ def test_recipes_are_not_refetched_when_nothing_new_ran(fake, monkeypatch, tmp_p
     assert fetched == []
 
 
+def test_a_snapshot_predating_accuracy_is_refetched_once(fake, monkeypatch, tmp_path):
+    # Otherwise accuracy coverage would stay blind until an unrelated recipe
+    # change moved the commit, which can be weeks away.
+    fake([nightly_build(1000)])
+    fetched = []
+
+    def recipes(_token, ref):
+        fetched.append(ref)
+        entry = {
+            "name": "test_8b-mi355x",
+            "device": "mi355x",
+            "tp": 4,
+            "nightly": True,
+            "accuracy_tasks": ["gsm8k"],
+        }
+        return {"test_8b-mi355x": (entry, CONFIGS)}
+
+    monkeypatch.setattr(ca, "fetch_workload_map", recipes)
+    store = tmp_path / "events.jsonl"
+    ca.collect(store, days=14, bk_token="t", gh_token="", budget=ca.RequestBudget())
+
+    # Rewrite the snapshot as an older collector would have left it.
+    events = store_mod.read_events_strict(store)
+    for event in events:
+        if event["event"] == ca.EXPECTED_CONFIGS_EVENT:
+            event.pop("accuracy")
+    store.write_text(
+        "".join(json.dumps(e) + "\n" for e in events),
+        encoding="utf-8",
+    )
+
+    fetched.clear()
+    ca.collect(store, days=14, bk_token="t", gh_token="", budget=ca.RequestBudget())
+    assert fetched == ["f" * 40]
+    (snapshot,) = [
+        e for e in store_mod.read_events_strict(store) if e["event"] == ca.EXPECTED_CONFIGS_EVENT
+    ]
+    assert snapshot["accuracy"] == [
+        {"workload": "test_8b-mi355x", "model": "", "device": "mi355x", "task": "gsm8k"}
+    ]
+
+    # Settled: the key is present now, so the next run refetches nothing.
+    fetched.clear()
+    ca.collect(store, days=14, bk_token="t", gh_token="", budget=ca.RequestBudget())
+    assert fetched == []
+
+
 def test_an_artifact_for_a_run_the_recipe_lacks_is_skipped(fake, monkeypatch, tmp_path, caplog):
     # Without the run there is no ISL/OSL, and a result with neither is not a config.
     fake([nightly_build(1000)], artifacts_per_build=2)

@@ -657,6 +657,7 @@ function accuracyGroups(series) {
       model: s.model,
       shortModel: s.shortModel,
       device: s.device,
+      workload: s.workload,
       task: s.task,
       primary: null,
       others: []
@@ -1271,9 +1272,37 @@ function renderKpis() {
   });
 }
 
-// Tonight's accuracy per model and device, on the headline score. Expected
-// is every model with accuracy in the window (the collector does not record
-// which recipes run lm-eval), so one that never produced it is not counted.
+// The accuracy results the recipes' `lm_eval.tasks` say should run, each
+// paired with the series that reported for it, or null. Expectation comes
+// from the recipes for the same reason perf's does: one inferred from the
+// window forgets whatever has been absent longer than the window, so a
+// workload whose lm-eval kept failing would quietly leave its own denominator
+// and stop being reported missing. Payloads written before the collector
+// recorded this fall back to the observed groups.
+function expectedAccuracy(groups) {
+  const declared = ((DATA.expected || {}).accuracy) || [];
+  if (!declared.length) {
+    return groups.map(g => ({ shortModel: g.shortModel, device: g.device, task: g.task, group: g }));
+  }
+  // Not keyed on model: older accuracy events resolved it from lm-eval's
+  // backend name, and the workload already identifies the recipe.
+  const key = (workload, device, task) => [workload || '', device || '', task].join('|');
+  const byKey = new Map();
+  groups.forEach(g => {
+    const k = key(g.workload, g.device, g.task);
+    if (!byKey.has(k)) byKey.set(k, g);
+  });
+  return declared
+    .filter(e => accuracyFacetMatches({ device: e.device || '', shortModel: shortModel(e.model) }))
+    .map(e => ({
+      shortModel: shortModel(e.model),
+      device: e.device || '',
+      task: e.task,
+      group: byKey.get(key(e.workload, e.device, e.task)) || null,
+    }));
+}
+
+// Tonight's accuracy per model, device and task, on the headline score.
 function accuracyTonight() {
   const build = latestNightlyBuild();
   const baseline = BASELINE_BY_ID[state.baseline];
@@ -1282,19 +1311,26 @@ function accuracyTonight() {
     const pts = t.points.filter(p => p.t >= cutoff);
     return { ...t, windowed: pts, verdict: accuracyVerdict(pts.map(p => p.value), baseline) };
   }).filter(t => t.windowed.length && accuracyFacetMatches(t));
-  const groups = accuracyGroups(series);
-  if (!groups.length) return null;
-  const tonight = groups.filter(g => reportedTonight(g.primary.windowed, build));
-  const missing = groups.filter(g => !tonight.includes(g));
+
+  const expected = expectedAccuracy(accuracyGroups(series));
+  if (!expected.length) return null;
+
+  const tonight = [], missing = [];
+  expected.forEach(e => {
+    if (e.group && reportedTonight(e.group.primary.windowed, build)) tonight.push(e.group);
+    else missing.push(e);
+  });
   return {
     build: build,
-    total: groups.length,
+    total: expected.length,
     reported: tonight.length,
     regressed: tonight.filter(g => g.primary.verdict && g.primary.verdict.severity !== 'ok').length,
-    missing: missing.map(g => ({
-      name: g.shortModel + ' · ' + (g.device || '?'),
-      task: g.task,
-      last: g.primary.windowed[g.primary.windowed.length - 1],
+    missing: missing.map(e => ({
+      name: e.shortModel + ' · ' + (e.device || '?'),
+      task: e.task,
+      // Null when nothing reported inside the window: the outage is older
+      // than the results the store keeps, so there is no run to link to.
+      last: e.group ? e.group.primary.windowed[e.group.primary.windowed.length - 1] : null,
     })),
     threshold: accuracyPoints(baseline.accuracy_abs),
   };
@@ -1335,11 +1371,14 @@ function renderCoveragePanel() {
       + '</div>'
       + '</div>').join('')
     + accMissing.map(m =>
-      '<div class="cov-item">'
+      '<div class="cov-item' + (m.last ? '' : ' whole') + '">'
       + '<div class="cov-name">' + esc(m.name) + '</div>'
       + '<div class="cov-shapes"><span class="cov-shape">' + esc(m.task) + ' accuracy</span>'
-      + '<span class="neutral" style="font-size:11px;margin-left:8px">last result '
-      + buildLink(m.last, null) + ' · ' + esc(fmtDate(m.last.t)) + '</span></div>'
+      + '<span class="neutral" style="font-size:11px;margin-left:8px">'
+      + (m.last
+        ? 'last result ' + buildLink(m.last, null) + ' · ' + esc(fmtDate(m.last.t))
+        : 'no result in the last ' + WINDOW_DAYS + ' days')
+      + '</span></div>'
       + '<div class="cov-tag">no accuracy</div>'
       + '</div>').join('')
     + '</div></div>';

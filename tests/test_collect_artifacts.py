@@ -251,6 +251,99 @@ class TestWorkloadEntry:
         entry, _ = ca.workload_entry({"name": "wl", "gpu": "MI355X"})
         assert entry["nightly"] is False
 
+    def test_the_declared_accuracy_tasks_are_captured(self):
+        entry, _ = ca.workload_entry(
+            {
+                "name": "wl",
+                "gpu": "MI355X",
+                "lm_eval": {"timeout": 6000, "tasks": [{"name": "gsm8k", "num_fewshot": 5}]},
+            }
+        )
+        assert entry["accuracy_tasks"] == ["gsm8k"]
+
+
+class TestLmEvalTasks:
+    """The recipe's `lm_eval.tasks`, which name the accuracy results expected."""
+
+    def test_task_names_are_read_from_the_mappings(self):
+        recipe = {"lm_eval": {"tasks": [{"name": "gsm8k"}, {"name": "mmlu"}]}}
+        assert ca.lm_eval_tasks(recipe) == ["gsm8k", "mmlu"]
+
+    def test_a_recipe_without_lm_eval_expects_no_accuracy(self):
+        assert ca.lm_eval_tasks({"name": "wl"}) == []
+        assert ca.lm_eval_tasks({"lm_eval": None}) == []
+        assert ca.lm_eval_tasks({"lm_eval": {"timeout": 60}}) == []
+
+    def test_a_bare_string_task_is_accepted(self):
+        assert ca.lm_eval_tasks({"lm_eval": {"tasks": ["gsm8k"]}}) == ["gsm8k"]
+
+    def test_unnamed_and_malformed_tasks_are_skipped(self):
+        recipe = {"lm_eval": {"tasks": [{"num_fewshot": 5}, {"name": "  "}, 7, None, "gsm8k"]}}
+        assert ca.lm_eval_tasks(recipe) == ["gsm8k"]
+
+    def test_duplicates_collapse_and_order_is_stable(self):
+        recipe = {"lm_eval": {"tasks": [{"name": "mmlu"}, {"name": "gsm8k"}, {"name": "mmlu"}]}}
+        assert ca.lm_eval_tasks(recipe) == ["gsm8k", "mmlu"]
+
+
+class TestExpectedAccuracy:
+    """Accuracy coverage is measured against the recipes, like perf coverage.
+
+    Inferring it from the last WINDOW_DAYS of results meant a workload whose
+    lm-eval step had been failing for longer than the window dropped out of its
+    own denominator, so the page stopped reporting it missing at exactly the
+    point the outage became serious.
+    """
+
+    def _recipe(self, name, device, *, nightly=True, tasks=("gsm8k",)):
+        return ca.workload_entry(
+            {
+                "name": name,
+                "gpu": device.upper(),
+                "nightly": nightly,
+                "vllm": {"model": "org/Model-FP8", "serve_args": "--tensor-parallel-size 8"},
+                "lm_eval": {"tasks": [{"name": t} for t in tasks]},
+            }
+        )
+
+    def test_one_entry_per_declared_task(self):
+        expected = ca.expected_accuracy(
+            {"wl-mi355x": self._recipe("wl-mi355x", "mi355x", tasks=("gsm8k", "mmlu"))}
+        )
+        assert [e["task"] for e in expected] == ["gsm8k", "mmlu"]
+
+    def test_carries_the_fields_coverage_matches_on(self):
+        (expected,) = ca.expected_accuracy({"wl-mi355x": self._recipe("wl-mi355x", "mi355x")})
+        assert expected == {
+            "workload": "wl-mi355x",
+            "model": "org/Model-FP8",
+            "device": "mi355x",
+            "task": "gsm8k",
+        }
+
+    def test_a_workload_without_lm_eval_expects_no_accuracy(self):
+        recipes = {"wl-mi355x": self._recipe("wl-mi355x", "mi355x", tasks=())}
+        assert ca.expected_accuracy(recipes) == []
+
+    def test_it_shares_the_scope_filters_with_perf(self):
+        non_nightly = {"wl-mi355x": self._recipe("wl-mi355x", "mi355x", nightly=False)}
+        assert ca.expected_accuracy(non_nightly) == []
+        nvidia = {"wl-h200": self._recipe("wl-h200", "h200")}
+        assert ca.expected_accuracy(nvidia) == []
+
+    def test_output_is_deterministic(self):
+        recipes = {
+            "b-mi355x": self._recipe("b-mi355x", "mi355x"),
+            "a-mi300x": self._recipe("a-mi300x", "mi300x"),
+        }
+        assert ca.expected_accuracy(recipes) == ca.expected_accuracy(recipes)
+        assert [e["workload"] for e in ca.expected_accuracy(recipes)][0] == "a-mi300x"
+
+    def test_a_workload_broken_all_window_is_still_expected(self):
+        # The regression this guards: expectation must not depend on results.
+        recipes = {"wl-mi355x": self._recipe("wl-mi355x", "mi355x")}
+        assert [e["task"] for e in ca.expected_accuracy(recipes)] == ["gsm8k"]
+
 
 class TestExpectedConfigs:
     """Coverage is measured against the recipes, not against recent reporting.

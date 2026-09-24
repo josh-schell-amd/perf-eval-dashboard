@@ -326,9 +326,15 @@ def _expected_from_events(events: list[dict]) -> dict:
         if newest_at is None or observed_at >= newest_at:
             newest, newest_at = event, observed_at
     if newest is None:
-        return {"recorded_at": "", "configs": []}
+        return {"recorded_at": "", "configs": [], "accuracy": []}
     configs = [config for config in newest.get("configs") or [] if isinstance(config, dict)]
-    return {"recorded_at": newest.get("received_at") or "", "configs": configs}
+    # Snapshots taken before accuracy was recipe-derived have no `accuracy`.
+    accuracy = [task for task in newest.get("accuracy") or [] if isinstance(task, dict)]
+    return {
+        "recorded_at": newest.get("received_at") or "",
+        "configs": configs,
+        "accuracy": accuracy,
+    }
 
 
 def _is_in_scope(event: dict) -> bool:

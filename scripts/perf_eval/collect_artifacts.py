@@ -197,6 +197,30 @@ def precision_from_model(model: str) -> str:
     return "bf16"
 
 
+def lm_eval_tasks(data: dict) -> list[str]:
+    """The lm-eval task names a recipe declares, deduplicated and sorted.
+
+    ``lm_eval.tasks`` entries are mappings with a ``name``; a bare string is
+    accepted too, since the task name is all coverage needs. The name is the
+    ``<task>`` directory in the artifact path, so it matches what the accuracy
+    events carry.
+    """
+    block = data.get("lm_eval")
+    if not isinstance(block, dict):
+        return []
+    names = set()
+    for task in block.get("tasks") or []:
+        if isinstance(task, dict):
+            name = (task.get("name") or "").strip()
+        elif isinstance(task, str):
+            name = task.strip()
+        else:
+            continue
+        if name:
+            names.add(name)
+    return sorted(names)
+
+
 def workload_entry(data: dict) -> tuple[dict, dict]:
     """A recipe as (entry, configs by run name).
 
@@ -232,18 +256,48 @@ def workload_entry(data: dict) -> tuple[dict, dict]:
         "model": model,
         # Only scheduled nightlies are in scope, so only they are expected.
         "nightly": data.get("nightly") is True,
+        "accuracy_tasks": lm_eval_tasks(data),
     }
     return entry, configs
 
 
-def expected_configs(workloads: dict[str, tuple[dict, dict]]) -> list[dict]:
-    """The AMD nightly configs the recipes say should run, for the coverage card."""
-    out: list[dict] = []
+def _expected_workloads(workloads: dict[str, tuple[dict, dict]]):
+    """The AMD nightly recipes, in workload order: the scope both expectations share."""
     for workload, (entry, configs) in sorted(workloads.items()):
         if not entry.get("nightly"):
             continue
         if not is_amd_workload(workload=workload, device=entry.get("device")):
             continue
+        yield workload, entry, configs
+
+
+def expected_accuracy(workloads: dict[str, tuple[dict, dict]]) -> list[dict]:
+    """The AMD nightly accuracy results the recipes say should run.
+
+    The perf side of coverage has always been recipe-derived; accuracy was
+    inferred from the last WINDOW_DAYS of results instead, so a workload whose
+    lm-eval step had been failing for longer than the window dropped out of its
+    own denominator and stopped being reported missing. Reading it from
+    ``lm_eval.tasks`` keeps a long outage visible, exactly as it does for perf.
+    """
+    out: list[dict] = []
+    for workload, entry, _ in _expected_workloads(workloads):
+        for task in entry.get("accuracy_tasks") or []:
+            out.append(
+                {
+                    "workload": workload,
+                    "model": entry.get("model") or "",
+                    "device": entry.get("device") or "",
+                    "task": task,
+                }
+            )
+    return out
+
+
+def expected_configs(workloads: dict[str, tuple[dict, dict]]) -> list[dict]:
+    """The AMD nightly configs the recipes say should run, for the coverage card."""
+    out: list[dict] = []
+    for workload, entry, configs in _expected_workloads(workloads):
         for run_name, config in sorted(configs.items()):
             out.append(
                 {
@@ -867,8 +921,14 @@ def collect(
         default=None,
     )
     recipe_commit = (latest or {}).get("build_commit") or ""
-    if recipe_commit and (previous_expected or {}).get("recipe_commit") != recipe_commit:
-        expected = expected_configs(recipes_for(recipe_commit))
+    new_commit = (previous_expected or {}).get("recipe_commit") != recipe_commit
+    # A snapshot taken before the expectation covered accuracy has no
+    # `accuracy` key. Refetch once rather than waiting for an unrelated recipe
+    # change, which could be weeks away. Writing the key, even empty, settles it.
+    lacks_accuracy = previous_expected is not None and "accuracy" not in previous_expected
+    if recipe_commit and (new_commit or lacks_accuracy):
+        recipes = recipes_for(recipe_commit)
+        expected = expected_configs(recipes)
         if expected:
             pending_events.append(
                 {
@@ -876,6 +936,7 @@ def collect(
                     "received_at": utcnow_iso(),
                     "recipe_commit": recipe_commit,
                     "configs": expected,
+                    "accuracy": expected_accuracy(recipes),
                 }
             )
 

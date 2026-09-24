@@ -404,16 +404,40 @@ class TestExpectedIsPublished:
     # `configs` is typed loosely on purpose: the store holds whatever JSON
     # arrived, and one test feeds it malformed entries to prove they are
     # dropped rather than published.
-    def _snapshot(self, received_at: str, configs: list) -> dict:
+    def _snapshot(self, received_at: str, configs: list, accuracy: list | None = None) -> dict:
         return {
             "event": "expected_configs",
             "received_at": received_at,
             "configs": configs,
+            "accuracy": accuracy if accuracy is not None else [],
         }
 
     def test_absent_snapshot_publishes_an_empty_expectation(self):
         payload = agg.aggregate([perf_result()])
-        assert payload["expected"] == {"recorded_at": "", "configs": []}
+        assert payload["expected"] == {"recorded_at": "", "configs": [], "accuracy": []}
+
+    def test_the_accuracy_expectation_is_published(self):
+        # Accuracy coverage reads this instead of inferring expectation from
+        # the window, where a long outage erased its own denominator.
+        accuracy = [
+            {"workload": "wl-mi355x", "model": "org/M", "device": "mi355x", "task": "gsm8k"}
+        ]
+        snapshot = self._snapshot("2026-01-05T00:00:00Z", [], accuracy)
+        assert agg.aggregate([snapshot])["expected"]["accuracy"] == accuracy
+
+    def test_a_snapshot_predating_accuracy_publishes_an_empty_list(self):
+        # Written before the collector recorded lm-eval tasks; the page falls
+        # back to observed groups rather than reading undefined.
+        snapshot = {
+            "event": "expected_configs",
+            "received_at": "2026-01-05T00:00:00Z",
+            "configs": [{"workload": "wl"}],
+        }
+        assert agg.aggregate([snapshot])["expected"]["accuracy"] == []
+
+    def test_malformed_accuracy_entries_are_dropped(self):
+        snapshot = self._snapshot("2026-01-05T00:00:00Z", [], [{"task": "gsm8k"}, "nonsense", 7])
+        assert agg.aggregate([snapshot])["expected"]["accuracy"] == [{"task": "gsm8k"}]
 
     def test_the_snapshot_is_published(self):
         configs = [{"workload": "wl-mi355x", "device": "mi355x", "conc": 64}]
