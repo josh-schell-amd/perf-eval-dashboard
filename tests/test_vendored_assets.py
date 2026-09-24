@@ -212,7 +212,7 @@ class TestAmdLogo:
         assert f'<link rel="icon" type="image/png" href="vendor/{self.LOGO}"' in html
 
     def test_is_in_the_header(self, html):
-        header = html.split("<h1>")[1].split("</h1>")[0]
+        header = html.split("<header>")[1].split("</header>")[0]
         assert f'src="vendor/{self.LOGO}"' in header
 
     def test_is_not_hotlinked(self, html):

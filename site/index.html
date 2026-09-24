@@ -42,13 +42,34 @@
     .mono { font-family: "SF Mono", Consolas, monospace; }
 
     /* Pinned while scrolling; the page's top padding lives here so nothing shows above it. */
-    header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--gap-md); padding: var(--gap-lg) 0 var(--gap-md); border-bottom: 2px solid var(--brand); margin-bottom: var(--gap-lg); position: sticky; top: 0; z-index: 50; background: var(--bg-primary); }
-    h1 { font-size: 19px; color: var(--text-primary); font-weight: 600; display: flex; align-items: center; gap: 9px; }
-    .brand-logo { width: 22px; height: 22px; flex: none; }
-    .scope-note { font-size: 12px; color: var(--text-secondary); margin-top: 5px; line-height: 1.5; }
-    .scope-note strong { color: var(--text-primary); }
-    .meta { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; }
-    .header-right { display: flex; align-items: center; gap: var(--gap-sm); }
+    header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--gap-md); padding: var(--gap-md) 0; border-bottom: 2px solid var(--brand); margin-bottom: var(--gap-lg); position: sticky; top: 0; z-index: 50; background: var(--bg-primary); }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    h1 { font-size: 19px; color: var(--text-primary); font-weight: 600; }
+    .brand-logo { width: 32px; height: 32px; flex: none; }
+    .meta { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
+    .meta .scope-note { color: var(--text-primary); font-weight: 600; }
+    .header-right { display: flex; align-items: center; gap: var(--gap-sm); flex-wrap: wrap; justify-content: flex-end; }
+
+    /* Header filter dropdowns: the same filters as the panel below, ATOM-style. */
+    .filter-bar { display: flex; gap: var(--gap-sm); flex-wrap: wrap; align-items: center; }
+    .filter-group { position: relative; }
+    .filter-btn { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 12px; font-family: inherit; white-space: nowrap; }
+    .filter-btn:hover, .filter-btn.open { background: var(--bg-tertiary); color: var(--text-primary); }
+    .filter-btn .count { background: var(--ui); color: #fff; border-radius: 10px; padding: 1px 6px; margin-left: 4px; font-size: 10px; }
+    .filter-dropdown { display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 0; min-width: 220px; max-height: 320px; overflow-y: auto; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .filter-group:nth-last-of-type(-n+2) .filter-dropdown { left: auto; right: 0; }
+    .filter-dropdown.open { display: block; }
+    .filter-dropdown label { display: flex; align-items: center; gap: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer; color: var(--text-secondary); }
+    .filter-dropdown label:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+    .filter-dropdown label.unavailable { opacity: 0.45; cursor: default; }
+    .filter-dropdown input { accent-color: var(--ui); }
+    .filter-dropdown .opt-label { flex: 1; white-space: nowrap; }
+    .filter-dropdown .opt-count { font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+    .filter-dropdown .sep { border-top: 1px solid var(--border); margin: 4px 0; }
+    .filter-summary { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
+    .filter-reset { background: none; color: var(--text-tertiary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; font-size: 12px; font-family: inherit; cursor: pointer; white-space: nowrap; }
+    .filter-reset:hover:not(:disabled) { color: var(--text-secondary); background: var(--bg-tertiary); }
+    .filter-reset:disabled { opacity: 0.45; cursor: default; }
     .btn { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; cursor: pointer; font-size: 11px; font-family: inherit; white-space: nowrap; }
     .btn:hover { color: var(--text-primary); background: var(--bg-tertiary); }
     .theme-toggle { position: relative; width: 28px; height: 14px; background: var(--border); border: none; border-radius: 7px; cursor: pointer; flex: none; padding: 0; }
@@ -333,18 +354,21 @@
 <body>
 <div class="container">
   <header>
-    <div>
-      <h1><img class="brand-logo" src="vendor/amd.png" alt="AMD" width="22" height="22" />Perf Eval Dashboard</h1>
-      <!-- Scope is stated on the page, so an absent model reads as out of scope,
-           not as a missing run. -->
-      <div class="scope-note">
-        <strong title="NVIDIA workloads (H200/B200) and ad-hoc builds run upstream but are deliberately excluded.">AMD nightly runs only.</strong>
+    <div class="header-left">
+      <img class="brand-logo" src="vendor/amd.png" alt="AMD" width="32" height="32" />
+      <div>
+        <h1>Perf Eval Dashboard</h1>
+        <!-- Scope is stated on the page, so an absent model reads as out of scope,
+             not as a missing run. -->
+        <div class="meta"><strong class="scope-note" title="NVIDIA workloads (H200/B200) and ad-hoc builds run upstream but are deliberately excluded.">AMD nightly runs only</strong>
+          · <span id="generated-at">Loading…</span>
+          · <a id="pipeline-link" target="_blank" rel="noopener noreferrer">vllm/perf-eval pipeline</a></div>
       </div>
-      <div class="meta"><span id="generated-at">Loading…</span> · <a id="pipeline-link" target="_blank" rel="noopener noreferrer">vllm/perf-eval pipeline</a></div>
+      <button class="theme-toggle" id="theme-toggle" title="Toggle light/dark mode" aria-label="Toggle light/dark mode"></button>
     </div>
     <div class="header-right">
+      <div class="filter-bar" id="filter-bar"></div>
       <button class="btn" id="copy-link" title="Copy a link to the current view">Copy link</button>
-      <button class="theme-toggle" id="theme-toggle" title="Toggle light/dark mode" aria-label="Toggle light/dark mode"></button>
     </div>
   </header>
 
@@ -983,24 +1007,40 @@ function renderNotice() {
 }
 
 function renderControls() {
+// Selected values stay listed with no matching config (a stale shared link,
+// say), or they could never be unticked.
+function facetValues(f) {
+  const values = [...new Set([...CONFIGS.map(f.get), ...state.selected[f.key]])]
+    .filter(v => v !== undefined && v !== '');
+  return values.sort(f.key === 'conc' ? (a, b) => (+a) - (+b) : (a, b) => String(a).localeCompare(String(b)));
+}
+// The configs a value adds under the other active filters, so it can read 0.
+function facetCount(f, v) {
+  return CONFIGS.filter(c => f.get(c) === v && facetMatches(c, f.key) && hasPointsInWindow(c)).length;
+}
+function activeFilterCount() {
+  return FACETS.reduce((n, f) => n + state.selected[f.key].size, 0) + (state.onlyRegressed ? 1 : 0);
+}
+function resetFilters() {
+  FACETS.forEach(f => state.selected[f.key].clear());
+  state.onlyRegressed = false;
+  invalidateScan();
+  syncToHash();
+  renderAll();
+}
+
   const host = document.getElementById('controls-host');
   let html = '<div class="controls">';
 
-  // Each count is the configs a value adds under the other active filters,
-  // so it can read 0.
   html += '<div class="controls-row"><div class="facet-grid">';
   FACETS.forEach(f => {
-    // Selected values stay listed with no matching config (a stale shared
-    // link, say), or they could never be unticked.
-    const values = [...new Set([...CONFIGS.map(f.get), ...state.selected[f.key]])]
-      .filter(v => v !== undefined && v !== '');
-    values.sort(f.key === 'conc' ? (a, b) => (+a) - (+b) : (a, b) => String(a).localeCompare(String(b)));
+    const values = facetValues(f);
     // Any facet with many values gets the wide layout.
     const wide = values.length > 6;
     html += '<div class="facet-col' + (wide ? ' wide' : '') + '"><div class="facet-head">' + esc(f.label) + '</div>'
       + '<div class="facet-opts">';
     values.forEach(v => {
-      const count = CONFIGS.filter(c => f.get(c) === v && facetMatches(c, f.key) && hasPointsInWindow(c)).length;
+      const count = facetCount(f, v);
       const on = state.selected[f.key].has(v);
       // A selected option stays clickable at zero so it can be cleared.
       const unavailable = count === 0 && !on;
@@ -1016,8 +1056,7 @@ function renderControls() {
   });
   html += '</div>';
 
-  const activeFilters = FACETS.reduce((n, f) => n + state.selected[f.key].size, 0)
-    + (state.onlyRegressed ? 1 : 0);
+  const activeFilters = activeFilterCount();
   const regressedCount = regressedKeys(state.baseline).size;
   html += '<div class="facet-actions">'
     + '<button class="btn' + (state.onlyRegressed ? ' on' : '') + '" id="only-regressed"'
@@ -1054,14 +1093,68 @@ function renderControls() {
     focusAfterRender('#only-regressed');
   });
   const reset = document.getElementById('reset-facets');
-  if (reset) reset.addEventListener('click', () => {
-    FACETS.forEach(f => state.selected[f.key].clear());
-    state.onlyRegressed = false;
-    invalidateScan();
-    syncToHash();
-    renderAll();
+  if (reset) reset.addEventListener('click', resetFilters);
+}
+
+// ATOM-style dropdowns in the header, on the same state as the filter panel.
+let openFilter = null;
+
+function renderHeaderFilters() {
+  const bar = document.getElementById('filter-bar');
+  const active = activeFilterCount();
+  bar.innerHTML = FACETS.map(f => {
+    const sel = state.selected[f.key];
+    const open = openFilter === f.key;
+    return '<div class="filter-group"><button class="filter-btn' + (open ? ' open' : '') + '" data-filter="' + esc(f.key) + '"'
+      + ' aria-expanded="' + (open ? 'true' : 'false') + '">' + esc(f.label) + ' ▾'
+      + (sel.size ? '<span class="count">' + sel.size + '</span>' : '') + '</button>'
+      + '<div class="filter-dropdown' + (open ? ' open' : '') + '" data-dropdown="' + esc(f.key) + '">'
+      + '<label><input type="checkbox" data-all' + (sel.size ? '' : ' checked') + '> All</label><div class="sep"></div>'
+      + facetValues(f).map(v => {
+        const on = sel.has(v),
+          count = facetCount(f, v);
+        const unavailable = count === 0 && !on;
+        return '<label' + (unavailable ? ' class="unavailable"' : '') + '><input type="checkbox" value="' + esc(v) + '"'
+          + (on ? ' checked' : '') + (unavailable ? ' disabled' : '') + '> <span class="opt-label">' + esc(v)
+          + '</span><span class="opt-count">' + count + '</span></label>';
+      }).join('')
+      + '</div></div>';
+  }).join('')
+    + '<span class="filter-summary">' + (active ? integer(visibleConfigs().length) + ' configs' : 'Showing all') + '</span>'
+    + '<button class="filter-reset" id="header-reset"' + (active ? '' : ' disabled') + '>Reset</button>';
+
+  bar.querySelectorAll('.filter-btn').forEach(btn => btn.addEventListener('click', event => {
+    event.stopPropagation();
+    const key = btn.getAttribute('data-filter');
+    openFilter = openFilter === key ? null : key;
+    renderHeaderFilters();
+    focusAfterRender('.filter-btn[data-filter="' + cssEscape(key) + '"]');
+  }));
+  bar.querySelectorAll('.filter-dropdown').forEach(dd => {
+    dd.addEventListener('click', event => event.stopPropagation());
+    dd.addEventListener('change', event => {
+      const key = dd.getAttribute('data-dropdown');
+      const sel = state.selected[key];
+      const input = event.target;
+      if (input.hasAttribute('data-all')) sel.clear();
+      else if (input.checked) sel.add(input.value);
+      else sel.delete(input.value);
+      invalidateScan();
+      syncToHash();
+      renderAll();
+      focusAfterRender('[data-dropdown="' + cssEscape(key) + '"] input'
+        + (input.hasAttribute('data-all') ? '[data-all]' : '[value="' + cssEscape(input.value) + '"]'));
+    });
   });
 }
+  const reset = document.getElementById('header-reset');
+  if (reset) reset.addEventListener('click', resetFilters);
+}
+
+function closeHeaderFilters() {
+  if (openFilter === null) return;
+  openFilter = null;
+  renderHeaderFilters();
 
 /* ================================================================
    7. KPI ROW
@@ -2360,7 +2453,9 @@ function renderAll() {
 }
 
 function renderChrome() {
-  document.getElementById('generated-at').textContent = 'Generated ' + (DATA.generated_at || 'unknown');
+  renderUpdated();
+  // Keeps "Updated 5m ago" true while the page stays open.
+  setInterval(renderUpdated, 60000);
   const url = safeUrl((DATA.pipeline || {}).url) || 'https://buildkite.com/vllm/perf-eval';
   document.getElementById('pipeline-link').href = url;
   document.getElementById('pipeline-link-footer').href = url;
@@ -2383,6 +2478,7 @@ function wireChrome() {
     // Chart.js reads colours when a chart is built, so redraw on theme change.
     renderAll();
   });
+  renderHeaderFilters();
   document.getElementById('copy-link').addEventListener('click', () => {
     const btn = document.getElementById('copy-link');
     const restore = () => { btn.textContent = 'Copy link'; };
@@ -2398,8 +2494,31 @@ function wireChrome() {
   document.getElementById('overlay-close').addEventListener('click', closeHistory);
   document.getElementById('overlay').addEventListener('click', e => {
     if (e.target === document.getElementById('overlay')) closeHistory();
+function relTime(ms) {
+  const diff = Date.now() - ms;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.round(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.round(diff / 3600000) + 'h ago';
+  const days = Math.round(diff / 86400000);
+  return days + (days === 1 ? ' day ago' : ' days ago');
+}
+
+// Relative, as ATOM shows it; the exact UTC time is on hover.
+function renderUpdated() {
+  const el = document.getElementById('generated-at');
+  const t = parseTime(DATA.generated_at);
+  if (!t) { el.textContent = 'Update time unknown'; return; }
+  el.textContent = 'Updated ' + relTime(t);
+  el.title = 'Generated ' + new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+}
+
   });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHistory(); });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    closeHistory();
+    closeHeaderFilters();
+  });
+  document.addEventListener('click', closeHeaderFilters);
   window.addEventListener('hashchange', () => {
     if (suppressHash) return;
     readFromHash();
