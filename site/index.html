@@ -165,7 +165,7 @@
     .kpi-value .down { color: var(--accent-red); }
     .kpi-unit { font-size: 12px; color: var(--text-tertiary); font-weight: 400; }
     .kpi-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
-    .kpi-sub b, .reg-count b, .card-hint b { color: var(--text-secondary); font-weight: 600; }
+    .kpi-sub b, .reg-count b, .card-hint b, .hint-key b { color: var(--text-secondary); font-weight: 600; }
 
     /* ============================================================
        TABS
@@ -177,6 +177,15 @@
     .card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-md); margin-bottom: var(--gap-lg); }
     .card h3 { font-size: 13px; color: var(--text-primary); font-weight: 600; margin-bottom: 4px; }
     .card-hint { font-size: 11px; color: var(--text-tertiary); margin-bottom: var(--gap-md); line-height: 1.5; }
+    /* Sits directly above its legend, so it keeps only enough room to separate. */
+    .card-hint.tight { margin-bottom: 6px; }
+    /* Legend, for what a chart says in colour rather than in a sentence. */
+    .hint-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; font-size: 11px; color: var(--text-tertiary); margin-bottom: var(--gap-md); }
+    .hint-key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .hint-key i { width: 11px; height: 11px; border-radius: 2px; flex: none; border: 1px solid var(--ui); background: var(--ui-dim); }
+    .hint-key i.shade { border-color: transparent; background: linear-gradient(90deg, var(--ui-dim), var(--ui)); }
+    .hint-key i.reg { border: 2px solid var(--accent-red); }
+    .hint-key i.absent { opacity: 0.35; }
     .empty { text-align: center; padding: 60px 20px; color: var(--text-tertiary); font-size: 14px; }
 
     /* ============================================================
@@ -1956,12 +1965,15 @@ function renderPerformanceTab() {
     + '</div>';
   let html = '<div class="card"><div class="section-head"><h3>' + esc(metric.label)
     + ' — by model</h3>' + picker + '</div>'
-    + '<div class="card-hint">Each bar is a configuration\'s newest run in the last ' + integer(WINDOW_DAYS)
-    + ' days; darker is higher concurrency. A red outline means it got <b>'
-    + thresholdLabel(BASELINE_BY_ID[state.baseline]) + ' or more</b> worse on this metric in build #'
-    + esc(latestNightlyBuild() || '?') + ' than in the nightly before it, #' + esc(previousNightlyBuild() || '?')
-    + '. A bar that skipped #' + esc(previousNightlyBuild() || '?') + ' is not compared, since its last run '
-    + 'is older; faded bars did not run in #' + esc(latestNightlyBuild() || '?') + ' at all. Click a bar for its history.</div>';
+    + '<div class="card-hint tight">Newest run per configuration, last ' + integer(WINDOW_DAYS)
+    + ' days. Click a bar for its history.</div>'
+    // The comparison's caveats live in each bar's tooltip, not in this legend.
+    + '<div class="hint-keys">'
+    + '<span class="hint-key"><i class="shade"></i>higher concurrency</span>'
+    + '<span class="hint-key"><i class="reg"></i><b>' + thresholdLabel(BASELINE_BY_ID[state.baseline])
+    + '+</b> worse vs #' + esc(previousNightlyBuild() || '?') + '</span>'
+    + '<span class="hint-key"><i class="absent"></i>no run in #' + esc(latestNightlyBuild() || '?')
+    + '</span></div>';
   html += groups.length
     ? '<div class="perf-grid">' + groups.map((g, i) =>
       '<div class="perf-card' + (groups.length <= 2 ? ' hero' : '') + '">'
