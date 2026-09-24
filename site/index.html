@@ -1006,7 +1006,6 @@ function renderNotice() {
   if (link) link.href = safeUrl((DATA.pipeline || {}).url) || 'https://buildkite.com/vllm/perf-eval';
 }
 
-function renderControls() {
 // Selected values stay listed with no matching config (a stale shared link,
 // say), or they could never be unticked.
 function facetValues(f) {
@@ -1029,6 +1028,7 @@ function resetFilters() {
   renderAll();
 }
 
+function renderControls() {
   const host = document.getElementById('controls-host');
   let html = '<div class="controls">';
 
@@ -1146,7 +1146,6 @@ function renderHeaderFilters() {
         + (input.hasAttribute('data-all') ? '[data-all]' : '[value="' + cssEscape(input.value) + '"]'));
     });
   });
-}
   const reset = document.getElementById('header-reset');
   if (reset) reset.addEventListener('click', resetFilters);
 }
@@ -1155,6 +1154,7 @@ function closeHeaderFilters() {
   if (openFilter === null) return;
   openFilter = null;
   renderHeaderFilters();
+}
 
 /* ================================================================
    7. KPI ROW
@@ -2437,6 +2437,7 @@ function renderAll() {
   closeHistory();
   _chartBounds = null;
   renderNotice();
+  renderHeaderFilters();
   renderControls();
   renderKpis();
   renderCoveragePanel();
@@ -2450,6 +2451,24 @@ function renderAll() {
   else if (state.tab === 'trends') renderTrendsTab();
   else if (state.tab === 'accuracy') renderAccuracyTab();
   else renderConfigsTab();
+}
+
+function relTime(ms) {
+  const diff = Date.now() - ms;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.round(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.round(diff / 3600000) + 'h ago';
+  const days = Math.round(diff / 86400000);
+  return days + (days === 1 ? ' day ago' : ' days ago');
+}
+
+// Relative, as ATOM shows it; the exact UTC time is on hover.
+function renderUpdated() {
+  const el = document.getElementById('generated-at');
+  const t = parseTime(DATA.generated_at);
+  if (!t) { el.textContent = 'Update time unknown'; return; }
+  el.textContent = 'Updated ' + relTime(t);
+  el.title = 'Generated ' + new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
 }
 
 function renderChrome() {
@@ -2478,7 +2497,6 @@ function wireChrome() {
     // Chart.js reads colours when a chart is built, so redraw on theme change.
     renderAll();
   });
-  renderHeaderFilters();
   document.getElementById('copy-link').addEventListener('click', () => {
     const btn = document.getElementById('copy-link');
     const restore = () => { btn.textContent = 'Copy link'; };
@@ -2494,24 +2512,6 @@ function wireChrome() {
   document.getElementById('overlay-close').addEventListener('click', closeHistory);
   document.getElementById('overlay').addEventListener('click', e => {
     if (e.target === document.getElementById('overlay')) closeHistory();
-function relTime(ms) {
-  const diff = Date.now() - ms;
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return Math.round(diff / 60000) + 'm ago';
-  if (diff < 86400000) return Math.round(diff / 3600000) + 'h ago';
-  const days = Math.round(diff / 86400000);
-  return days + (days === 1 ? ' day ago' : ' days ago');
-}
-
-// Relative, as ATOM shows it; the exact UTC time is on hover.
-function renderUpdated() {
-  const el = document.getElementById('generated-at');
-  const t = parseTime(DATA.generated_at);
-  if (!t) { el.textContent = 'Update time unknown'; return; }
-  el.textContent = 'Updated ' + relTime(t);
-  el.title = 'Generated ' + new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
-}
-
   });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
