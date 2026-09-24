@@ -202,7 +202,7 @@
     .reg-failed { color: var(--accent-yellow); }
 
     /* ============================================================
-       SHARED LEGEND
+       CHART WINDOW
        ============================================================ */
     .window-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: var(--gap-md); }
     .window-bar input[type=range] { width: 160px; accent-color: var(--ui); }
@@ -236,6 +236,57 @@
     .pick-item:focus-visible { outline: 2px solid var(--ui); outline-offset: 2px; }
     .pick-swatch { width: 10px; height: 10px; border-radius: 2px; }
     .pick-label { overflow-wrap: anywhere; }
+
+    /* ============================================================
+       PERFORMANCE TAB
+       ============================================================ */
+    .section-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--gap-sm); margin-bottom: var(--gap-md); padding-bottom: var(--gap-sm); border-bottom: 1px solid var(--border-light); }
+    .section-head h3 { margin: 0; }
+    .metric-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+    .metric-picker button { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .metric-picker button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+    .metric-picker button.on { background: var(--ui); border-color: var(--ui); color: #fff; }
+    .perf-grid { display: grid; grid-template-columns: 1fr; gap: var(--gap-md); }
+    @media (min-width: 1024px) {
+      .perf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .perf-card.hero { grid-column: 1 / -1; }
+    }
+    .perf-card { background: var(--bg-primary); border: 1px solid var(--border-light); border-radius: var(--radius); padding: 12px 14px; }
+    .perf-card h4 { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+    .perf-wrap { position: relative; height: 300px; }
+    .perf-card.hero .perf-wrap { height: 360px; }
+    .perf-wrap canvas { cursor: pointer; }
+    @media (max-width: 760px) { .perf-wrap, .perf-card.hero .perf-wrap { height: 240px; } }
+
+    /* Detail table: a data row, then its hidden detail row, so stripe in fours. */
+    .perf-table tbody tr:nth-child(even) { background: none; }
+    .perf-table tbody tr:nth-child(4n+1), .perf-table tbody tr:nth-child(4n+2) { background: var(--table-stripe); }
+    .perf-table tbody tr:hover { background: var(--bg-tertiary); }
+    .perf-table td.model { color: var(--text-primary); font-weight: 500; white-space: nowrap; }
+    .perf-table tbody tr[data-row] { cursor: pointer; }
+    .perf-table tbody tr[data-row] td:first-child::before { content: '▸ '; color: var(--text-tertiary); font-size: 10px; }
+    .perf-table tbody tr[data-row].open td:first-child::before { content: '▾ '; }
+    .perf-table tbody tr.reg-minor { background: rgba(227,199,90,0.07); }
+    .perf-table tbody tr.reg-minor td:first-child { box-shadow: inset 3px 0 var(--accent-yellow); }
+    .perf-table tbody tr.reg-moderate { background: rgba(237,160,106,0.07); }
+    .perf-table tbody tr.reg-moderate td:first-child { box-shadow: inset 3px 0 var(--accent-orange); }
+    .perf-table tbody tr.reg-major { background: rgba(242,92,78,0.07); }
+    .perf-table tbody tr.reg-major td:first-child { box-shadow: inset 3px 0 var(--accent-red); }
+    .perf-table tbody tr.stale td { opacity: 0.55; }
+    .data-bar { position: relative; }
+    .data-bar-fill { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 2px; pointer-events: none; }
+    .data-bar-text { position: relative; }
+    .detail-row { display: none; }
+    .detail-row.open { display: table-row; }
+    .detail-row > td { padding: 12px 16px; background: var(--bg-tertiary); }
+    .detail-box { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-md); font-size: 12px; }
+    @media (max-width: 760px) { .detail-box { grid-template-columns: 1fr; } }
+    .detail-box h5 { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; font-weight: 500; }
+    .detail-item { display: flex; justify-content: space-between; gap: var(--gap-sm); padding: 3px 0; border-bottom: 1px solid var(--border-light); }
+    .detail-item.clickable { cursor: pointer; }
+    .detail-item.clickable:hover .detail-key { color: var(--text-primary); }
+    .detail-key { color: var(--text-tertiary); }
+    .detail-val { color: var(--text-primary); font-family: "SF Mono", Consolas, monospace; text-align: right; overflow-wrap: anywhere; }
     .pick-value { font-family: "SF Mono", Consolas, monospace; color: var(--text-primary); white-space: nowrap; }
 
     /* ============================================================
@@ -609,7 +660,8 @@ function accuracyMetricLabel(metric) {
    4. STATE
    ================================================================ */
 const state = {
-  tab: 'trends',
+  tab: 'performance',
+  perfMetric: null, // Performance tab bar metric; null = the default
   baseline: 'previous',
   selected: {}, // facet key -> Set of allowed values (empty = all)
   onlyRegressed: false, // charts and table show only regressed configs
@@ -971,7 +1023,7 @@ function renderControls() {
     + '<button class="btn' + (state.onlyRegressed ? ' on' : '') + '" id="only-regressed"'
     + ' aria-pressed="' + (state.onlyRegressed ? 'true' : 'false') + '"'
     + (regressedCount || state.onlyRegressed ? '' : ' disabled')
-    + ' title="Charts and the Configurations table show only configurations that regressed">'
+    + ' title="The Performance, Trends and Configurations tabs show only configurations that regressed">'
     + 'Only regressed (' + integer(regressedCount) + ')</button>'
     + (activeFilters
       ? '<button class="btn" id="reset-facets">Clear ' + activeFilters
@@ -1204,6 +1256,7 @@ function renderCoveragePanel() {
    8. TABS
    ================================================================ */
 const TABS = [
+  { id: 'performance', label: 'Performance' },
   { id: 'trends', label: 'Trends' },
   { id: 'accuracy', label: 'Accuracy' },
   { id: 'configs', label: 'Configurations' },
@@ -1216,7 +1269,7 @@ function renderTabs() {
   host.innerHTML = TABS.map(t =>
     '<div class="tab' + (state.tab === t.id ? ' on' : '') + '" data-tab="' + t.id + '" role="tab"'
     + ' aria-selected="' + (state.tab === t.id ? 'true' : 'false') + '">' + esc(t.label)
-    + (t.id === 'trends' && regs ? '<span class="tab-badge">' + regs + '</span>' : '') + '</div>').join('');
+    + (t.id === 'performance' && regs ? '<span class="tab-badge">' + regs + '</span>' : '') + '</div>').join('');
   host.querySelectorAll('.tab').forEach(el => {
     const id = el.getAttribute('data-tab');
     activatable(el, null, () => {
@@ -1538,6 +1591,367 @@ function renderTrendsTab() {
 }
 
 /* ================================================================
+   10b. PERFORMANCE TAB
+   ================================================================ */
+// Each config's newest run in the window: one bar chart per model and device
+// (per-GPU numbers do not compare across devices), then a detail table.
+const PERF_TABLE_METRICS = ['tput_per_gpu', 'output_tput_per_gpu', 'mean_intvty', 'mean_tpot', 'mean_ttft'];
+let MODEL_COLOR = {};
+
+function defaultPerfMetric() { return METRIC_BY_KEY.tput_per_gpu ? 'tput_per_gpu' : (METRICS[0] || {}).key; }
+function perfMetric() { return METRIC_BY_KEY[state.perfMetric] || METRIC_BY_KEY[defaultPerfMetric()]; }
+function perfGroupKey(c) { return c.model + '|' + c.device; }
+
+function lenLabel(v) {
+  if (v == null) return '?';
+  return v >= 1024 && v % 1024 === 0 ? (v / 1024) + 'K' : String(v);
+}
+function shapeLabel(c) { return lenLabel(c.isl) + '/' + lenLabel(c.osl) + ' c=' + c.conc; }
+
+function perfGroups(configs) {
+  const groups = new Map();
+  configs.forEach(c => {
+    const key = perfGroupKey(c);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key: key,
+        name: c.shortModel + ' · ' + String(c.device || '?').toUpperCase(),
+        color: MODEL_COLOR[key] || PALETTE[0],
+        configs: [],
+      });
+    }
+    groups.get(key).configs.push(c);
+  });
+  groups.forEach(g => {
+    // Two configs at one shape differ by precision or TP; name it on both.
+    const count = new Map();
+    g.configs.forEach(c => count.set(shapeLabel(c), (count.get(shapeLabel(c)) || 0) + 1));
+    g.labels = g.configs.map(c => shapeLabel(c)
+      + (count.get(shapeLabel(c)) > 1 ? ' · ' + (c.precision || '?') + ' TP' + c.tp : ''));
+  });
+  return [...groups.values()];
+}
+
+// Newest point, its change against the run before, and whether it is tonight's.
+function latestOf(cfg, metric) {
+  const pts = pointsIn(cfg, metric.key);
+  if (!pts.length) return null;
+  return {
+    point: pts[pts.length - 1],
+    verdict: verdict(pts.map(p => p.value), metric, BASELINE_BY_ID[state.baseline]),
+    tonight: reportedTonight(pts, latestNightlyBuild()),
+  };
+}
+
+// The change, coloured only when it is tonight's and past the threshold.
+function changeHtml(latest) {
+  if (!latest || !latest.verdict) return '<span class="neutral">—</span>';
+  const v = latest.verdict,
+    baseline = BASELINE_BY_ID[state.baseline];
+  const cls = !latest.tonight ? 'neutral'
+    : v.severity === 'alert' ? 'bad' : v.severity === 'warn' ? 'warnc'
+      : (v.improved && v.magnitude >= baseline.warn) ? 'good' : 'neutral';
+  return '<span class="' + cls + '">' + pctDirection(v.ratio, Math.abs(v.ratio) < 0.01 ? 2 : 1) + '</span>';
+}
+
+function withAlpha(hex, alpha) {
+  const n = parseInt(String(hex).replace('#', ''), 16);
+  return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha.toFixed(2) + ')';
+}
+
+function compact(v, digits) {
+  if (v == null || !isFinite(v)) return '—';
+  return Math.abs(v) >= 10000 ? (v / 1000).toFixed(1) + 'K' : fmt(v, digits);
+}
+
+// Values above the bars, skipped when there are too many to read.
+function barValuesPlugin(color, format) {
+  return {
+    id: 'barValues',
+    afterDatasetsDraw(chart) {
+      const meta = chart.getDatasetMeta(0);
+      if (!meta || meta.data.length > 16) return;
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.font = '10px "SF Mono", Consolas, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      meta.data.forEach((bar, i) => ctx.fillText(format(chart.data.datasets[0].data[i]), bar.x, bar.y - 4));
+      ctx.restore();
+    }
+  };
+}
+
+// Dashed average line across the chart, labelled at the right.
+function avgLinePlugin(avg, label, color) {
+  return {
+    id: 'avgLine',
+    afterDraw(chart) {
+      if (avg == null) return;
+      const y = chart.scales.y.getPixelForValue(avg);
+      if (y < chart.chartArea.top || y > chart.chartArea.bottom) return;
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(chart.chartArea.left, y);
+      ctx.lineTo(chart.chartArea.right, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '10px -apple-system, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(label, chart.chartArea.right, y - 4);
+      ctx.restore();
+    }
+  };
+}
+
+function commitLink(sha) {
+  if (!/^[0-9a-f]{7,40}$/i.test(String(sha || ''))) return esc(shortSha(sha));
+  return '<a href="https://github.com/vllm-project/vllm/commit/' + esc(sha) + '" target="_blank"'
+    + ' rel="noopener noreferrer">' + esc(shortSha(sha)) + EXT_INLINE + '</a>';
+}
+
+function renderPerformanceTab() {
+  const host = document.getElementById('main');
+  const configs = shownConfigs();
+  const metric = perfMetric();
+  if (!configs.length || !metric) {
+    host.innerHTML = '<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
+    return;
+  }
+  const groups = perfGroups(configs)
+    .map(g => ({ ...g, rows: g.configs.map((c, i) => ({ c: c, label: g.labels[i], latest: latestOf(c, metric) }))
+      .filter(r => r.latest) }))
+    .filter(g => g.rows.length);
+
+  const picker = '<div class="metric-picker">' + METRICS.map(m =>
+    '<button class="' + (m.key === metric.key ? 'on' : '') + '" data-perf-metric="' + esc(m.key) + '"'
+    + ' aria-pressed="' + (m.key === metric.key ? 'true' : 'false') + '">' + esc(m.label) + '</button>').join('')
+    + '</div>';
+  let html = '<div class="card"><div class="section-head"><h3>' + esc(metric.label)
+    + ' — by model</h3>' + picker + '</div>'
+    + '<div class="card-hint">Each bar is a configuration\'s newest run in the last ' + integer(WINDOW_DAYS)
+    + ' days; darker is higher concurrency. A red outline means it regressed by <b>'
+    + thresholdLabel(BASELINE_BY_ID[state.baseline]) + ' or more</b> on this metric in build #'
+    + esc(latestNightlyBuild() || '?') + '; faded bars did not run in that build. Click a bar for its history.</div>';
+  html += groups.length
+    ? '<div class="perf-grid">' + groups.map((g, i) =>
+      '<div class="perf-card' + (groups.length <= 2 ? ' hero' : '') + '">'
+      + '<h4 style="color:' + esc(g.color) + '">' + esc(g.name) + '</h4>'
+      + '<div class="perf-wrap"><canvas id="perf-' + i + '"></canvas></div></div>').join('') + '</div>'
+    : '<div class="empty">No runs of ' + esc(metric.label) + ' for these filters.</div>';
+  html += '</div>' + renderPerfTable(configs);
+  host.innerHTML = html;
+
+  groups.forEach((g, i) => drawPerfChart(g, 'perf-' + i, metric));
+  host.querySelectorAll('[data-perf-metric]').forEach(btn => btn.addEventListener('click', () => {
+    const key = btn.getAttribute('data-perf-metric');
+    state.perfMetric = key === defaultPerfMetric() ? null : key;
+    syncToHash();
+    renderAll();
+    focusAfterRender('[data-perf-metric="' + cssEscape(key) + '"]');
+  }));
+  bindPerfTable(host, configs);
+}
+
+function drawPerfChart(group, canvasId, metric) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const theme = chartTheme();
+  const regColor = cssVar('--accent-red') || REG_COLOR;
+  const regKeys = regressedKeysForMetric(state.baseline, metric.key);
+  const concs = [...new Set(group.rows.map(r => Number(r.c.conc) || 0))].sort((a, b) => a - b);
+  // Darker with concurrency, as ATOM shades it; faded when not from tonight.
+  const alphaOf = r => {
+    if (!r.latest.tonight) return 0.12;
+    if (concs.length <= 1) return 0.55;
+    return 0.3 + concs.indexOf(Number(r.c.conc) || 0) / (concs.length - 1) * 0.35;
+  };
+  const values = group.rows.map(r => display(r.latest.point.value, metric));
+  const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+  const unit = unitOf(metric);
+  new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: group.rows.map(r => r.label),
+      datasets: [{
+        data: values,
+        backgroundColor: group.rows.map(r => withAlpha(group.color, alphaOf(r))),
+        borderColor: group.rows.map(r => regKeys.has(r.c.key) ? regColor : group.color),
+        borderWidth: group.rows.map(r => regKeys.has(r.c.key) ? 2.5 : 1.5),
+        borderRadius: 4,
+      }]
+    },
+    plugins: [
+      barValuesPlugin(cssVar('--text-secondary'), v => compact(v, metric.digits)),
+      avgLinePlugin(avg, 'avg ' + compact(avg, metric.digits), theme.tick),
+    ],
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      layout: { padding: { top: 22 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: items => group.name + ' · ' + group.rows[items[0].dataIndex].label,
+            label: item => metric.label + ': ' + fmt(item.raw, metric.digits) + ' ' + unit,
+            afterBody: items => {
+              const r = group.rows[items[0].dataIndex];
+              const p = r.latest.point;
+              const lines = ['Build #' + (p.build_number || '?') + ' · vLLM ' + shortSha(p.vllm_commit)];
+              if (r.latest.verdict) lines.push('Change: ' + pct(r.latest.verdict.ratio, 2));
+              if (!r.latest.tonight) lines.push('Not in build #' + (latestNightlyBuild() || '?'));
+              if (failedNote(p)) lines.push(failedNote(p));
+              return lines.concat('', 'Click for history');
+            },
+          }
+        },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: theme.tick, maxRotation: 45, font: { size: 10 } } },
+        y: {
+          beginAtZero: true,
+          grace: '5%',
+          title: { display: !!unit, text: unit, color: theme.tick },
+          ticks: { color: theme.tick, font: { size: 10 } },
+          grid: { color: theme.grid },
+        },
+      },
+      onClick: (_event, elements) => {
+        if (elements.length) openConfigHistory(group.rows[elements[0].index].c, metric);
+      },
+    },
+  });
+}
+
+function renderPerfTable(configs) {
+  const cols = PERF_TABLE_METRICS.map(k => METRIC_BY_KEY[k]).filter(Boolean);
+  const selected = perfMetric();
+  const regs = regressionsOf(state.baseline);
+  const worstTier = new Map();
+  regs.forEach(d => worstTier.set(d.configKey, Math.max(worstTier.has(d.configKey) ? worstTier.get(d.configKey) : -1, regTier(d.magnitude))));
+  const latest = configs.map(c => Object.fromEntries(METRICS.map(m => [m.key, latestOf(c, m)])));
+
+  // Throughput gets a bar against the table's largest; latency a heat shade
+  // from the table's fastest (green) to slowest (red).
+  const range = key => {
+    const vals = latest.map(l => l[key] && l[key].point.value).filter(v => v != null);
+    return { min: Math.min(...vals), max: Math.max(...vals) };
+  };
+  const ranges = Object.fromEntries(cols.map(m => [m.key, range(m.key)]));
+  const heat = r => {
+    const x = Math.min(1, Math.max(0, r));
+    if (x < 0.33) return 'rgba(109,191,128,' + (0.08 + x * 0.2).toFixed(2) + ')';
+    if (x < 0.67) return 'rgba(227,199,90,' + (0.08 + (x - 0.33) * 0.2).toFixed(2) + ')';
+    return 'rgba(242,92,78,' + (0.08 + (x - 0.67) * 0.3).toFixed(2) + ')';
+  };
+  const cell = (m, l) => {
+    const entry = l[m.key];
+    if (!entry) return '<td class="num neutral">—</td>';
+    const text = esc(fmt(display(entry.point.value, m), m.digits));
+    const rg = ranges[m.key];
+    if (m.direction === 'higher' && /tput/.test(m.key)) {
+      const w = rg.max > 0 ? entry.point.value / rg.max * 100 : 0;
+      return '<td class="num data-bar"><div class="data-bar-fill" style="width:' + w.toFixed(1)
+        + '%;background:' + (m.key === 'tput_per_gpu' ? 'rgba(109,191,128,0.14)' : 'rgba(136,153,184,0.14)')
+        + '"></div><span class="data-bar-text">' + text + '</span></td>';
+    }
+    if (m.direction === 'lower') {
+      const r = rg.max > rg.min ? (entry.point.value - rg.min) / (rg.max - rg.min) : 0;
+      return '<td class="num" style="background:' + heat(r) + '">' + text + '</td>';
+    }
+    return '<td class="num">' + text + '</td>';
+  };
+
+  let html = '<div class="card"><div class="section-head"><h3>Detail table</h3></div>'
+    + '<div class="card-hint">Newest run per configuration. Change is ' + esc(selected.label)
+    + ' against the run before; a coloured edge means the configuration regressed on some metric '
+    + 'in build #' + esc(latestNightlyBuild() || '?') + ', and faded rows did not run in it. '
+    + 'Click a row for every metric and the run behind it.</div>'
+    + '<div class="table-scroll"><table class="perf-table"><thead><tr>'
+    + '<th>Model</th><th>Device</th><th>ISL/OSL</th><th class="num">Conc</th><th class="num">TP</th><th>Precision</th>'
+    + cols.map(m => '<th class="num">' + esc(m.label) + (unitOf(m) ? '<br><span class="neutral">' + esc(unitOf(m)) + '</span>' : '') + '</th>').join('')
+    + '<th class="num">Change<br><span class="neutral">' + esc(selected.label) + '</span></th>'
+    + '<th>vLLM</th><th>Build</th></tr></thead><tbody>';
+
+  configs.forEach((c, i) => {
+    const l = latest[i];
+    const head = l[selected.key] || l[defaultPerfMetric()] || Object.values(l).find(Boolean);
+    if (!head) return;
+    const tier = worstTier.has(c.key) ? REG_TIERS[worstTier.get(c.key)].cls : '';
+    const cls = (tier ? 'reg-' + tier : '') + (head.tonight ? '' : ' stale');
+    html += '<tr data-row="' + i + '" class="' + cls.trim() + '"'
+      + (head.tonight ? '' : ' title="Not in build #' + esc(latestNightlyBuild() || '?') + '"') + '>'
+      + '<td class="model">' + (tier ? '⚠ ' : '') + esc(c.shortModel) + '</td>'
+      + '<td>' + esc(String(c.device || '?').toUpperCase()) + '</td>'
+      + '<td>' + esc(lenLabel(c.isl) + '/' + lenLabel(c.osl)) + '</td>'
+      + '<td class="num">' + esc(c.conc) + '</td>'
+      + '<td class="num">' + esc(c.tp == null ? '—' : c.tp) + '</td>'
+      + '<td>' + esc(c.precision || '—') + '</td>'
+      + cols.map(m => cell(m, l)).join('')
+      + '<td class="num">' + changeHtml(l[selected.key]) + '</td>'
+      + '<td class="mono">' + commitLink(head.point.vllm_commit) + '</td>'
+      + '<td>' + buildLink(head.point, null) + '</td></tr>'
+      + '<tr class="detail-row" data-detail="' + i + '"><td colspan="' + (9 + cols.length) + '">'
+      + perfDetail(c, l, head.point) + '</td></tr>';
+  });
+  return html + '</tbody></table></div></div>';
+}
+
+function perfDetail(c, latest, p) {
+  const metrics = METRICS.filter(m => latest[m.key]).map(m =>
+    '<div class="detail-item clickable" data-hist="' + esc(m.key) + '"><span class="detail-key">' + esc(m.label)
+    + '</span><span class="detail-val">' + esc(fmt(display(latest[m.key].point.value, m), m.digits))
+    + ' ' + esc(unitOf(m)) + ' ' + changeHtml(latest[m.key]) + '</span></div>').join('');
+  const item = (k, v) => '<div class="detail-item"><span class="detail-key">' + esc(k)
+    + '</span><span class="detail-val">' + v + '</span></div>';
+  const requests = p.completed_requests != null
+    ? integer(Math.round(p.completed_requests)) + ' completed'
+      + (p.failed_requests > 0 ? ', <span class="warnc">' + integer(Math.round(p.failed_requests)) + ' failed</span>' : '')
+    : '—';
+  return '<div class="detail-box"><div><h5>Metrics · click for history</h5>' + metrics + '</div>'
+    + '<div><h5>Run</h5>'
+    + item('Configuration', esc(c.label))
+    + item('Device', esc(String(c.device || '?').toUpperCase()))
+    + item('TP', esc(c.tp == null ? '—' : c.tp))
+    + item('Precision', esc(c.precision || '—'))
+    + item('Date', esc(fmtDate(p.t)))
+    + item('Build', buildLink(p, null))
+    + item('vLLM commit', commitLink(p.vllm_commit))
+    + item('Image', esc(p.image || '—'))
+    + item('Requests', requests)
+    + '</div></div>';
+}
+
+function bindPerfTable(host, configs) {
+  host.querySelectorAll('.perf-table tr[data-row]').forEach(row => {
+    const i = row.getAttribute('data-row');
+    activatable(row, null, event => {
+      if (event.target && event.target.closest && event.target.closest('a')) return;
+      const detail = host.querySelector('tr[data-detail="' + i + '"]');
+      if (!detail) return;
+      detail.classList.toggle('open');
+      row.classList.toggle('open');
+    });
+  });
+  host.querySelectorAll('.perf-table tr.detail-row').forEach(detail => {
+    const config = configs[Number(detail.getAttribute('data-detail'))];
+    detail.querySelectorAll('[data-hist]').forEach(el => {
+      const metric = METRIC_BY_KEY[el.getAttribute('data-hist')];
+      if (config && metric) activatable(el, 'Open history for ' + config.label + ' ' + metric.label,
+        () => openConfigHistory(config, metric));
+    });
+  });
+}
+
+/* ================================================================
    11. ACCURACY TAB
    ================================================================ */
 function renderAccuracyTab() {
@@ -1692,12 +2106,8 @@ function renderConfigsTab() {
     const config = configs[Number(td.getAttribute('data-cfg'))];
     const metric = METRIC_BY_KEY[td.getAttribute('data-metric')];
     if (!config || !metric) return;
-    activatable(td, 'Open history for ' + config.label + ' ' + metric.label, () => {
-      const points = pointsIn(config, metric.key);
-      openHistory(config.label + ' — ' + metric.label,
-        (metric.direction === 'higher' ? 'higher is better' : 'lower is better') + ' · ' + baseline.label,
-        metric, points, verdict(points.map(p => p.value), metric, baseline));
-    });
+    activatable(td, 'Open history for ' + config.label + ' ' + metric.label,
+      () => openConfigHistory(config, metric));
   });
 }
 
@@ -1799,6 +2209,16 @@ function openHistory(title, subtitle, metric, points, v) {
   });
   showOverlay();
 }
+// A config's history for one metric, over the window.
+function openConfigHistory(config, metric) {
+  const baseline = BASELINE_BY_ID[state.baseline];
+  const points = pointsIn(config, metric.key);
+  if (!points.length) return;
+  openHistory(config.label + ' — ' + metric.label,
+    (metric.direction === 'higher' ? 'higher is better' : 'lower is better') + ' · ' + baseline.label,
+    metric, points, verdict(points.map(p => p.value), metric, baseline));
+}
+
 // Open the full history of the clicked series.
 function openSeriesHistory(candidate) {
   // By key, not label: labels leave out TP, precision and the model's org.
@@ -1810,11 +2230,7 @@ function openSeriesHistory(candidate) {
       fmtDate(candidate.point.t || 0), metric, [candidate.point], null);
     return;
   }
-  const points = pointsIn(config, metric.key);
-  openHistory(config.label + ' — ' + metric.label,
-    (metric.direction === 'higher' ? 'higher is better' : 'lower is better')
-    + ' · ' + BASELINE_BY_ID[state.baseline].label,
-    metric, points, verdict(points.map(p => p.value), metric, BASELINE_BY_ID[state.baseline]));
+  openConfigHistory(config, metric);
 }
 
 // Several series on one point: list them and let the reader choose.
@@ -1873,7 +2289,8 @@ let suppressHash = false;
 
 function syncToHash() {
   const parts = [];
-  if (state.tab !== 'trends') parts.push('tab=' + state.tab);
+  if (state.tab !== 'performance') parts.push('tab=' + state.tab);
+  if (perfMetric().key !== defaultPerfMetric()) parts.push('metric=' + perfMetric().key);
   if (state.baseline !== DATA.default_baseline) parts.push('base=' + state.baseline);
   if (chartDays() !== WINDOW_DAYS) parts.push('days=' + chartDays());
   FACETS.forEach(f => {
@@ -1888,7 +2305,8 @@ function syncToHash() {
 
 function readFromHash() {
   const raw = (window.location.hash || '').replace(/^#/, '');
-  state.tab = 'trends';
+  state.tab = 'performance';
+  state.perfMetric = null;
   state.baseline = DATA.default_baseline || 'previous';
   state.chartDays = null;
   FACETS.forEach(f => state.selected[f.key].clear());
@@ -1902,6 +2320,7 @@ function readFromHash() {
     else if (k === 'base' && BASELINE_BY_ID[v]) state.baseline = v;
     else if (k === 'days' && /^\d+$/.test(v)) state.chartDays = Number(v);
     else if (k === 'regressed') state.onlyRegressed = v === '1';
+    else if (k === 'metric' && METRIC_BY_KEY[v]) state.perfMetric = v;
     else {
       const facet = FACETS.find(f => f.key === k);
       if (facet) {
@@ -1929,7 +2348,13 @@ function renderAll() {
   renderKpis();
   renderCoveragePanel();
   renderTabs();
-  if (state.tab === 'trends') renderTrendsTab();
+  // Chart.js keeps every chart it made; free the ones about to be replaced.
+  document.querySelectorAll('#main canvas').forEach(c => {
+    const chart = Chart.getChart(c);
+    if (chart) chart.destroy();
+  });
+  if (state.tab === 'performance') renderPerformanceTab();
+  else if (state.tab === 'trends') renderTrendsTab();
   else if (state.tab === 'accuracy') renderAccuracyTab();
   else renderConfigsTab();
 }
@@ -2029,6 +2454,8 @@ fetch('perf_eval.json')
     // across filters and charts.
     BASE_COLOR = Object.fromEntries(
       CONFIGS.map(c => c.key).sort().map((k, i) => [k, PALETTE[i % PALETTE.length]]));
+    MODEL_COLOR = Object.fromEntries(
+      [...new Set(CONFIGS.map(perfGroupKey))].sort().map((k, i) => [k, PALETTE[i % PALETTE.length]]));
 
     readFromHash();
     renderChrome();

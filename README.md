@@ -514,9 +514,24 @@ precision or concurrency, so only the Device and Model filters narrow it.
 When nothing could be compared — no configuration has both a run in the newest
 nightly and an earlier one in the window — the regression panel says *Nothing
 to compare* rather than showing a green *No regressions*. *Only regressed*, in
-the filter panel, narrows the charts and the Configurations table to the
+the filter panel, narrows the Performance, Trends and Configurations tabs to the
 configurations that regressed; it is kept in the URL as `regressed=1`, like the
 filters, so a copied link shows the same view.
+
+### Performance tab
+
+The default tab, modelled on the ATOM dashboard's. A metric picker (kept in the
+URL as `metric=`) drives one bar chart per **model and device**, since per-GPU
+numbers do not compare across devices. Each bar is a configuration's newest run
+in the window, shaded darker with concurrency, outlined red when it regressed on
+that metric in the newest nightly, and faded when it did not run in it; a dashed
+line marks the chart's average, and clicking a bar opens its history.
+
+Below the charts, a detail table lists every configuration's newest run:
+throughput with an in-cell bar against the table's largest, TPOT and TTFT
+heat-shaded from fastest to slowest, the change in the picked metric, and links
+to the vLLM commit and the build. Clicking a row expands every metric (each
+opening its history) and the run behind it, including failed requests.
 
 The overnight cards only count configs that reported in the newest
 nightly. A config that skipped tonight still has two earlier points, but its
