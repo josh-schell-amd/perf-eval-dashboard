@@ -510,7 +510,7 @@ they report which config happens to be largest and barely move night to night.
 | Card | Signal |
 |---|---|
 | Latest nightly | Date, vLLM commit, build — links to the build |
-| Performance overnight | Median change in Output Throughput (tok/s/GPU), newest nightly vs the one before, across configs that reported in both; neutral inside ±0.5% |
+| Performance overnight | Median change in Output Throughput (tok/s/GPU), newest nightly vs the one before, across configs that ran in both of those two nightlies; neutral inside ±0.5% |
 | Regressions overnight | Config-metric pairs that got worse by at least 0.5% in the newest nightly; red when there are any |
 | Improvements overnight | The same scan in the other direction, to confirm an optimization landed; green when there are any |
 | Accuracy overnight | Models whose headline accuracy dropped at least 1 point in the newest nightly; opens the Accuracy tab |
@@ -533,9 +533,12 @@ filters, so a copied link shows the same view.
 The default tab, modelled on the ATOM dashboard's. A metric picker (kept in the
 URL as `metric=`) drives one bar chart per **model and device**, since per-GPU
 numbers do not compare across devices. Each bar is a configuration's newest run
-in the window, shaded darker with concurrency, outlined red when it regressed on
-that metric in the newest nightly, and faded when it did not run in it; a dashed
-line marks the chart's average, and clicking a bar opens its history.
+in the window, shaded darker with concurrency, outlined red when that metric got
+0.5% or more worse between the previous nightly and the newest one, and faded
+when it did not run in the newest; a dashed line marks the chart's average, and
+clicking a bar opens its history. A bar that ran tonight but skipped the
+previous nightly gets no outline either way; its tooltip says which older build
+it would have been compared against.
 
 Below the charts, a detail table lists every configuration's newest run:
 throughput with an in-cell bar against the table's largest, TPOT and TTFT
@@ -544,10 +547,20 @@ to the vLLM commit and the build. Clicking a row expands every metric (each
 opening its history) and the run behind it, including failed requests.
 
 The overnight cards only count configs that reported in the newest
-nightly. A config that skipped tonight still has two earlier points, but its
-change between them happened on earlier nights. Counting it would pass that old
-change off as tonight's. Configs that did not report show up in Coverage
-instead.
+nightly **and** the one before it. A config that skipped tonight still has two
+earlier points, but its change between them happened on earlier nights.
+Counting it would pass that old change off as tonight's. The reverse holds too:
+a config that ran tonight after skipping last night is compared against
+whatever older run it has, so its change spans every night it missed — a config
+back from a two-week outage would otherwise present two weeks of drift as one
+night's regression. Neither is counted. Configs that did not report show up in
+Coverage instead, and a returning config is compared normally from its second
+consecutive night.
+
+The same rule drives every perf regression signal on the page — bar outlines,
+red trend lines, tradeoff rings, table row edges and the Change columns —
+because they all go through one predicate, `comparedOvernight` in
+`site/index.html`. The Accuracy tab does not use it yet.
 
 Coverage is the one that is easy to omit and expensive to miss: a workload that
 OOMs simply stops emitting rows, so it silently disappears from every average

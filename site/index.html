@@ -865,31 +865,42 @@ const _scanCache = new Map();
 function scanKey(baselineId) {
   return [baselineId, FACETS.map(f => [...state.selected[f.key]].sort().join(',')).join(';')].join('|');
 }
-// Newest nightly across all configs, ignoring filters: every overnight
-// figure describes this build.
-function latestNightlyBuild() {
-  let build = null,
-    at = 0;
-  CONFIGS.forEach(c => c.builds.forEach((t, b) => { if (t > at) { at = t;
-      build = b; } }));
-  return build;
+// Nightlies across all configs, ignoring filters, newest first: every overnight
+// figure describes the first, compared against the second. CONFIGS is fixed
+// once the payload loads, so this is worked out once.
+let _nightlies = null;
+function recentNightlies() {
+  if (_nightlies) return _nightlies;
+  const at = new Map();
+  CONFIGS.forEach(c => c.builds.forEach((t, b) => { if (!(at.get(b) >= t)) at.set(b, t); }));
+  return (_nightlies = [...at.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]));
 }
+function latestNightlyBuild() { return recentNightlies()[0] || null; }
+function previousNightlyBuild() { return recentNightlies()[1] || null; }
 // True when the config's newest point is from the latest nightly. Otherwise
 // its last two points are an older night's change, not tonight's.
 function reportedTonight(pts, latest) {
   return pts.length > 0 && String(pts[pts.length - 1].build_number) === latest;
+}
+// Tonight's run, and the run before it is the previous nightly. A config that
+// skipped last night compares against an older run, so its change spans every
+// night it missed and is not an overnight change.
+function comparedOvernight(pts, latest, previous) {
+  return pts.length >= 2 && reportedTonight(pts, latest)
+    && previous != null && String(pts[pts.length - 2].build_number) === previous;
 }
 
 function scan(baselineId) {
   const ck = scanKey(baselineId);
   if (_scanCache.has(ck)) return _scanCache.get(ck);
   const baseline = BASELINE_BY_ID[baselineId];
-  const latest = latestNightlyBuild();
+  const latest = latestNightlyBuild(),
+    previous = previousNightlyBuild();
   const out = [];
   visibleConfigs().forEach(cfg => {
     METRICS.forEach(metric => {
       const pts = pointsIn(cfg, metric.key);
-      if (pts.length < 2 || !reportedTonight(pts, latest)) return;
+      if (!comparedOvernight(pts, latest, previous)) return;
       const v = verdict(pts.map(p => p.value), metric, baseline);
       if (!v) return;
       out.push({
@@ -927,11 +938,12 @@ function regressedKeysForMetric(id, metricKey) {
 function nightOverNight() {
   const metric = METRIC_BY_KEY[PRIMARY_METRIC];
   if (!metric) return null;
-  const latest = latestNightlyBuild();
+  const latest = latestNightlyBuild(),
+    previous = previousNightlyBuild();
   const ratios = [];
   visibleConfigs().forEach(cfg => {
     const pts = pointsIn(cfg, PRIMARY_METRIC);
-    if (pts.length < 2 || !reportedTonight(pts, latest)) return;
+    if (!comparedOvernight(pts, latest, previous)) return;
     const prev = pts[pts.length - 2].value;
     if (!prev) return;
     ratios.push((pts[pts.length - 1].value - prev) / Math.abs(prev));
@@ -1481,9 +1493,9 @@ function renderRegressionPanel() {
     const compared = new Set(scan(state.baseline).map(d => d.configKey)).size;
     if (!compared) {
       return '<div class="reg-panel unknown"><div class="reg-head">'
-        + '<h3>Nothing to compare</h3><span class="reg-count">no configuration has both a run in '
-        + 'build #' + esc(latestNightlyBuild() || '?') + ' and an earlier run in the last '
-        + integer(WINDOW_DAYS) + ' days</span></div></div>';
+        + '<h3>Nothing to compare</h3><span class="reg-count">no configuration ran in both '
+        + 'build #' + esc(latestNightlyBuild() || '?') + ' and the nightly before it, #'
+        + esc(previousNightlyBuild() || '?') + '</span></div></div>';
     }
     return '<div class="reg-panel clean"><div class="reg-head">'
       + '<h3>No regressions</h3><span class="reg-count">' + esc(active.label)
@@ -1804,26 +1816,38 @@ function perfGroups(configs) {
   return [...groups.values()];
 }
 
-// Newest point, its change against the run before, and whether it is tonight's.
+// Newest point, its change against the run before, whether it is tonight's,
+// and whether that change is an overnight one.
 function latestOf(cfg, metric) {
   const pts = pointsIn(cfg, metric.key);
   if (!pts.length) return null;
   return {
     point: pts[pts.length - 1],
+    before: pts.length >= 2 ? pts[pts.length - 2] : null,
     verdict: verdict(pts.map(p => p.value), metric, BASELINE_BY_ID[state.baseline]),
     tonight: reportedTonight(pts, latestNightlyBuild()),
+    overnight: comparedOvernight(pts, latestNightlyBuild(), previousNightlyBuild()),
   };
 }
 
-// The change, coloured only when it is tonight's and past the threshold.
+// Why a change from tonight's run is not being judged, or '' if it is.
+function notOvernightNote(latest) {
+  if (!latest || !latest.tonight || latest.overnight || !latest.before) return '';
+  return 'Not compared: the run before is build #' + (latest.before.build_number || '?')
+    + ', not the previous nightly #' + (previousNightlyBuild() || '?');
+}
+
+// The change, coloured only when it is overnight and past the threshold.
 function changeHtml(latest) {
   if (!latest || !latest.verdict) return '<span class="neutral">—</span>';
   const v = latest.verdict,
     baseline = BASELINE_BY_ID[state.baseline];
-  const cls = !latest.tonight ? 'neutral'
+  const cls = !latest.overnight ? 'neutral'
     : v.severity === 'alert' ? 'bad' : v.severity === 'warn' ? 'warnc'
       : (v.improved && v.magnitude >= baseline.warn) ? 'good' : 'neutral';
-  return '<span class="' + cls + '">' + pctDirection(v.ratio, Math.abs(v.ratio) < 0.01 ? 2 : 1) + '</span>';
+  const note = notOvernightNote(latest);
+  return '<span class="' + cls + '"' + (note ? ' title="' + esc(note) + '"' : '') + '>'
+    + pctDirection(v.ratio, Math.abs(v.ratio) < 0.01 ? 2 : 1) + '</span>';
 }
 
 function withAlpha(hex, alpha) {
@@ -1836,8 +1860,10 @@ function compact(v, digits) {
   return Math.abs(v) >= 10000 ? (v / 1000).toFixed(1) + 'K' : fmt(v, digits);
 }
 
-// Values above the bars, skipped when there are too many to read.
-function barValuesPlugin(color, format) {
+// Values above the bars, skipped when there are too many to read. `colorAt`
+// picks a colour per bar: a regression's outline vanishes on a bar only a few
+// pixels tall (c=1 beside c=128), but its value above is always legible.
+function barValuesPlugin(colorAt, format) {
   return {
     id: 'barValues',
     afterDatasetsDraw(chart) {
@@ -1845,11 +1871,13 @@ function barValuesPlugin(color, format) {
       if (!meta || meta.data.length > 16) return;
       const ctx = chart.ctx;
       ctx.save();
-      ctx.fillStyle = color;
       ctx.font = '10px "SF Mono", Consolas, monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      meta.data.forEach((bar, i) => ctx.fillText(format(chart.data.datasets[0].data[i]), bar.x, bar.y - 4));
+      meta.data.forEach((bar, i) => {
+        ctx.fillStyle = colorAt(i);
+        ctx.fillText(format(chart.data.datasets[0].data[i]), bar.x, bar.y - 4);
+      });
       ctx.restore();
     }
   };
@@ -1908,9 +1936,11 @@ function renderPerformanceTab() {
   let html = '<div class="card"><div class="section-head"><h3>' + esc(metric.label)
     + ' — by model</h3>' + picker + '</div>'
     + '<div class="card-hint">Each bar is a configuration\'s newest run in the last ' + integer(WINDOW_DAYS)
-    + ' days; darker is higher concurrency. A red outline means it regressed by <b>'
-    + thresholdLabel(BASELINE_BY_ID[state.baseline]) + ' or more</b> on this metric in build #'
-    + esc(latestNightlyBuild() || '?') + '; faded bars did not run in that build. Click a bar for its history.</div>';
+    + ' days; darker is higher concurrency. A red outline means it got <b>'
+    + thresholdLabel(BASELINE_BY_ID[state.baseline]) + ' or more</b> worse on this metric in build #'
+    + esc(latestNightlyBuild() || '?') + ' than in the nightly before it, #' + esc(previousNightlyBuild() || '?')
+    + '. A bar that skipped #' + esc(previousNightlyBuild() || '?') + ' is not compared, since its last run '
+    + 'is older; faded bars did not run in #' + esc(latestNightlyBuild() || '?') + ' at all. Click a bar for its history.</div>';
   html += groups.length
     ? '<div class="perf-grid">' + groups.map((g, i) =>
       '<div class="perf-card' + (groups.length <= 2 ? ' hero' : '') + '">'
@@ -1936,6 +1966,7 @@ function drawPerfChart(group, canvasId, metric) {
   if (!canvas) return;
   const theme = chartTheme();
   const regColor = cssVar('--accent-red') || REG_COLOR;
+  const valueColor = cssVar('--text-secondary');
   const regKeys = regressedKeysForMetric(state.baseline, metric.key);
   const concs = [...new Set(group.rows.map(r => Number(r.c.conc) || 0))].sort((a, b) => a - b);
   // Darker with concurrency, as ATOM shades it; faded when not from tonight.
@@ -1960,7 +1991,7 @@ function drawPerfChart(group, canvasId, metric) {
       }]
     },
     plugins: [
-      barValuesPlugin(cssVar('--text-secondary'), v => compact(v, metric.digits)),
+      barValuesPlugin(i => regKeys.has(group.rows[i].c.key) ? regColor : valueColor, v => compact(v, metric.digits)),
       avgLinePlugin(avg, 'avg ' + compact(avg, metric.digits), theme.tick),
     ],
     options: {
@@ -1980,6 +2011,7 @@ function drawPerfChart(group, canvasId, metric) {
               const lines = ['Build #' + (p.build_number || '?') + ' · vLLM ' + shortSha(p.vllm_commit)];
               if (r.latest.verdict) lines.push('Change: ' + pct(r.latest.verdict.ratio, 2));
               if (!r.latest.tonight) lines.push('Not in build #' + (latestNightlyBuild() || '?'));
+              if (notOvernightNote(r.latest)) lines.push(notOvernightNote(r.latest));
               if (failedNote(p)) lines.push(failedNote(p));
               return lines.concat('', 'Click for history');
             },
@@ -2044,8 +2076,10 @@ function renderPerfTable(configs) {
 
   let html = '<div class="card"><div class="section-head"><h3>Detail table</h3></div>'
     + '<div class="card-hint">Newest run per configuration. Change is ' + esc(selected.label)
-    + ' against the run before; a coloured edge means the configuration regressed on some metric '
-    + 'in build #' + esc(latestNightlyBuild() || '?') + ', and faded rows did not run in it. '
+    + ' against the run before, and is judged only when that run is the previous nightly, #'
+    + esc(previousNightlyBuild() || '?') + '; otherwise it stays grey. A coloured edge means the '
+    + 'configuration regressed on some metric in build #' + esc(latestNightlyBuild() || '?')
+    + ', and faded rows did not run in it. '
     + 'Click a row for every metric and the run behind it.</div>'
     + '<div class="table-scroll"><table class="perf-table"><thead><tr>'
     + '<th>Model</th><th>Device</th><th>ISL/OSL</th><th class="num">Conc</th><th class="num">TP</th><th>Precision</th>'
@@ -2391,6 +2425,8 @@ function drawTradeoffScatter(group, canvasId, tputMetric, intvtyMetric) {
           grace: '5%',
         },
         y: {
+          // grace pads both ends; beginAtZero is what holds the floor at 0.
+          beginAtZero: true,
           title: { display: true, text: axisTitle(tputMetric), color: theme.tick },
           ticks: { color: theme.tick, font: { size: 10 } },
           grid: { color: theme.grid },
@@ -2500,6 +2536,7 @@ function drawConcurrencyScaling(group, canvasId, tputMetric, tpotMetric) {
         },
         y: {
           position: 'left',
+          beginAtZero: true,
           title: { display: true, text: axisTitle(tputMetric), color: theme.tick },
           ticks: { color: theme.tick, font: { size: 10 } },
           grid: { color: theme.grid },
@@ -2507,6 +2544,7 @@ function drawConcurrencyScaling(group, canvasId, tputMetric, tpotMetric) {
         },
         y2: {
           position: 'right',
+          beginAtZero: true,
           title: { display: true, text: axisTitle(tpotMetric), color: theme.tick },
           ticks: { color: theme.tick, font: { size: 10 } },
           grid: { drawOnChartArea: false },
@@ -2643,14 +2681,16 @@ function renderConfigsTab() {
     + '<div class="card-hint">Newest run in the window, with its change against the '
     + 'previous nightly. Changes under <b>' + thresholdLabel(baseline) + '</b> stay grey, and so '
     + 'does any cell whose newest run is not from build #' + esc(latestNightlyBuild() || '?')
-    + ', since that change happened on an earlier night. '
+    + ' or whose run before it is not from #' + esc(previousNightlyBuild() || '?')
+    + ', since that change spans more than one night. '
     + 'Click a cell for that metric\'s history.'
     + '</div><div class="table-scroll"><table><thead><tr>'
     + '<th>Configuration</th><th class="num">Runs</th>'
     + present.map(m => '<th class="num">' + esc(m.label) + '<br><span class="neutral">' + esc(unitOf(m)) + '</span></th>').join('')
     + '</tr></thead><tbody>';
 
-  const tonight = latestNightlyBuild();
+  const tonight = latestNightlyBuild(),
+    previous = previousNightlyBuild();
   configs.forEach((c, ci) => {
     const runs = Math.max(...present.map(m => pointsIn(c, m.key).length), 0);
     html += '<tr><td class="config">' + esc(c.label) + '</td><td class="num">' + runs + '</td>';
@@ -2658,7 +2698,7 @@ function renderConfigsTab() {
       const pts = pointsIn(c, m.key);
       if (!pts.length) { html += '<td class="num neutral">—</td>'; return; }
       const v = verdict(pts.map(p => p.value), m, baseline);
-      const cls = (!v || !reportedTonight(pts, tonight)) ? 'neutral'
+      const cls = (!v || !comparedOvernight(pts, tonight, previous)) ? 'neutral'
         : (v.severity === 'alert' ? 'bad' : v.severity === 'warn' ? 'warnc'
           : (v.improved && v.magnitude >= baseline.warn) ? 'good' : 'neutral');
       html += '<td class="num clickable" data-cfg="' + ci + '" data-metric="' + esc(m.key) + '">'
