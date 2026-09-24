@@ -139,7 +139,6 @@
     .kpi-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-md); }
     .kpi-card.alert { border-color: var(--accent-red); }
     .kpi-card.ok { border-color: rgba(109,191,128,0.45); }
-    .kpi-card.good { border-color: var(--accent-green); }
     .kpi-card.linked { display: block; text-decoration: none; color: inherit; position: relative; }
     .kpi-card.linked:hover { background: var(--bg-tertiary); border-color: var(--ui); text-decoration: none; }
     .kpi-card[data-goto-tab] { cursor: pointer; }
@@ -893,11 +892,17 @@ function comparedOvernight(pts, latest, previous) {
 function scan(baselineId) {
   const ck = scanKey(baselineId);
   if (_scanCache.has(ck)) return _scanCache.get(ck);
+  const out = scanConfigs(visibleConfigs(), baselineId);
+  _scanCache.set(ck, out);
+  return out;
+}
+
+function scanConfigs(configs, baselineId) {
   const baseline = BASELINE_BY_ID[baselineId];
   const latest = latestNightlyBuild(),
     previous = previousNightlyBuild();
   const out = [];
-  visibleConfigs().forEach(cfg => {
+  configs.forEach(cfg => {
     METRICS.forEach(metric => {
       const pts = pointsIn(cfg, metric.key);
       if (!comparedOvernight(pts, latest, previous)) return;
@@ -914,11 +919,23 @@ function scan(baselineId) {
     });
   });
   out.sort((a, b) => b.magnitude - a.magnitude);
-  _scanCache.set(ck, out);
   return out;
 }
 
 function invalidateScan() { _scanCache.clear(); }
+
+// Configs regressed on any metric, ignoring the filters. scan() only covers
+// what the filters show, but a facet count asks about configs they hide: with
+// Model A picked, Model B's count must still know whether B regressed. Filters
+// cannot change a config's own verdict, so this needs no invalidation.
+const _regressedAnyCache = new Map();
+function regressedUnfiltered(baselineId) {
+  if (!_regressedAnyCache.has(baselineId)) {
+    _regressedAnyCache.set(baselineId, new Set(scanConfigs(CONFIGS.filter(hasPointsInWindow), baselineId)
+      .filter(d => d.severity !== 'ok').map(d => d.configKey)));
+  }
+  return _regressedAnyCache.get(baselineId);
+}
 
 const regressionsOf = id => scan(id).filter(d => d.severity !== 'ok');
 const improvementsOf = id => scan(id).filter(d => d.improved && d.magnitude >= BASELINE_BY_ID[id].warn);
@@ -1067,8 +1084,12 @@ function facetValues(f) {
   return values.sort(f.key === 'conc' ? (a, b) => (+a) - (+b) : (a, b) => String(a).localeCompare(String(b)));
 }
 // The configs a value adds under the other active filters, so it can read 0.
+// Only regressed is one of those filters: without it, a value with no
+// regressions would stay clickable and select nothing.
 function facetCount(f, v) {
-  return CONFIGS.filter(c => f.get(c) === v && facetMatches(c, f.key) && hasPointsInWindow(c)).length;
+  const regressed = state.onlyRegressed ? regressedUnfiltered(state.baseline) : null;
+  return CONFIGS.filter(c => f.get(c) === v && facetMatches(c, f.key) && hasPointsInWindow(c)
+    && (!regressed || regressed.has(c.key))).length;
 }
 function activeFilterCount() {
   return FACETS.reduce((n, f) => n + state.selected[f.key].size, 0) + (state.onlyRegressed ? 1 : 0);
@@ -1173,7 +1194,7 @@ function renderHeaderFilters() {
       }).join('')
       + '</div></div>';
   }).join('')
-    + '<span class="filter-summary">' + (active ? integer(visibleConfigs().length) + ' configs' : 'Showing all') + '</span>'
+    + '<span class="filter-summary">' + (active ? integer(shownConfigs().length) + ' configs' : 'Showing all') + '</span>'
     + '<button class="filter-reset" id="header-reset"' + (active ? '' : ' disabled') + '>Reset</button>';
 
   bar.querySelectorAll('.filter-btn').forEach(btn => btn.addEventListener('click', event => {
@@ -1261,7 +1282,7 @@ function renderKpis() {
   });
 
   cards.push({
-    cls: imps.length ? 'good' : '',
+    cls: imps.length ? 'ok' : '',
     label: 'Improvements overnight',
     value: integer(imps.length),
     valueCls: imps.length ? 'up' : '',
