@@ -217,9 +217,9 @@ PRIMARY_METRIC_PREFERENCE = (
 
 
 def is_score_metric(metric: str) -> bool:
-    key = str(metric)
     """False for the numbers lm-eval reports beside each score: its standard
     error (``exact_match_stderr,strict-match``) and the question count."""
+    key = str(metric)
     return key != _SAMPLE_COUNT and "stderr" not in key
 
 

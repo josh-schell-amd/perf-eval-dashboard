@@ -34,6 +34,31 @@ class TestReconcile:
         values = [event["metrics"]["tput_per_gpu"] for event in merged]
         assert values == [100.0, 110.0]
 
+    def test_older_remote_copy_is_ordered_before_newer_local_copy(self):
+        newer = perf_result(value=110.0, received_at="2026-01-02T00:00:00Z")
+        older = perf_result(value=100.0, received_at="2026-01-01T00:00:00Z")
+        merged = me.reconcile_events([newer], [older])
+        values = [event["metrics"]["tput_per_gpu"] for event in merged]
+        assert values == [100.0, 110.0]
+
+    def test_all_copies_of_a_result_sit_where_it_first_appears(self):
+        builds = [{"event": "build", "build_number": n} for n in range(3)]
+        newer = perf_result(value=110.0, received_at="2026-01-02T00:00:00Z")
+        older = perf_result(value=100.0, received_at="2026-01-01T00:00:00Z")
+        other = perf_result(commit="b" * 40)
+        merged = me.reconcile_events([builds[0], newer, builds[1]], [other, older, builds[2]])
+        assert merged == [builds[0], older, newer, builds[1], other, builds[2]]
+
+    def test_identical_copies_from_both_sides_are_kept(self):
+        event = perf_result()
+        merged = me.reconcile_events([event], [dict(event)])
+        assert merged == [event, event]
+
+    def test_equal_generation_order_does_not_depend_on_side(self):
+        left = perf_result(metrics={"tput_per_gpu": 100.0})
+        right = perf_result(metrics={"mean_ttft": 0.25})
+        assert me.reconcile_events([left], [right]) == me.reconcile_events([right], [left])
+
     def test_equal_generation_with_disjoint_metrics_is_allowed(self):
         left = perf_result(metrics={"tput_per_gpu": 100.0})
         right = perf_result(metrics={"mean_ttft": 0.25})

@@ -439,13 +439,13 @@ def accuracy_event(
     """Build a canonical ``accuracy_result`` event from an lm-eval artifact."""
     payload = {
         "kind": "results",
+        # The recipe's model, not lm-eval's: lm-eval records its client backend
+        # (``local-completions``), and this is the string perf results carry.
+        "model": entry.get("model") or "",
         "workload": workload,
         "task": task,
         "device": entry.get("device") or "",
         "image": identity.get("image") or "",
-        # The recipe's model, not lm-eval's: lm-eval records its client backend
-        # (``local-completions``), and this is the string perf results carry.
-        "model": entry.get("model") or "",
         "vllm_commit": identity.get("vllm_commit") or "",
         "buildkite_build_number": identity.get("build_number"),
         "buildkite_build_url": identity.get("build_url") or "",

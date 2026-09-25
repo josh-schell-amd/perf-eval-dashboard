@@ -106,23 +106,35 @@ def _assert_equal_revision_compatible(left: dict, right: dict, identity: tuple) 
         raise ValueError(f"not a result event: {kind!r}")
 
 
-def reconcile_events(local_events: list[dict], remote_events: list[dict]) -> list[dict]:
-    """Union stores with source-neutral, timestamp-monotonic result ordering."""
-    combined = [*local_events, *remote_events]
-    groups: dict[tuple, list[dict]] = {}
-    for event in combined:
-        if event.get("event") in RESULT_EVENTS:
-            groups.setdefault(result_identity(event), []).append(event)
+def _revision_order(event: dict) -> tuple[datetime, str]:
+    # The canonical JSON only breaks ties, so equal-timestamp copies come out
+    # in the same order whichever store listed them first.
+    return _revision_timestamp(event), _canonical_event(event)
 
-    ordered_groups: dict[tuple, list[dict]] = {}
-    for identity, events in groups.items():
-        stamped = [(_revision_timestamp(event), _canonical_event(event), event) for event in events]
-        stamped.sort(key=lambda row: (row[0], row[1]))
-        for _, equal_group in itertools.groupby(stamped, key=lambda row: row[0]):
-            equal_events = [row[2] for row in equal_group]
-            for left, right in itertools.combinations(equal_events, 2):
+
+def _revisions_by_identity(events: list[dict]) -> dict[tuple, list[dict]]:
+    """Every copy of each result, oldest-recorded first."""
+    revisions_by_identity: dict[tuple, list[dict]] = {}
+    for event in events:
+        if event.get("event") in RESULT_EVENTS:
+            revisions_by_identity.setdefault(result_identity(event), []).append(event)
+
+    for identity, revisions in revisions_by_identity.items():
+        revisions.sort(key=_revision_order)
+        for _, tied in itertools.groupby(revisions, key=_revision_timestamp):
+            for left, right in itertools.combinations(tied, 2):
                 _assert_equal_revision_compatible(left, right, identity)
-        ordered_groups[identity] = [row[2] for row in stamped]
+    return revisions_by_identity
+
+
+def reconcile_events(local_events: list[dict], remote_events: list[dict]) -> list[dict]:
+    """Both stores' events, with every copy of one result gathered where it first appears.
+
+    Copies are ordered oldest-recorded first, so compaction's "later wins"
+    means "recorded later", whichever store a copy came from.
+    """
+    combined = [*local_events, *remote_events]
+    revisions_by_identity = _revisions_by_identity(combined)
 
     reconciled: list[dict] = []
     emitted: set[tuple] = set()
@@ -131,10 +143,9 @@ def reconcile_events(local_events: list[dict], remote_events: list[dict]) -> lis
             reconciled.append(event)
             continue
         identity = result_identity(event)
-        if identity in emitted:
-            continue
-        reconciled.extend(ordered_groups[identity])
-        emitted.add(identity)
+        if identity not in emitted:
+            reconciled.extend(revisions_by_identity[identity])
+            emitted.add(identity)
     return reconciled
 
 
