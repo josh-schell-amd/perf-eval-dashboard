@@ -118,26 +118,22 @@ def artifact_key(record: dict) -> str | None:
     return str(record.get("buildkite_artifact_id") or "").strip() or None
 
 
-def _artifact_rows(event: dict) -> list[tuple[str, datetime | None]]:
-    """(artifact ID, when it was downloaded) for every artifact an event names.
+def _index_row(row: object) -> tuple[str, datetime | None] | None:
+    """One ``["id", <artifact ID>, <downloaded at>]`` entry, or None if malformed."""
+    if not (isinstance(row, list) and len(row) == 3 and row[0] == "id"):
+        return None
+    _, artifact_id, downloaded_at = row
+    artifact_id = str(artifact_id).strip()
+    return (artifact_id, parse_time(downloaded_at)) if artifact_id else None
 
-    A result or marker names its own artifact in ``buildkite_artifact_id``. The
-    index event names many, one ``["id", <artifact ID>, <received_at>]`` row
-    each. Malformed rows are skipped here; read_events_strict refuses a store
-    that has any.
-    """
-    if event.get("event") != ARTIFACT_INDEX_EVENT:
-        key = artifact_key(event)
-        return [(key, received_at(event))] if key else []
-    rows = []
-    for row in event.get("identities") or []:
-        if not (isinstance(row, list) and len(row) == 3 and row[0] == "id"):
-            continue
-        _, artifact_id, downloaded_at = row
-        artifact_id = str(artifact_id).strip()
-        if artifact_id:
-            rows.append((artifact_id, parse_time(downloaded_at)))
-    return rows
+
+def _artifact_rows(event: dict) -> list[tuple[str, datetime | None]]:
+    """(artifact ID, downloaded at) for every artifact an event names."""
+    if event.get("event") == ARTIFACT_INDEX_EVENT:
+        rows = (_index_row(row) for row in event.get("identities") or [])
+        return [row for row in rows if row is not None]
+    artifact_id = artifact_key(event)
+    return [(artifact_id, received_at(event))] if artifact_id else []
 
 
 def artifact_keys_from_event(event: dict) -> tuple[str, ...]:
