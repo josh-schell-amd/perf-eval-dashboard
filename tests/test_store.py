@@ -57,8 +57,7 @@ class TestStrictRead:
             json.dumps(
                 {
                     "event": store.ARTIFACT_INDEX_EVENT,
-                    "schema_version": 99,
-                    "identities": [["id", "x", "2026-01-01T00:00:00Z"]],
+                    "identities": [["id", "x", "not a time"]],
                 }
             )
             + "\n",
@@ -66,6 +65,23 @@ class TestStrictRead:
         )
         with pytest.raises(ValueError, match="artifact identity index is not canonical"):
             store.read_events_strict(path)
+
+    def test_an_index_with_the_retired_schema_version_still_reads(self, tmp_path):
+        # Stores written before the field was dropped carry it; it is ignored.
+        path = tmp_path / "events.jsonl"
+        path.write_text(
+            json.dumps(
+                {
+                    "event": store.ARTIFACT_INDEX_EVENT,
+                    "schema_version": 1,
+                    "identities": [["id", "x", "2026-01-01T00:00:00Z"]],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        [index] = store.read_events_strict(path)
+        assert store.artifact_keys_from_event(index) == ("x",)
 
 
 class TestCompaction:
@@ -129,7 +145,6 @@ class TestCompaction:
         assert not [e for e in compacted if e["event"] == store.ARTIFACT_MARKER_EVENT]
         index = [e for e in compacted if e["event"] == store.ARTIFACT_INDEX_EVENT]
         assert len(index) == 1
-        assert index[0]["schema_version"] == store.ARTIFACT_INDEX_SCHEMA_VERSION
         assert store.artifact_keys_from_event(index[0]) == ("artifact-1",)
 
     def test_identity_carried_on_a_result_is_not_duplicated_into_the_index(self):

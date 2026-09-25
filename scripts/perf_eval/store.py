@@ -25,7 +25,6 @@ RESULT_EVENTS = frozenset({"perf_result", "accuracy_result"})
 EXPECTED_CONFIGS_EVENT = "expected_configs"
 ARTIFACT_MARKER_EVENT = "buildkite_artifact_ingested"
 ARTIFACT_INDEX_EVENT = "buildkite_artifact_identity_index"
-ARTIFACT_INDEX_SCHEMA_VERSION = 1
 
 
 def parse_time(value: object) -> datetime | None:
@@ -204,13 +203,7 @@ def compact_events(events: list[dict]) -> list[dict]:
         if artifact_id not in carried
     )
     if index:
-        compacted.append(
-            {
-                "event": ARTIFACT_INDEX_EVENT,
-                "schema_version": ARTIFACT_INDEX_SCHEMA_VERSION,
-                "identities": index,
-            }
-        )
+        compacted.append({"event": ARTIFACT_INDEX_EVENT, "identities": index})
     return compacted
 
 
@@ -285,8 +278,7 @@ def read_events_strict(store_path: Path) -> list[dict]:
             identities = event.get("identities")
             rows = _artifact_rows(event)
             if (
-                event.get("schema_version") != ARTIFACT_INDEX_SCHEMA_VERSION
-                or not isinstance(identities, list)
+                not isinstance(identities, list)
                 or len(rows) != len(identities)
                 or any(seen is None for _, seen in rows)
             ):
