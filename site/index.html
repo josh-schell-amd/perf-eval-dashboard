@@ -135,7 +135,10 @@
     /* ============================================================
        KPI ROW
        ============================================================ */
-    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); gap: var(--gap-md); margin-bottom: var(--gap-lg); }
+    /* Six cards on one row down to a 14" laptop, around 1280 CSS px: the track
+       min and the gap are what that width allows, and auto-fit still grows the
+       cards to fill a wider window, or reflows when the band is narrower. */
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit,minmax(172px,1fr)); gap: 12px; margin-bottom: var(--gap-lg); }
     .kpi-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-md); }
     .kpi-card.alert { border-color: var(--accent-red); }
     .kpi-card.ok { border-color: rgba(109,191,128,0.45); }
@@ -166,6 +169,13 @@
     .kpi-unit { font-size: 12px; color: var(--text-tertiary); font-weight: 400; }
     .kpi-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
     .kpi-sub b, .reg-count b, .card-hint b, .hint-key b { color: var(--text-secondary); font-weight: 600; }
+    /* Six across, the cards are near the track min and a 25px date would not
+       fit one, so the numbers step down rather than the band breaking. */
+    @media (max-width: 1250px) {
+      .kpi-value { font-size: 21px; }
+      .kpi-value.stacked { font-size: 17px; }
+      .kpi-label { letter-spacing: 0.4px; }
+    }
 
     /* ============================================================
        TABS
@@ -1471,7 +1481,8 @@ function renderCoveragePanel() {
    ================================================================ */
 const TABS = [
   { id: 'performance', label: 'Performance' },
-  { id: 'tradeoff', label: 'Throughput vs Latency' },
+  // Hidden for now — restore when the charts are ready.
+  // { id: 'tradeoff', label: 'Throughput vs Latency' },
   { id: 'trends', label: 'Trends' },
   { id: 'accuracy', label: 'Accuracy' },
   { id: 'configs', label: 'Configurations' },
