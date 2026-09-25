@@ -303,6 +303,26 @@
     .perf-wrap canvas { cursor: pointer; }
     @media (max-width: 760px) { .perf-wrap, .perf-card.hero .perf-wrap { height: 240px; } }
 
+    /* Hover card for a bar: a spec, not a paragraph. Pointer-events none so it
+       cannot steal the hover that keeps it open. */
+    .chart-tip {
+      position: fixed; z-index: 80; pointer-events: none;
+      min-width: 216px; max-width: 280px;
+      background: var(--bg-secondary); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 10px 12px;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+      opacity: 0; visibility: hidden;
+    }
+    .chart-tip.on { opacity: 1; visibility: visible; }
+    .chart-tip .tip-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+    .chart-tip .tip-value { font-size: 18px; font-weight: 700; color: var(--text-primary); font-family: "SF Mono", Consolas, monospace; line-height: 1.1; }
+    .chart-tip .tip-unit { font-size: 11px; color: var(--text-tertiary); margin: 2px 0 8px; }
+    .chart-tip .tip-rows { display: grid; grid-template-columns: 54px minmax(0,1fr); gap: 3px 10px; align-items: start; }
+    .chart-tip .tip-k { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; padding-top: 2px; }
+    .chart-tip .tip-v { font-size: 12px; color: var(--text-primary); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .chart-tip .tip-note { grid-column: 2; font-size: 11px; color: var(--text-tertiary); line-height: 1.35; }
+    .chart-tip .tip-foot { margin-top: 8px; font-size: 10px; color: var(--text-tertiary); }
+
     /* Tradeoff tab: ATOM's interactivity-vs-throughput pair, then a heatmap. */
     .tradeoff-pair { display: grid; grid-template-columns: 1fr; gap: var(--gap-md); margin-bottom: var(--gap-md); }
     @media (min-width: 1024px) {
@@ -1481,8 +1501,7 @@ function renderCoveragePanel() {
    ================================================================ */
 const TABS = [
   { id: 'performance', label: 'Performance' },
-  // Hidden for now — restore when the charts are ready.
-  // { id: 'tradeoff', label: 'Throughput vs Latency' },
+  { id: 'tradeoff', label: 'Throughput vs Latency' },
   { id: 'trends', label: 'Trends' },
   { id: 'accuracy', label: 'Accuracy' },
   { id: 'configs', label: 'Configurations' },
@@ -1874,21 +1893,27 @@ function latestOf(cfg, metric) {
 // Why a change from tonight's run is not being judged, or '' if it is.
 function notOvernightNote(latest) {
   if (!latest || !latest.tonight || latest.overnight || !latest.before) return '';
-  return 'Not compared: the run before is build #' + (latest.before.build_number || '?')
-    + ', not the previous nightly #' + (previousNightlyBuild() || '?');
+  return 'Compared to #' + (latest.before.build_number || '?')
+    + ', not previous nightly #' + (previousNightlyBuild() || '?');
 }
 
-// The change, coloured only when it is overnight and past the threshold.
-function changeHtml(latest) {
-  if (!latest || !latest.verdict) return '<span class="neutral">—</span>';
+// Colour a change only when it is overnight and past the threshold.
+function changeClass(latest) {
+  if (!latest || !latest.verdict || !latest.overnight) return 'neutral';
   const v = latest.verdict,
     baseline = BASELINE_BY_ID[state.baseline];
-  const cls = !latest.overnight ? 'neutral'
-    : v.severity === 'alert' ? 'bad' : v.severity === 'warn' ? 'warnc'
-      : (v.improved && v.magnitude >= baseline.warn) ? 'good' : 'neutral';
+  if (v.severity === 'alert') return 'bad';
+  if (v.severity === 'warn') return 'warnc';
+  if (v.improved && v.magnitude >= baseline.warn) return 'good';
+  return 'neutral';
+}
+
+function changeHtml(latest) {
+  if (!latest || !latest.verdict) return '<span class="neutral">—</span>';
   const note = notOvernightNote(latest);
-  return '<span class="' + cls + '"' + (note ? ' title="' + esc(note) + '"' : '') + '>'
-    + pctDirection(v.ratio, Math.abs(v.ratio) < 0.01 ? 2 : 1) + '</span>';
+  return '<span class="' + changeClass(latest) + '"'
+    + (note ? ' title="' + esc(note) + '"' : '') + '>'
+    + pctDirection(latest.verdict.ratio, Math.abs(latest.verdict.ratio) < 0.01 ? 2 : 1) + '</span>';
 }
 
 function withAlpha(hex, alpha) {
@@ -2005,6 +2030,80 @@ function renderPerformanceTab() {
   bindPerfTable(host, configs);
 }
 
+function chartTipEl() {
+  let el = document.getElementById('chart-tip');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'chart-tip';
+    el.className = 'chart-tip';
+    el.setAttribute('role', 'tooltip');
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function hideChartTip() {
+  const el = document.getElementById('chart-tip');
+  if (el) el.classList.remove('on');
+}
+
+function placeChartTip(el, chart, tooltip) {
+  const rect = chart.canvas.getBoundingClientRect();
+  const tw = el.offsetWidth, th = el.offsetHeight;
+  let left = rect.left + tooltip.caretX - tw / 2;
+  let top = rect.top + tooltip.caretY - th - 12;
+  left = Math.min(Math.max(8, left), window.innerWidth - tw - 8);
+  if (top < 8) top = rect.top + tooltip.caretY + 14;
+  el.style.left = left + 'px';
+  el.style.top = top + 'px';
+}
+
+function tipRow(k, v, vCls) {
+  return '<div class="tip-k">' + esc(k) + '</div>'
+    + '<div class="tip-v' + (vCls ? ' ' + vCls : '') + '">' + v + '</div>';
+}
+
+function perfBarTipHtml(row, metric, unit) {
+  const latest = row.latest, p = latest.point;
+  let rows = tipRow('Build', '#' + esc(p.build_number || '?'));
+  rows += tipRow('vLLM', esc(shortSha(p.vllm_commit)));
+  if (latest.verdict) {
+    const vs = '#' + (latest.before ? latest.before.build_number || '?' : '?');
+    const against = latest.overnight ? 'nightly ' + vs : vs;
+    rows += tipRow('Change', esc(pct(latest.verdict.ratio, 2) + ' vs ' + against), changeClass(latest));
+    if (notOvernightNote(latest)) {
+      rows += '<div class="tip-note">Not overnight — previous nightly was #'
+        + esc(previousNightlyBuild() || '?') + '</div>';
+    }
+  }
+  if (!latest.tonight) {
+    rows += tipRow('Status', 'Not in #' + esc(latestNightlyBuild() || '?'));
+  }
+  if (failedNote(p)) rows += tipRow('Failed', esc(failedNote(p)), 'warnc');
+  return '<div class="tip-title">' + esc(row.label) + '</div>'
+    + '<div class="tip-value">' + esc(fmt(display(p.value, metric), metric.digits)) + '</div>'
+    + '<div class="tip-unit">' + esc(unit) + '</div>'
+    + '<div class="tip-rows">' + rows + '</div>'
+    + '<div class="tip-foot">Click for history</div>';
+}
+
+function perfBarExternalTooltip(group, metric) {
+  const unit = unitOf(metric);
+  return context => {
+    const tip = chartTipEl();
+    const tooltip = context.tooltip;
+    if (!tooltip.opacity || !tooltip.dataPoints || !tooltip.dataPoints.length) {
+      tip.classList.remove('on');
+      return;
+    }
+    const row = group.rows[tooltip.dataPoints[0].dataIndex];
+    if (!row) { tip.classList.remove('on'); return; }
+    tip.innerHTML = perfBarTipHtml(row, metric, unit);
+    tip.classList.add('on');
+    placeChartTip(tip, context.chart, tooltip);
+  };
+}
+
 function drawPerfChart(group, canvasId, metric) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
@@ -2046,20 +2145,8 @@ function drawPerfChart(group, canvasId, metric) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          callbacks: {
-            title: items => group.name + ' · ' + group.rows[items[0].dataIndex].label,
-            label: item => metric.label + ': ' + fmt(item.raw, metric.digits) + ' ' + unit,
-            afterBody: items => {
-              const r = group.rows[items[0].dataIndex];
-              const p = r.latest.point;
-              const lines = ['Build #' + (p.build_number || '?') + ' · vLLM ' + shortSha(p.vllm_commit)];
-              if (r.latest.verdict) lines.push('Change: ' + pct(r.latest.verdict.ratio, 2));
-              if (!r.latest.tonight) lines.push('Not in build #' + (latestNightlyBuild() || '?'));
-              if (notOvernightNote(r.latest)) lines.push(notOvernightNote(r.latest));
-              if (failedNote(p)) lines.push(failedNote(p));
-              return lines.concat('', 'Click for history');
-            },
-          }
+          enabled: false,
+          external: perfBarExternalTooltip(group, metric),
         },
       },
       scales: {
@@ -2997,6 +3084,7 @@ function safeDecode(value) {
 function renderAll() {
   // Close any open drill-down: it would describe the previous view.
   closeHistory();
+  hideChartTip();
   _chartBounds = null;
   renderNotice();
   renderHeaderFilters();
