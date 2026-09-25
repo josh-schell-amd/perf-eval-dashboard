@@ -32,8 +32,7 @@ A static dashboard for AMD nightly performance and accuracy results from the
 
 ## What this dashboard covers
 
-This is deliberately a narrow view. Read this before concluding that a run is
-missing.
+AMD nightlies only. If a run looks missing, check it is in scope first.
 
 | | Included | Excluded |
 |---|---|---|
@@ -42,24 +41,9 @@ missing.
 | Branch | `main` | Every other branch |
 | Build state | `finished` | Running, cancelled, failed-to-start |
 
-**Why AMD only.** The upstream pipeline runs both vendors, but this dashboard
-exists to track the AMD story. NVIDIA results are served by
-[perf.vllm.ai](https://perf.vllm.ai) from the same pipeline's Databricks
-ingest path.
-
-**Why nightly only.** Nightlies run the full workload matrix on a fixed
-cadence, which is what makes one run comparable to the next. An ad-hoc build
-may cover a single workload at a single concurrency, so folding it into a
-trend line would put an unrelated point next to a full sweep and make the
-latest-versus-previous comparison meaningless.
-
-> [!NOTE]
-> The scope is enforced in code, not just stated. Two named predicates,
-> `normalize.is_amd_workload` and `collect_artifacts.is_nightly_build`, filter
-> at collection, and `aggregate._is_in_scope` re-applies them at aggregation so
-> a hand-seeded or legacy event cannot widen what the page shows. The scope is
-> also published inside `perf_eval.json` under `scope`, and stated in the
-> dashboard header.
+- **NVIDIA** results are on [perf.vllm.ai](https://perf.vllm.ai).
+- **Nightlies only**, because each runs the full matrix and so compares with
+  the last. An ad-hoc build may cover one workload at one concurrency.
 
 ---
 
@@ -72,10 +56,9 @@ python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activ
 pip install -c constraints.txt -e ".[dev]"
 ```
 
-`constraints.txt` pins every package to an exact version, so CI and your
-machine run identical tools. A test fails if a direct dependency in
-`pyproject.toml` has no pin there. To upgrade, change the pin, reinstall, and
-run the checks.
+`constraints.txt` pins every installed package to an exact version, including
+dependencies of dependencies such as `urllib3` and `certifi`, so CI and your
+machine run identical tools.
 
 ### Run the pipeline against real data
 
@@ -98,11 +81,9 @@ read the local store, so the Buildkite token is needed for ingest and nothing
 else.
 
 > [!TIP]
-> **Set `GITHUB_TOKEN` if you can.** It is only used to read the public
-> workload recipes from `vllm-project/perf-eval`, but that takes around 29
-> requests per recipe commit. Anonymous GitHub API access allows 60 an hour, so
-> you get roughly two local runs before being throttled; with a token it is
-> 5,000. If the recipes fail to load you will see
+> **Set `GITHUB_TOKEN` if you can.** It reads the public workload recipes from
+> `vllm-project/perf-eval`, and GitHub rate-limits anonymous requests much more
+> tightly. If the recipes fail to load you will see
 > `No recipe for workload <name>; skipping` and an empty dashboard.
 
 ### Checks
@@ -166,141 +147,74 @@ Enable GitHub **secret scanning with push protection** on the repository. See
 
 ### KPI cards
 
-Every card answers "is tonight's build healthy?", which rules out headline
-numbers like peak throughput: a maximum over every configuration reports which
-config happens to be largest and barely moves night to night.
+Each card answers "is tonight's build healthy?" Every card except *Latest
+nightly* follows the filters.
 
-| Card | Signal |
+| Card | Shows |
 |---|---|
-| Latest nightly | Date, vLLM commit and build, linking to the build |
-| Performance overnight | Median change in Output Throughput (tok/s/GPU) between the two newest nightlies, across configs that ran in both; neutral inside ±0.5% |
-| Regressions overnight | Config-metric pairs that got at least 0.5% worse in the newest nightly; red when there are any |
-| Improvements overnight | The same scan in the other direction, to confirm an optimization landed; green when there are any |
-| Accuracy overnight | Models whose headline accuracy dropped at least 1 point in the newest nightly; opens the Accuracy tab |
-| Coverage | Perf configs and accuracy results reporting in the newest build, against what that build's recipes define |
-
-Every card except *Latest nightly* follows the Device, Model, Precision,
-ISL/OSL and Concurrency filters. *Latest nightly* names the build the rest of
-the row describes, so it ignores them. Accuracy has no shape, precision or
-concurrency, so only the Device and Model filters narrow it.
+| Latest nightly | Date, vLLM commit, and a link to the build |
+| Performance overnight | Median Output Throughput change vs the previous nightly |
+| Regressions overnight | Config-metric pairs at least 0.5% worse |
+| Improvements overnight | Config-metric pairs at least 0.5% better |
+| Accuracy overnight | Models whose accuracy dropped at least 1 point |
+| Coverage | What reported, against what the recipes expect |
 
 > [!IMPORTANT]
-> The *Performance overnight* card is the one place where red does **not**
-> mean a regression. It outlines red when the median went down and green when
-> it went up: a direction at a glance, not an alarm.
+> On *Performance overnight*, red just means the median went down. It is not
+> a regression alarm.
 
 ### Tabs
 
-| Tab | What it shows |
-|---|---|
-| **Performance** | The default. One bar chart per model and device for a picked metric, then a detail table |
-| **Throughput vs Latency** | ATOM's tradeoff view: interactivity against throughput, concurrency scaling, and a heatmap |
-| **Trends** | One line chart per metric across the window, one line per configuration |
-| **Accuracy** | lm-eval scores per model, device and task, against the previous nightly |
-| **Configurations** | Every configuration's newest value for every metric, with its change |
+Filters, the tab, the picked metric and the chart window are all kept in the
+URL, so **Copy link** reproduces the view.
 
-The filters and the *Only regressed* toggle are kept in the URL, as are the
-tab (`tab=`), the Performance metric (`metric=`) and the chart window
-(`days=`), so **Copy link** always reproduces the view.
+**Performance** (default)
+- One bar chart per model and device, since per-GPU numbers don't compare
+  across devices.
+- Darker bar = higher concurrency. Red outline = at least 0.5% worse than
+  last night. Faded = not in the newest nightly.
+- Hover for the value, build, commit and change: `vs last night (#598)`, or
+  `vs 8 nights ago (#586)` if the config skipped nights, or *No previous run*.
+- Click a bar for its history. The table below expands per row.
 
-#### Performance
+**Throughput vs Latency**
+- Interactivity (1 / TPOT) against Total Throughput, one curve per shape
+  across concurrency, per model and device.
+- A concurrency scaling chart, and a throughput heatmap by ISL/OSL ×
+  concurrency.
+- Red ring = throughput regression overnight.
 
-A metric picker drives one bar chart per **model and device**, since per-GPU
-numbers do not compare across devices. Each bar is a configuration's newest
-run in the window:
+**Trends**
+- One chart per metric. Red line = regressed on that metric, newest point
+  ringed.
+- The chart window (1–14 days) changes the charts only, never the regression
+  counts.
 
-- **shaded darker** with concurrency;
-- **outlined red** when that metric got 0.5% or more worse between the
-  previous nightly and the newest one;
-- **faded** when it did not run in the newest nightly.
+**Accuracy**
+- lm-eval score per model, device and task, against the previous nightly.
+- Flexible-extract is preferred over strict-match, which also grades format
+  (gpt-oss-120b on gsm8k: 52% strict, 76% flexible).
 
-A dashed line marks the chart's average, and clicking a bar opens its history.
+**Configurations**
+- Every metric's newest value per config. Grey = under the threshold, or
+  spanning more than one night.
 
-Hovering a bar shows its value, build and vLLM commit, and the **change** with
-what it is measured against: `vs last night (#598)` normally, or
-`vs 8 nights ago (#586)` when the configuration skipped nights. Such a
-catch-up change is never outlined, because it spans more than one night. When
-there is no earlier run in the window, the card says *No previous run* rather
-than leaving the change out.
-
-Below the charts, a detail table lists every configuration's newest run:
-throughput with an in-cell bar against the table's largest, TPOT and TTFT
-heat-shaded from fastest to slowest, the change in the picked metric, and
-links to the vLLM commit and the build. Clicking a row expands every metric
-and the run behind it, including failed requests.
-
-#### Throughput vs Latency
-
-No extra ingest: each configuration already carries Total Throughput and Mean
-TPOT, and Interactivity is 1 / TPOT. The page joins the two from the **same
-nightly**, groups by model and device, and draws one curve per shape through
-the concurrency sweep the recipes already run (`[1, 64, 128]` on most AMD
-workloads).
-
-Each model and device gets two charts: Interactivity against Total Throughput
-(both higher-is-better), and concurrency scaling with throughput on the left
-axis and TPOT on the right. Underneath, a heatmap shows the newest throughput
-by ISL/OSL × concurrency; it hides until a model has two concurrency levels
-and three cells. A red ring is a throughput regression in the newest nightly.
-
-#### Trends
-
-One chart per metric, so a regression that only moves TTFT is visible without
-hunting through a dropdown. A red line means that configuration regressed on
-*that* metric, and its newest point is ringed.
-
-The **chart window** control (1, 3, 7 or 14 days, or a slider) changes only
-what the charts draw. A narrowed window counts back from the **newest
-nightly**, not from now, because the nightly lands mid-morning UTC and a
-one-day window anchored to now would be empty most of the next day. Every
-chart's x-axis is pinned to the window, so charts line up by date and can be
-read down the stack.
-
-#### Accuracy
-
-Scores are lm-eval's, as the percentage of questions answered correctly, and
-each is compared with **the previous nightly**, not with a reference score
-for the model. The headline score per task is `exact_match,flexible-extract`
-where present, then `exact_match,strict-match`, `acc_norm,none`, `acc,none`,
-then the first score. Strict match also grades the answer format, which drags
-gpt-oss-120b to about 52% against 76% flexible on gsm8k.
-
-#### Configurations and Coverage
-
-The Configurations tab shows every metric's newest value with its change;
-changes under the threshold, or spanning more than one night, stay grey.
-
-The Coverage panel at the bottom of the page lists configurations the recipes
-expect but the newest build did not report, grouped by workload, because a
-failed build step takes every config in that workload with it. This matters
-because a workload that OOMs simply stops emitting rows: it disappears from
-every average instead of showing up as a regression.
-
-Coverage is measured against the recipes (`vllm_bench.configs` and
-`lm_eval.tasks`), never inferred from what reported recently. An expectation
-built from recent results forgets whatever has been absent long enough, so the
-longer a workload stayed broken, the healthier the page would claim to be.
+**Coverage panel** (bottom of the page)
+- Configs the recipes expect but the newest build didn't report, grouped by
+  workload.
+- It matters because a workload that OOMs just stops reporting: it vanishes
+  from the averages instead of showing as a regression.
 
 ### Colour
 
-Colour carries meaning, so it is allocated rather than picked.
-
-- **Red means a regression, and nothing else.** The identity palette has no
-  red, and no pink, which reads as light red on a 2px line.
-- **Red is per metric, not per configuration.** A config keeps its identity
-  colour on the charts where it is healthy and turns red only where it
-  regressed. A chart where nothing regressed shows no red at all.
-- **Regression chips are coloured by size:** yellow up to 2.5%, orange up to
-  5%, red above 5%, judged on the value as displayed. A row's left border
-  takes its worst chip's colour. **Green means improvement.**
-- A red-outlined legend chip means "regressed on something, somewhere"; a red
-  line means "regressed on *this* metric".
+- **Red = regression, and nothing else.** The palette has no red or pink.
+- **Per metric:** a config turns red only on the charts where it regressed.
+- **Chips by size:** yellow up to 2.5%, orange up to 5%, red above 5%.
+- **Green = improvement.**
 
 > [!NOTE]
-> Light mode swaps in `PALETTE_LIGHT`: the same hues, darkened to read on
-> white, in the same order so a series keeps its identity across themes. Add
-> new colours to both lists together, and keep them out of the 0–20° hue
-> range.
+> Adding a colour? Add it to both `PALETTE` and `PALETTE_LIGHT`, in the same
+> position, and keep it out of the 0–20° hue range.
 
 ### Our throughput numbers are not ATOM's
 
