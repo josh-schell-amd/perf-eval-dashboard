@@ -314,12 +314,17 @@
       opacity: 0; visibility: hidden;
     }
     .chart-tip.on { opacity: 1; visibility: visible; }
+    [data-theme="light"] .chart-tip { box-shadow: 0 8px 24px rgba(20,24,40,0.14); }
     .chart-tip .tip-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
     .chart-tip .tip-value { font-size: 18px; font-weight: 700; color: var(--text-primary); font-family: "SF Mono", Consolas, monospace; line-height: 1.1; }
     .chart-tip .tip-unit { font-size: 11px; color: var(--text-tertiary); margin: 2px 0 8px; }
     .chart-tip .tip-rows { display: grid; grid-template-columns: 54px minmax(0,1fr); gap: 3px 10px; align-items: start; }
     .chart-tip .tip-k { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; padding-top: 2px; }
     .chart-tip .tip-v { font-size: 12px; color: var(--text-primary); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .chart-tip .tip-v.bad { color: var(--accent-red); font-weight: 600; }
+    .chart-tip .tip-v.warnc { color: var(--accent-orange); font-weight: 600; }
+    .chart-tip .tip-v.good { color: var(--accent-green); }
+    .chart-tip .tip-v.neutral { color: var(--text-secondary); }
     .chart-tip .tip-note { grid-column: 2; font-size: 11px; color: var(--text-tertiary); line-height: 1.35; }
     .chart-tip .tip-foot { margin-top: 8px; font-size: 10px; color: var(--text-tertiary); }
 
@@ -481,6 +486,13 @@
 const PALETTE = ['#6aa6ed', '#6dbf80', '#c49af5', '#4fc3c3', '#ddb040', '#8899b8', '#9ad06a',
   '#7c83f0', '#5fc9a0', '#c8b06a', '#79c0ff', '#d0a3e8', '#4fa3a3', '#a3c46a'
 ];
+// The same hues, index for index, dark enough to read on white: a series keeps
+// its identity across themes. Add to both lists together.
+const PALETTE_LIGHT = ['#2563b8', '#2e8b47', '#7b4cc0', '#138a8a', '#8f6a00', '#4f6180', '#5a8a1f',
+  '#4a50c8', '#1f8a64', '#85702a', '#1f78c8', '#9050b8', '#2c7676', '#66802a'
+];
+function isLightTheme() { return document.documentElement.getAttribute('data-theme') === 'light'; }
+function activePalette() { return isLightTheme() ? PALETTE_LIGHT : PALETTE; }
 // Regression red, read from --accent-red at draw time; this is the fallback.
 // A series turns red only on the metrics it regressed on.
 const REG_COLOR = '#f25c4e';
@@ -1611,7 +1623,7 @@ function seriesList() {
     config: c,
     key: c.key,
     label: c.label,
-    color: BASE_COLOR[c.key] || PALETTE[0],
+    color: BASE_COLOR[c.key] || activePalette()[0],
   }));
 }
 
@@ -1842,6 +1854,16 @@ function renderTrendsTab() {
 const PERF_TABLE_METRICS = ['tput_per_gpu', 'output_tput_per_gpu', 'mean_intvty', 'mean_tpot', 'mean_ttft'];
 let MODEL_COLOR = {};
 
+// Assigned over the full dataset, so a series keeps its colour across filters
+// and charts. Rebuilt on theme change: each theme has its own palette.
+function assignColors() {
+  const palette = activePalette();
+  BASE_COLOR = Object.fromEntries(
+    CONFIGS.map(c => c.key).sort().map((k, i) => [k, palette[i % palette.length]]));
+  MODEL_COLOR = Object.fromEntries(
+    [...new Set(CONFIGS.map(perfGroupKey))].sort().map((k, i) => [k, palette[i % palette.length]]));
+}
+
 function defaultPerfMetric() { return METRIC_BY_KEY.tput_per_gpu ? 'tput_per_gpu' : (METRICS[0] || {}).key; }
 function perfMetric() { return METRIC_BY_KEY[state.perfMetric] || METRIC_BY_KEY[defaultPerfMetric()]; }
 function perfGroupKey(c) { return c.model + '|' + c.device; }
@@ -1860,7 +1882,7 @@ function perfGroups(configs) {
       groups.set(key, {
         key: key,
         name: c.shortModel + ' · ' + String(c.device || '?').toUpperCase(),
-        color: MODEL_COLOR[key] || PALETTE[0],
+        color: MODEL_COLOR[key] || activePalette()[0],
         configs: [],
       });
     }
@@ -1893,8 +1915,15 @@ function latestOf(cfg, metric) {
 // Why a change from tonight's run is not being judged, or '' if it is.
 function notOvernightNote(latest) {
   if (!latest || !latest.tonight || latest.overnight || !latest.before) return '';
-  return 'Compared to #' + (latest.before.build_number || '?')
-    + ', not previous nightly #' + (previousNightlyBuild() || '?');
+  return 'vs ' + comparedWhen(latest) + ' (#' + (latest.before.build_number || '?')
+    + '); skipped previous nightly #' + (previousNightlyBuild() || '?');
+}
+
+// How far back the compared run is, counted in nights: the runs are nightlies.
+function comparedWhen(latest) {
+  if (latest.overnight) return 'last night';
+  const nights = Math.max(1, Math.round((latest.point.t - latest.before.t) / 86400000));
+  return nights + (nights === 1 ? ' night ' : ' nights ') + (latest.tonight ? 'ago' : 'earlier');
 }
 
 // Colour a change only when it is overnight and past the threshold.
@@ -2067,14 +2096,24 @@ function perfBarTipHtml(row, metric, unit) {
   const latest = row.latest, p = latest.point;
   let rows = tipRow('Build', '#' + esc(p.build_number || '?'));
   rows += tipRow('vLLM', esc(shortSha(p.vllm_commit)));
-  if (latest.verdict) {
-    const vs = '#' + (latest.before ? latest.before.build_number || '?' : '?');
-    const against = latest.overnight ? 'nightly ' + vs : vs;
-    rows += tipRow('Change', esc(pct(latest.verdict.ratio, 2) + ' vs ' + against), changeClass(latest));
-    if (notOvernightNote(latest)) {
-      rows += '<div class="tip-note">Not overnight — previous nightly was #'
-        + esc(previousNightlyBuild() || '?') + '</div>';
-    }
+  const prevNightly = '#' + (previousNightlyBuild() || '?');
+  const note = text => { rows += '<div class="tip-note">' + esc(text) + '</div>'; };
+  const days = integer(WINDOW_DAYS);
+  if (latest.verdict && latest.before) {
+    const vs = '#' + (latest.before.build_number || '?');
+    rows += tipRow('Change', esc(pct(latest.verdict.ratio, 2) + ' vs ' + comparedWhen(latest) + ' (' + vs + ')'),
+      changeClass(latest));
+    if (notOvernightNote(latest)) note('Skipped the previous nightly, ' + prevNightly);
+  } else if (latest.before) {
+    rows += tipRow('Change', 'Not available', 'neutral');
+    note('The run before it, #' + (latest.before.build_number || '?') + ', has no usable value');
+  } else if (latest.tonight) {
+    rows += tipRow('Change', 'No previous run', 'warnc');
+    note('Nothing to compare against: this is its first run in the last ' + days
+      + ' days, and it was not in ' + prevNightly);
+  } else {
+    rows += tipRow('Change', 'No previous run', 'neutral');
+    note('Nothing to compare against: its only run in the last ' + days + ' days');
   }
   if (!latest.tonight) {
     rows += tipRow('Status', 'Not in #' + esc(latestNightlyBuild() || '?'));
@@ -2113,10 +2152,15 @@ function drawPerfChart(group, canvasId, metric) {
   const regKeys = regressedKeysForMetric(state.baseline, metric.key);
   const concs = [...new Set(group.rows.map(r => Number(r.c.conc) || 0))].sort((a, b) => a - b);
   // Darker with concurrency, as ATOM shades it; faded when not from tonight.
+  // A tint that reads on near-black washes out on white, so light mode starts
+  // higher and spans further.
+  const shade = isLightTheme()
+    ? { faded: 0.16, single: 0.65, lo: 0.35, span: 0.45 }
+    : { faded: 0.12, single: 0.55, lo: 0.3, span: 0.35 };
   const alphaOf = r => {
-    if (!r.latest.tonight) return 0.12;
-    if (concs.length <= 1) return 0.55;
-    return 0.3 + concs.indexOf(Number(r.c.conc) || 0) / (concs.length - 1) * 0.35;
+    if (!r.latest.tonight) return shade.faded;
+    if (concs.length <= 1) return shade.single;
+    return shade.lo + concs.indexOf(Number(r.c.conc) || 0) / (concs.length - 1) * shade.span;
   };
   const values = group.rows.map(r => display(r.latest.point.value, metric));
   const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
@@ -2436,7 +2480,7 @@ function renderTradeoffHeatmaps(rows) {
     const mk = perfGroupKey(r.cfg);
     if (!byModel.has(mk)) {
       byModel.set(mk, { name: r.cfg.shortModel + ' · ' + String(r.cfg.device || '?').toUpperCase(),
-        color: MODEL_COLOR[mk] || PALETTE[0], cells: new Map(), shapes: new Set(), concs: new Set() });
+        color: MODEL_COLOR[mk] || activePalette()[0], cells: new Map(), shapes: new Set(), concs: new Set() });
     }
     const g = byModel.get(mk);
     const shape = lenLabel(r.cfg.isl) + '/' + lenLabel(r.cfg.osl);
@@ -3157,6 +3201,7 @@ function wireChrome() {
       localStorage.setItem('perf-eval-theme', 'light');
     }
     syncThemeLabel();
+    assignColors();
     // Chart.js reads colours when a chart is built, so redraw on theme change.
     renderAll();
   });
@@ -3235,12 +3280,7 @@ fetch('perf_eval.json')
 
     CONFIGS = buildConfigs(DATA);
     ACC_TASKS = buildAccuracy(DATA);
-    // Colours are assigned over the full dataset, so a series keeps its colour
-    // across filters and charts.
-    BASE_COLOR = Object.fromEntries(
-      CONFIGS.map(c => c.key).sort().map((k, i) => [k, PALETTE[i % PALETTE.length]]));
-    MODEL_COLOR = Object.fromEntries(
-      [...new Set(CONFIGS.map(perfGroupKey))].sort().map((k, i) => [k, PALETTE[i % PALETTE.length]]));
+    assignColors();
 
     readFromHash();
     renderChrome();

@@ -475,6 +475,10 @@ Colour carries meaning, so it is allocated rather than picked:
 
 If you add palette colours, keep them out of the 0–20° hue range.
 
+Light mode swaps in `PALETTE_LIGHT`: the same hues, darkened to read on white,
+in the same order so a series keeps its identity when the theme changes. Add
+new colours to both lists together.
+
 ### Time window
 
 The view shows a trailing **14 days**, anchored to *now* rather than to the
