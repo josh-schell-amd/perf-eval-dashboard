@@ -308,9 +308,8 @@ never widened; it comes from `display_window_days` in the payload, which
 `aggregate.py` owns.
 
 Detection runs in the page rather than in `aggregate.py`, because the window
-decides which run is "latest" and which is its predecessor. The per-metric
-`status` in the payload applies the same rule over whole history, for machine
-consumers of the JSON.
+decides which run is "latest" and which is its predecessor. The payload
+publishes each series and the thresholds; it does not precompute a verdict.
 
 ---
 
@@ -512,8 +511,7 @@ and thresholds come from data.
       "label": "8K in / 1K out @ conc 128 (MI355X)",
       "metrics": {
         "tput_per_gpu": {
-          "latest": 1234.5, "previous": 1200.0, "delta": 34.5, "delta_pct": 2.875,
-          "better": "higher", "status": "good", "label": "...", "unit": "tok/s/GPU",
+          "better": "higher", "label": "...", "unit": "tok/s/GPU",
           "series": [{ "date": "...", "value": 1200.0, "vllm_commit": "...", "build_url": "...",
                        "completed_requests": 512, "failed_requests": 0 }]
         }
@@ -521,7 +519,7 @@ and thresholds come from data.
     }],
     "accuracy_tasks": [{
       "task": "gsm8k", "metric": "exact_match,strict-match", "primary": true,
-      "latest": 0.81, "previous": 0.80, "status": "good", "series": [ /* ... */ ]
+      "series": [ /* ... */ ]
     }]
   }],
   "summary":   { "models": 1, "amd_devices": ["mi355x"], "nightlies": 12, "perf_points": 96, "accuracy_points": 12 },

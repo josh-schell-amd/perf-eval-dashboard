@@ -60,7 +60,7 @@ class TestSeriesOrdering:
             perf_result(commit="a" * 40, value=50.0, date="2026-01-01 00:00:00"),
         ]
         block = _metric(agg.aggregate(events))
-        assert block["latest"] == 100.0
+        assert block["series"][-1]["value"] == 100.0
         assert len(block["series"]) == 1
 
     def test_newest_observation_wins_when_store_order_agrees(self):
@@ -69,7 +69,7 @@ class TestSeriesOrdering:
             perf_result(commit="a" * 40, value=100.0, date="2026-01-02 00:00:00"),
         ]
         block = _metric(agg.aggregate(events))
-        assert block["latest"] == 100.0
+        assert block["series"][-1]["value"] == 100.0
 
     def test_retried_nightly_on_the_same_commit_is_one_point(self):
         # A nightly re-run produces a second build number for one commit. That
@@ -89,8 +89,6 @@ class TestSeriesOrdering:
         ]
         block = _metric(agg.aggregate(events))
         assert [point["value"] for point in block["series"]] == [100.0, 200.0]
-        assert block["latest"] == 200.0
-        assert block["previous"] == 100.0
 
     def test_unparseable_date_is_logged_not_crashed(self, caplog):
         event = perf_result(date="not-a-date")
@@ -100,70 +98,41 @@ class TestSeriesOrdering:
         assert "no parseable date" in caplog.text
 
 
-class TestStatusThresholds:
-    """Perf metrics must move by 0.5% to count; any accuracy change counts."""
+class TestPublishedSeries:
+    """The page compares nightlies itself, so the payload carries series only."""
 
-    @pytest.mark.parametrize(
-        "previous,latest,expected",
-        [
-            (100.0, 103.0, "good"),  # up on higher-is-better
-            (100.0, 97.0, "bad"),  # down on higher-is-better
-            (100.0, 100.5, "good"),  # exactly at the threshold counts
-            (100.0, 99.5, "bad"),
-            (100.0, 100.49, "neutral"),  # just under it does not
-            (100.0, 99.9, "neutral"),
-            (100.0, 100.0, "neutral"),
-        ],
-    )
-    def test_perf_movement_under_the_threshold_is_neutral(self, previous, latest, expected):
+    def test_a_metric_publishes_its_series_without_a_verdict(self):
         events = [
-            perf_result(commit="a" * 40, value=previous, date="2026-01-01 00:00:00"),
-            perf_result(commit="b" * 40, value=latest, date="2026-01-02 00:00:00"),
+            perf_result(commit="a" * 40, value=100.0, date="2026-01-01 00:00:00"),
+            perf_result(commit="b" * 40, value=103.0, date="2026-01-02 00:00:00"),
         ]
-        assert _metric(agg.aggregate(events))["status"] == expected
+        block = _metric(agg.aggregate(events))
+        assert set(block) == {"better", "label", "series", "unit"}
+        assert block["better"] == "higher"
+        assert [point["value"] for point in block["series"]] == [100.0, 103.0]
 
-    def test_lower_is_better_inverts_the_verdict(self):
+    def test_lower_is_better_is_recorded_on_the_metric(self):
         events = [
             perf_result(commit="a" * 40, metrics={"mean_ttft": 0.10}, date="2026-01-01 00:00:00"),
             perf_result(commit="b" * 40, metrics={"mean_ttft": 0.05}, date="2026-01-02 00:00:00"),
         ]
         block = _metric(agg.aggregate(events), "mean_ttft")
         assert block["better"] == "lower"
-        assert block["status"] == "good"
+        assert "status" not in block
 
-    def test_first_nightly_is_neutral_with_no_previous(self):
+    def test_a_first_nightly_is_a_one_point_series(self):
         block = _metric(agg.aggregate([perf_result()]))
-        assert block["previous"] is None
-        assert block["status"] == "neutral"
-        assert block["delta"] is None
+        assert len(block["series"]) == 1
+        assert "previous" not in block
 
-    @pytest.mark.parametrize(
-        "previous,latest,expected",
-        [
-            (0.80, 0.81, "good"),  # exactly one point counts
-            (0.80, 0.79, "bad"),
-            (0.9234, 0.9334, "good"),  # one point despite float error
-            (0.80, 0.8099, "neutral"),  # just under a point does not
-            (0.9242, 0.9234, "neutral"),  # one gsm8k question
-            (0.80, 0.80, "neutral"),
-        ],
-    )
-    def test_accuracy_must_move_by_a_point(self, previous, latest, expected):
+    def test_an_accuracy_task_publishes_its_series_without_a_verdict(self):
         events = [
-            accuracy_result(commit="a" * 40, value=previous, date="2026-01-01 00:00:00"),
-            accuracy_result(commit="b" * 40, value=latest, date="2026-01-02 00:00:00"),
+            accuracy_result(commit="a" * 40, value=0.80, date="2026-01-01 00:00:00"),
+            accuracy_result(commit="b" * 40, value=0.81, date="2026-01-02 00:00:00"),
         ]
         task = _only_model(agg.aggregate(events))["accuracy_tasks"][0]
-        assert task["status"] == expected
-
-    def test_zero_previous_never_divides(self):
-        events = [
-            perf_result(commit="a" * 40, value=0.0, date="2026-01-01 00:00:00"),
-            perf_result(commit="b" * 40, value=5.0, date="2026-01-02 00:00:00"),
-        ]
-        block = _metric(agg.aggregate(events))
-        assert block["delta_pct"] is None
-        assert block["status"] == "neutral"
+        assert "status" not in task
+        assert [point["value"] for point in task["series"]] == [0.80, 0.81]
 
     def test_thresholds_are_published_for_the_frontend(self):
         payload = agg.aggregate([perf_result()])
@@ -175,23 +144,6 @@ class TestStatusThresholds:
         assert agg.PERF_REL_THRESHOLD == 0.005
         assert agg.ACCURACY_ABS_THRESHOLD == 0.01
 
-    def test_a_flat_metric_is_not_a_regression(self):
-        events = [
-            perf_result(commit="a" * 40, value=100.0, date="2026-01-01 00:00:00"),
-            perf_result(commit="b" * 40, value=100.0, date="2026-01-02 00:00:00"),
-        ]
-        block = _metric(agg.aggregate(events))
-        assert block["delta"] == 0
-        assert block["status"] == "neutral"
-
-    def test_a_flat_accuracy_score_is_not_a_regression(self):
-        events = [
-            accuracy_result(commit="a" * 40, value=0.8, date="2026-01-01 00:00:00"),
-            accuracy_result(commit="b" * 40, value=0.8, date="2026-01-02 00:00:00"),
-        ]
-        task = _only_model(agg.aggregate(events))["accuracy_tasks"][0]
-        assert task["status"] == "neutral"
-
 
 class TestGrouping:
     def test_configs_are_keyed_by_device_shape_and_concurrency(self):
@@ -202,7 +154,7 @@ class TestGrouping:
     @staticmethod
     def _labels(payload: dict) -> list[tuple]:
         return sorted(
-            (c["parallel_label"], c["gpus"], c["metrics"]["tput_per_gpu"]["latest"])
+            (c["parallel_label"], c["gpus"], c["metrics"]["tput_per_gpu"]["series"][-1]["value"])
             for c in _only_model(payload)["perf_configs"]
         )
 

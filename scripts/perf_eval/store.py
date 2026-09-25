@@ -65,30 +65,67 @@ def nightly_identity(event: dict) -> str:
     return f"commit:{commit}" if commit else f"build:{event.get('build_number')}"
 
 
-def result_identity(event: dict) -> tuple:
-    """What makes two result events the same result, for dedupe.
+def perf_config_identity(event: dict) -> tuple:
+    """The perf config, without the nightly or build that measured it.
 
-    A perf result is one config (parallelism, precision, ISL/OSL, concurrency);
-    an accuracy result is one workload, whose tasks are rows inside it.
+    Both identities below start from this, then add their own scope: a build
+    for collection, a nightly for compaction. An absent precision is ``""`` so
+    the two cannot disagree about a missing tag.
     """
-    kind = event.get("event")
-    base = (
-        kind,
-        nightly_identity(event),
+    return (
         str(event.get("model") or "").strip(),
         str(event.get("device") or "").strip(),
+        parallel_key(parallelism_of(event)),
+        event.get("precision") or "",
+        event.get("isl"),
+        event.get("osl"),
+        event.get("conc"),
     )
+
+
+def result_identity(event: dict) -> tuple:
+    """What makes two result events the same result, for compaction.
+
+    A perf result is one config of one nightly. An accuracy result is one
+    workload of one nightly; its task rows are merged rather than kept apart.
+    A retried nightly shares a vLLM commit, so it folds in here.
+    """
+    kind = event.get("event")
+    nightly = nightly_identity(event)
     if kind == "perf_result":
-        return base + (
-            parallel_key(parallelism_of(event)),
-            event.get("precision"),
-            event.get("isl"),
-            event.get("osl"),
-            event.get("conc"),
-        )
+        return (kind, nightly, *perf_config_identity(event))
     if kind == "accuracy_result":
-        return base + (str(event.get("workload") or "").strip(),)
+        return (
+            kind,
+            nightly,
+            str(event.get("model") or "").strip(),
+            str(event.get("device") or "").strip(),
+            str(event.get("workload") or "").strip(),
+        )
     raise ValueError(f"not a result event: {kind!r}")
+
+
+def event_key(event: dict) -> tuple:
+    """What makes two result events the same result within one build.
+
+    Narrower than ``result_identity``: a retried nightly is a new build number,
+    so the collector still appends it and compaction folds it in. Accuracy
+    keeps its task rows in the key, because two tasks of one workload arrive
+    as separate artifacts and dropping the second would lose its scores.
+    """
+    if event.get("event") == "perf_result":
+        return ("perf", event.get("build_number"), *perf_config_identity(event))
+    if event.get("event") == "accuracy_result":
+        tasks = tuple(
+            sorted((row.get("task"), row.get("metric")) for row in event.get("results") or [])
+        )
+        return (
+            "accuracy",
+            event.get("build_number"),
+            str(event.get("workload") or "").strip(),
+            tasks,
+        )
+    raise ValueError(f"not a result event: {event.get('event')!r}")
 
 
 def merge_result_events(older: dict, newer: dict) -> dict:

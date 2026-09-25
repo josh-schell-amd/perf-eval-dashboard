@@ -297,6 +297,20 @@ class TestIdentities:
         old["tp"] = 8
         assert store.result_identity(old) == store.result_identity(perf_result())
 
+    def test_a_missing_precision_matches_an_empty_one(self):
+        missing = perf_result()
+        del missing["precision"]
+        blank = perf_result()
+        blank["precision"] = ""
+        assert store.result_identity(missing) == store.result_identity(blank)
+        assert store.event_key(missing) == store.event_key(blank)
+
+    def test_collection_and_compaction_share_the_perf_config(self):
+        event = perf_result()
+        config = store.perf_config_identity(event)
+        assert store.event_key(event)[2:] == config
+        assert store.result_identity(event)[2:] == config
+
     def test_artifact_key_is_the_buildkite_artifact_id(self):
         assert store.artifact_key({"buildkite_artifact_id": " x "}) == "x"
         assert store.artifact_key({"build_number": 3}) is None

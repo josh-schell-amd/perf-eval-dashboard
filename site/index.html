@@ -1151,12 +1151,36 @@ function facetCount(f, v) {
 function activeFilterCount() {
   return FACETS.reduce((n, f) => n + state.selected[f.key].size, 0) + (state.onlyRegressed ? 1 : 0);
 }
-function resetFilters() {
-  FACETS.forEach(f => state.selected[f.key].clear());
-  state.onlyRegressed = false;
+
+function facetOptions(f) {
+  return facetValues(f).map(v => {
+    const on = state.selected[f.key].has(v);
+    const count = facetCount(f, v);
+    return { value: v, on: on, count: count, unavailable: count === 0 && !on };
+  });
+}
+
+function applyFilters(focusSelector) {
   invalidateScan();
   syncToHash();
   renderAll();
+  if (focusSelector) focusAfterRender(focusSelector);
+}
+
+function setFacet(key, update) {
+  const sel = state.selected[key];
+  if (update.clear) sel.clear();
+  else if (update.toggle) {
+    if (sel.has(update.value)) sel.delete(update.value);
+    else sel.add(update.value);
+  } else if (update.on) sel.add(update.value);
+  else sel.delete(update.value);
+}
+
+function resetFilters() {
+  FACETS.forEach(f => state.selected[f.key].clear());
+  state.onlyRegressed = false;
+  applyFilters();
 }
 
 function renderControls() {
@@ -1170,18 +1194,15 @@ function renderControls() {
     const wide = values.length > 6;
     html += '<div class="facet-col' + (wide ? ' wide' : '') + '"><div class="facet-head">' + esc(f.label) + '</div>'
       + '<div class="facet-opts">';
-    values.forEach(v => {
-      const count = facetCount(f, v);
-      const on = state.selected[f.key].has(v);
+    facetOptions(f).forEach(opt => {
       // A selected option stays clickable at zero so it can be cleared.
-      const unavailable = count === 0 && !on;
-      html += '<div class="facet-opt' + (on ? ' on' : '') + (unavailable ? ' unavailable' : '')
-        + '" data-facet="' + esc(f.key) + '" data-value="' + esc(v) + '" role="checkbox"'
-        + ' aria-checked="' + (on ? 'true' : 'false') + '"'
-        + (unavailable ? ' aria-disabled="true"' : '') + '>'
+      html += '<div class="facet-opt' + (opt.on ? ' on' : '') + (opt.unavailable ? ' unavailable' : '')
+        + '" data-facet="' + esc(f.key) + '" data-value="' + esc(opt.value) + '" role="checkbox"'
+        + ' aria-checked="' + (opt.on ? 'true' : 'false') + '"'
+        + (opt.unavailable ? ' aria-disabled="true"' : '') + '>'
         + '<span class="facet-box"></span>'
-        + '<span class="facet-label" title="' + esc(v) + '">' + esc(v) + '</span>'
-        + '<span class="facet-count">' + count + '</span></div>';
+        + '<span class="facet-label" title="' + esc(opt.value) + '">' + esc(opt.value) + '</span>'
+        + '<span class="facet-count">' + opt.count + '</span></div>';
     });
     html += '</div></div>';
   });
@@ -1207,21 +1228,14 @@ function renderControls() {
     const k = el.getAttribute('data-facet'),
       v = el.getAttribute('data-value');
     activatable(el, null, () => {
-      const sel = state.selected[k];
-      if (sel.has(v)) sel.delete(v);
-      else sel.add(v);
-      invalidateScan();
-      syncToHash();
-      renderAll();
-      focusAfterRender('.facet-opt[data-facet="' + cssEscape(k) + '"][data-value="' + cssEscape(v) + '"]');
+      setFacet(k, { toggle: true, value: v });
+      applyFilters('.facet-opt[data-facet="' + cssEscape(k) + '"][data-value="' + cssEscape(v) + '"]');
     });
   });
   const only = document.getElementById('only-regressed');
   if (only) only.addEventListener('click', () => {
     state.onlyRegressed = !state.onlyRegressed;
-    syncToHash();
-    renderAll();
-    focusAfterRender('#only-regressed');
+    applyFilters('#only-regressed');
   });
   const reset = document.getElementById('reset-facets');
   if (reset) reset.addEventListener('click', resetFilters);
@@ -1241,14 +1255,10 @@ function renderHeaderFilters() {
       + (sel.size ? '<span class="count">' + sel.size + '</span>' : '') + '</button>'
       + '<div class="filter-dropdown' + (open ? ' open' : '') + '" data-dropdown="' + esc(f.key) + '">'
       + '<label><input type="checkbox" data-all' + (sel.size ? '' : ' checked') + '> All</label><div class="sep"></div>'
-      + facetValues(f).map(v => {
-        const on = sel.has(v),
-          count = facetCount(f, v);
-        const unavailable = count === 0 && !on;
-        return '<label' + (unavailable ? ' class="unavailable"' : '') + '><input type="checkbox" value="' + esc(v) + '"'
-          + (on ? ' checked' : '') + (unavailable ? ' disabled' : '') + '> <span class="opt-label">' + esc(v)
-          + '</span><span class="opt-count">' + count + '</span></label>';
-      }).join('')
+      + facetOptions(f).map(opt =>
+        '<label' + (opt.unavailable ? ' class="unavailable"' : '') + '><input type="checkbox" value="' + esc(opt.value) + '"'
+        + (opt.on ? ' checked' : '') + (opt.unavailable ? ' disabled' : '') + '> <span class="opt-label">' + esc(opt.value)
+        + '</span><span class="opt-count">' + opt.count + '</span></label>').join('')
       + '</div></div>';
   }).join('')
     + '<span class="filter-summary">' + (active ? integer(shownConfigs().length) + ' configs' : 'Showing all') + '</span>'
@@ -1265,15 +1275,10 @@ function renderHeaderFilters() {
     dd.addEventListener('click', event => event.stopPropagation());
     dd.addEventListener('change', event => {
       const key = dd.getAttribute('data-dropdown');
-      const sel = state.selected[key];
       const input = event.target;
-      if (input.hasAttribute('data-all')) sel.clear();
-      else if (input.checked) sel.add(input.value);
-      else sel.delete(input.value);
-      invalidateScan();
-      syncToHash();
-      renderAll();
-      focusAfterRender('[data-dropdown="' + cssEscape(key) + '"] input'
+      if (input.hasAttribute('data-all')) setFacet(key, { clear: true });
+      else setFacet(key, { on: input.checked, value: input.value });
+      applyFilters('[data-dropdown="' + cssEscape(key) + '"] input'
         + (input.hasAttribute('data-all') ? '[data-all]' : '[value="' + cssEscape(input.value) + '"]'));
     });
   });
@@ -1599,6 +1604,7 @@ function renderRegressionPanel() {
     + '</span></span></div><div class="reg-list">'
     + ordered.map(g => {
       const linked = !!g.row.build_url;
+      const failed = failedNote(g.row);
       const inner = '<span class="reg-config">' + esc(g.config.label) + '</span>'
         + '<span class="reg-metrics">' + g.items.map(d => {
           // Hover shows the actual values.
@@ -1609,7 +1615,7 @@ function renderRegressionPanel() {
             + esc(d.metric.label) + ' <b>' + pctDirection(d.ratio, 1) + '</b></span>';
         }).join('') + '</span>'
         + '<span class="reg-build">'
-        + (failedNote(g.row) ? '<span class="reg-failed">' + esc(failedNote(g.row)) + '</span> · ' : '')
+        + (failed ? '<span class="reg-failed">' + esc(failed) + '</span> · ' : '')
         + 'build #' + esc(g.row.build_number || '?')
         + (linked ? EXT_INLINE : '') + '</span>';
       // The whole row links to the build.
@@ -1800,7 +1806,8 @@ function drawTrendChart(metric) {
             label: item => {
               const p = item.dataset.data[item.dataIndex]._p;
               const sha = p.vllm_commit ? ' · ' + shortSha(p.vllm_commit) : '';
-              const failed = failedNote(p) ? ' · ' + failedNote(p) : '';
+              const note = failedNote(p);
+              const failed = note ? ' · ' + note : '';
               return item.dataset.label + ': ' + fmt(item.parsed.y, metric.digits) + ' ' + unitOf(metric) + sha + failed;
             },
             // Nothing else says the points are clickable.
@@ -1909,12 +1916,13 @@ function perfGroups(configs) {
 function latestOf(cfg, metric) {
   const pts = pointsIn(cfg, metric.key);
   if (!pts.length) return null;
+  const latestBuild = latestNightlyBuild();
   return {
     point: pts[pts.length - 1],
     before: pts.length >= 2 ? pts[pts.length - 2] : null,
     verdict: verdict(pts.map(p => p.value), metric, BASELINE_BY_ID[state.baseline]),
-    tonight: reportedTonight(pts, latestNightlyBuild()),
-    overnight: comparedOvernight(pts, latestNightlyBuild(), previousNightlyBuild()),
+    tonight: reportedTonight(pts, latestBuild),
+    overnight: comparedOvernight(pts, latestBuild, previousNightlyBuild()),
   };
 }
 

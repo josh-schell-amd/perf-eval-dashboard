@@ -37,7 +37,6 @@ from perf_eval.normalize import (  # noqa: E402
     gpu_count,
     is_amd_workload,
     normalize_eval_payload,
-    parallel_key,
     parallelism_of,
     to_float,
     to_int,
@@ -51,6 +50,7 @@ from perf_eval.store import (  # noqa: E402
     append_events,
     artifact_key,
     artifact_keys_from_event,
+    event_key,
     finished_at,
     read_events_strict,
     received_at,
@@ -500,32 +500,6 @@ def accuracy_event(
     event["nightly"] = True
     event["date"] = identity.get("date") or ""
     return event
-
-
-def event_key(event: dict) -> tuple:
-    """Stable dedupe identity so re-runs never double-append the same result."""
-    if event.get("event") == "perf_result":
-        # With parallelism and precision: two recipes can run one model at one shape.
-        return (
-            "perf",
-            event.get("build_number"),
-            (event.get("model") or "").strip(),
-            event.get("device"),
-            parallel_key(parallelism_of(event)),
-            event.get("precision") or "",
-            event.get("isl"),
-            event.get("osl"),
-            event.get("conc"),
-        )
-    if event.get("event") == "accuracy_result":
-        tasks = tuple(sorted((r.get("task"), r.get("metric")) for r in event.get("results") or []))
-        return (
-            "accuracy",
-            event.get("build_number"),
-            (event.get("workload") or "").strip(),
-            tasks,
-        )
-    raise ValueError(f"not a result event: {event.get('event')!r}")
 
 
 def artifact_provenance(artifact: dict, build_number: Any) -> dict:

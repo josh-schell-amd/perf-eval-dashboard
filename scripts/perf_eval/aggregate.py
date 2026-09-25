@@ -120,41 +120,6 @@ def _config_label(device: str, isl, osl, conc) -> str:
     return f"{fmt_len(isl)} in / {fmt_len(osl)} out @ conc {conc} ({(device or '').upper()})"
 
 
-def _status(better: str, latest: float, previous: float | None, *, rel: bool) -> dict:
-    """Compute delta and red/green status for the latest-vs-previous nightly."""
-    out = {
-        "latest": latest,
-        "previous": previous,
-        "better": better,
-        "delta": None,
-        "delta_pct": None,
-        "status": "neutral",
-    }
-    if previous is None:
-        return out
-    delta = latest - previous
-    out["delta"] = delta
-    if previous != 0:
-        out["delta_pct"] = (delta / abs(previous)) * 100.0
-
-    # Guarding on delta rather than on the threshold keeps a flat value neutral
-    # even if a threshold is ever set to zero, where `abs(delta) >= 0` would
-    # always be true.
-    if delta == 0:
-        return out
-    if rel:
-        moved = previous != 0 and abs(delta / previous) >= PERF_REL_THRESHOLD
-    else:
-        # Tolerance so a move of exactly one point is not lost to float error.
-        moved = abs(delta) >= ACCURACY_ABS_THRESHOLD - 1e-9
-    if not moved:
-        return out
-
-    improved = delta > 0 if better == "higher" else delta < 0
-    out["status"] = "good" if improved else "bad"
-    return out
-
-
 def _series_from_points(points: list[dict]) -> list[dict]:
     """One point per nightly, the newest winning by time (the store is not
     time-ordered), sorted oldest first."""
@@ -225,18 +190,14 @@ def build_perf_configs(perf_events: list[dict]) -> list[dict]:
         metrics_out = {}
         for metric, points in metric_points.items():
             meta = METRIC_META.get(metric, {"better": "higher"})
-            series = _series_from_points(points)
-            latest = series[-1]["value"]
-            previous = series[-2]["value"] if len(series) >= 2 else None
-            block = _status(meta["better"], latest, previous, rel=True)
-            block.update(
-                {
-                    "label": meta.get("label", metric),
-                    "unit": meta.get("unit", ""),
-                    "series": _strip_internal(series),
-                }
-            )
-            metrics_out[metric] = block
+            # The page judges latest-vs-previous itself: the window, not this
+            # series, decides which two nightlies are compared.
+            metrics_out[metric] = {
+                "label": meta.get("label", metric),
+                "unit": meta.get("unit", ""),
+                "better": meta["better"],
+                "series": _strip_internal(_series_from_points(points)),
+            }
         config["metrics"] = metrics_out
         out.append(config)
     # Stable, human-friendly ordering: device, then concurrency, then ISL/OSL.
@@ -289,11 +250,7 @@ def build_accuracy_tasks(eval_events: list[dict]) -> list[dict]:
 
     out = []
     for entry in tasks.values():
-        series = _series_from_points(entry.pop("_points"))
-        latest = series[-1]["value"]
-        previous = series[-2]["value"] if len(series) >= 2 else None
-        entry.update(_status(ACCURACY_BETTER, latest, previous, rel=False))
-        entry["series"] = _strip_internal(series)
+        entry["series"] = _strip_internal(_series_from_points(entry.pop("_points")))
         out.append(entry)
     out.sort(key=lambda t: (not t["primary"], t["device"], t["workload"], t["task"], t["metric"]))
     return out
