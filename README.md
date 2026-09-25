@@ -51,14 +51,16 @@ AMD nightlies only. If a run looks missing, check it is in scope first.
 
 ### Set up
 
+Install [uv](https://docs.astral.sh/uv/), then:
+
 ```bash
-python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -c constraints.txt -e ".[dev]"
+uv sync                  # creates .venv with exactly what uv.lock pins
+. .venv/bin/activate     # Windows: .venv\Scripts\activate
 ```
 
-`constraints.txt` pins every installed package to an exact version, including
-dependencies of dependencies such as `urllib3` and `certifi`, so CI and your
-machine run identical tools.
+`uv.lock` pins every package, dependencies of dependencies included, so CI and
+your machine run identical tools. To upgrade one, run
+`uv lock --upgrade-package ruff` and commit the lock.
 
 ### Run the pipeline against real data
 
@@ -68,7 +70,6 @@ is read-only against Buildkite, so it is safe to re-run as often as you like.
 
 ```bash
 export BUILDKITE_TOKEN=bkua_...          # read-only: Read Builds + Read Artifacts
-export GITHUB_TOKEN="$(gh auth token)"   # optional, but see the tip below
 
 python scripts/perf_eval/collect_artifacts.py --days 14
 python scripts/perf_eval/aggregate.py
@@ -80,11 +81,9 @@ Then open <http://localhost:8000>. `aggregate.py` and `build_site.py` only
 read the local store, so the Buildkite token is needed for ingest and nothing
 else.
 
-> [!TIP]
-> **Set `GITHUB_TOKEN` if you can.** It reads the public workload recipes from
-> `vllm-project/perf-eval`, and GitHub rate-limits anonymous requests much more
-> tightly. If the recipes fail to load you will see
-> `No recipe for workload <name>; skipping` and an empty dashboard.
+The workload recipes are read from the public `vllm-project/perf-eval` repo,
+one archive download per recipe commit, so no GitHub token is needed. If you
+hit GitHub's anonymous rate limit, `export GITHUB_TOKEN="$(gh auth token)"`.
 
 ### Checks
 
@@ -544,9 +543,10 @@ tests/
 .github/workflows/           collect.yml, ci.yml, secrets-scan.yml
 ```
 
-The collect workflow installs only the three runtime packages (`requests`,
-`PyYAML`, `truststore`), since it runs next to the Buildkite and write tokens.
-Actions are pinned to commit SHAs.
+Both workflows install with `uv sync --locked`, which fails if `uv.lock` is
+stale. The collect workflow adds `--no-dev`, so only the runtime packages
+(`requests`, `PyYAML`, `truststore`) run next to the Buildkite and write
+tokens. Actions are pinned to commit SHAs.
 
 ### Chart.js is vendored
 

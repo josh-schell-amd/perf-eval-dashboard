@@ -5,6 +5,9 @@ No network is touched: every helper exercised here is I/O-free by design.
 
 from __future__ import annotations
 
+import io
+import tarfile
+
 import pytest
 
 from perf_eval import collect_artifacts as ca
@@ -585,3 +588,108 @@ class TestLookbackGuard:
     def test_out_of_range_lookback_is_rejected(self, days, tmp_path):
         with pytest.raises(ValueError, match="lookback must be between"):
             ca.collect(tmp_path / "events.jsonl", days=days, bk_token="t", gh_token="")
+
+
+RECIPE_YAML = """\
+name: {name}
+gpu: MI355X
+vllm:
+  model: org/Model-FP8
+  serve_args: --tensor-parallel-size 8
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out
+      input_len: 8192
+      output_len: 1024
+      max_concurrency: 128
+"""
+
+
+def recipe_archive(files: dict[str, str]) -> bytes:
+    """A gzipped tarball shaped like GitHub's: everything under one top directory."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for path, text in files.items():
+            data = text.encode("utf-8")
+            info = tarfile.TarInfo(f"vllm-project-perf-eval-abc1234/{path}")
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
+class _ArchiveResponse:
+    def __init__(self, body: bytes, status_code: int = 200):
+        self._body = body
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def iter_content(self, chunk_size):
+        for start in range(0, len(self._body), chunk_size):
+            yield self._body[start : start + chunk_size]
+
+
+class TestRecipeArchive:
+    @pytest.fixture
+    def serve(self, monkeypatch):
+        calls = []
+
+        def install(body: bytes, status_code: int = 200):
+            def fake_get(url, **kwargs):
+                calls.append((url, kwargs))
+                return _ArchiveResponse(body, status_code)
+
+            monkeypatch.setattr(ca.requests, "get", fake_get)
+            return calls
+
+        return install
+
+    def test_one_request_per_commit(self, serve):
+        calls = serve(recipe_archive({f"workloads/wl{i}.yaml": "name: x\n" for i in range(28)}))
+        texts = ca.fetch_workload_texts("", ref="abc1234")
+        assert len(texts) == 28
+        assert len(calls) == 1
+        url, _ = calls[0]
+        assert url.endswith(f"/repos/{ca.WORKLOAD_REPO}/tarball/abc1234")
+
+    def test_reads_only_yaml_directly_under_workloads(self, serve):
+        serve(
+            recipe_archive(
+                {
+                    "workloads/a.yaml": "name: a\n",
+                    "workloads/b.yml": "name: b\n",
+                    "workloads/README.md": "not a recipe",
+                    "workloads/archive/old.yaml": "name: old\n",
+                    "configs/other.yaml": "name: other\n",
+                }
+            )
+        )
+        assert sorted(ca.fetch_workload_texts("", ref="abc1234")) == ["a.yaml", "b.yml"]
+
+    def test_sends_the_token_only_when_there_is_one(self, serve):
+        calls = serve(recipe_archive({}))
+        ca.fetch_workload_texts("", ref="r")
+        ca.fetch_workload_texts("gh-token", ref="r")
+        assert "Authorization" not in calls[0][1]["headers"]
+        assert calls[1][1]["headers"]["Authorization"] == "Bearer gh-token"
+
+    def test_an_http_error_fails_rather_than_returning_no_recipes(self, serve):
+        # No recipes would label nothing and quietly empty the dashboard.
+        serve(b"", status_code=404)
+        with pytest.raises(RuntimeError, match="404"):
+            ca.fetch_workload_texts("", ref="missing")
+
+    def test_an_oversized_archive_is_refused(self, serve, monkeypatch):
+        monkeypatch.setattr(ca, "MAX_RECIPE_ARCHIVE_BYTES", 10)
+        serve(recipe_archive({"workloads/a.yaml": "name: a\n"}))
+        with pytest.raises(RuntimeError, match="exceeds"):
+            ca.fetch_workload_texts("", ref="r")
+
+    def test_the_workload_map_is_keyed_by_recipe_name(self, serve):
+        serve(recipe_archive({"workloads/minimax.yaml": RECIPE_YAML.format(name="minimax-mi355x")}))
+        workloads = ca.fetch_workload_map("", ref="abc1234")
+        entry, configs = workloads["minimax-mi355x"]
+        assert entry["device"] == "mi355x"
+        assert configs["8k-in-1k-out-conc-128"] == {"isl": 8192, "osl": 1024, "conc": 128}

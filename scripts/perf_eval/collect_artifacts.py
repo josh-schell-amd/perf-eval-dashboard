@@ -11,13 +11,15 @@ Buildkite and GitHub request is a GET.
 from __future__ import annotations
 
 import argparse
+import io
 import logging
 import os
 import re
 import sys
+import tarfile
 import time
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import requests
@@ -688,6 +690,47 @@ def _bk_download_json(
     raise AssertionError("unreachable")
 
 
+# perf-eval's archive is well under a megabyte; anything this size is not it.
+MAX_RECIPE_ARCHIVE_BYTES = 64 * 1024 * 1024
+
+
+def fetch_workload_texts(gh_token: str, ref: str) -> dict[str, str]:
+    """The text of every ``workloads/*.yaml`` at commit ``ref``, keyed by
+    filename, from one archive of the repository: a single request per commit."""
+    headers = {"Accept": "application/vnd.github+json"}
+    if gh_token:
+        headers["Authorization"] = f"Bearer {gh_token}"
+    resp = requests.get(
+        f"https://api.github.com/repos/{WORKLOAD_REPO}/tarball/{ref}",
+        headers=headers,
+        timeout=60,
+        stream=True,
+    )
+    resp.raise_for_status()
+    body = bytearray()
+    for chunk in resp.iter_content(chunk_size=1 << 16):
+        body.extend(chunk)
+        if len(body) > MAX_RECIPE_ARCHIVE_BYTES:
+            raise RuntimeError(
+                f"{WORKLOAD_REPO} archive at {ref} exceeds {MAX_RECIPE_ARCHIVE_BYTES} bytes"
+            )
+
+    texts: dict[str, str] = {}
+    with tarfile.open(fileobj=io.BytesIO(bytes(body)), mode="r:gz") as archive:
+        for member in archive.getmembers():
+            # "<owner>-<repo>-<sha>/workloads/<file>": that directory only, not
+            # its subdirectories. Read in memory, never extracted to disk.
+            parts = PurePosixPath(member.name).parts
+            if len(parts) != 3 or parts[1] != "workloads" or not member.isfile():
+                continue
+            if not parts[2].endswith((".yaml", ".yml")):
+                continue
+            handle = archive.extractfile(member)
+            if handle is not None:
+                texts[parts[2]] = handle.read().decode("utf-8")
+    return texts
+
+
 def fetch_workload_map(gh_token: str, ref: str) -> dict[str, tuple[dict, dict]]:
     """Every workload recipe at commit ``ref``, keyed by its ``name`` (which
     artifact paths use; the filename differs). A duplicated key is logged:
@@ -725,25 +768,11 @@ def fetch_workload_map(gh_token: str, ref: str) -> dict[str, tuple[dict, dict]]:
         finally:
             loader.dispose()
 
-    headers = {"Accept": "application/vnd.github+json"}
-    if gh_token:
-        headers["Authorization"] = f"Bearer {gh_token}"
-    listing = requests.get(
-        f"https://api.github.com/repos/{WORKLOAD_REPO}/contents/workloads",
-        headers=headers,
-        params={"ref": ref},
-        timeout=30,
-    )
-    listing.raise_for_status()
     out: dict[str, tuple[dict, dict]] = {}
-    for item in listing.json():
-        name = item.get("name") or ""
-        if not name.endswith((".yaml", ".yml")):
-            continue
-        raw = requests.get(item["download_url"], headers=headers, timeout=30)
-        raw.raise_for_status()
+    # Sorted, so a name declared by two files resolves the same way every run.
+    for name, text in sorted(fetch_workload_texts(gh_token, ref).items()):
         try:
-            data = load_recipe(raw.text, name)
+            data = load_recipe(text, name)
         except yaml.YAMLError as exc:
             log.warning("Skipping unparseable workload %s: %s", name, exc)
             continue
