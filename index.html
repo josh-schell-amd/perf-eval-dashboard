@@ -1,0 +1,3308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Perf Eval Dashboard — AMD nightly</title>
+  <link rel="icon" type="image/png" href="vendor/amd.png" />
+  <script>if(localStorage.getItem('perf-eval-theme')==='light')document.documentElement.setAttribute('data-theme','light');</script>
+  <style>
+    /* ============================================================
+       CSS VARIABLES & RESET
+       ============================================================ */
+    :root {
+      --bg-primary: #0b0c10; --bg-secondary: #141519; --bg-tertiary: #1c1d24;
+      --border: #303140; --border-light: #262733;
+      --text-primary: #eef0f6; --text-secondary: #bfc1d0; --text-tertiary: #7e8094;
+      --brand: #6aa6ed;
+      --ui: #8899b8; --ui-bright: #a4b3ce; --ui-dim: rgba(136,153,184,0.12);
+      --accent-green: #6dbf80; --accent-red: #f25c4e; --accent-orange: #eda06a;
+      --accent-yellow: #e3c75a;
+      --accent-purple: #c49af5; --accent-blue: #6aa6ed;
+      --table-stripe: rgba(255,255,255,0.02);
+      --gap-sm: 8px; --gap-md: 16px; --gap-lg: 24px; --radius: 8px;
+    }
+    [data-theme="light"] {
+      --bg-primary: #f5f6fa; --bg-secondary: #ffffff; --bg-tertiary: #ebedf3;
+      --border: #d0d3dc; --border-light: #e2e4eb;
+      --text-primary: #1a1c24; --text-secondary: #4a4d5e; --text-tertiary: #7e8094;
+      --brand: #2f6fb8;
+      --ui: #5a6d8a; --ui-bright: #3d5278; --ui-dim: rgba(90,109,138,0.10);
+      --accent-green: #2e8b47; --accent-red: #d63a2f; --accent-orange: #c47a30;
+      --accent-yellow: #9a7b0a;
+      --accent-purple: #8b5ec0; --accent-blue: #2f6fb8;
+      --table-stripe: rgba(0,0,0,0.03);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg-primary); color: var(--text-secondary); font-size: 13px; }
+    .container { max-width: 1440px; margin: 0 auto; padding: 0 var(--gap-lg) var(--gap-lg); }
+    a { color: var(--ui-bright); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { font-family: "SF Mono", Consolas, monospace; font-size: 11px; background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; }
+    .mono { font-family: "SF Mono", Consolas, monospace; }
+
+    /* Pinned while scrolling; the page's top padding lives here so nothing shows above it. */
+    header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--gap-md); padding: var(--gap-md) 0; border-bottom: 2px solid var(--brand); margin-bottom: var(--gap-lg); position: sticky; top: 0; z-index: 50; background: var(--bg-primary); }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    h1 { font-size: 19px; color: var(--text-primary); font-weight: 600; }
+    .brand-logo { width: 32px; height: 32px; flex: none; }
+    .meta { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
+    .meta .scope-note { color: var(--text-primary); font-weight: 600; }
+    .header-right { display: flex; align-items: center; gap: var(--gap-sm); flex-wrap: wrap; justify-content: flex-end; }
+
+    /* Header filter dropdowns: the same filters as the panel below, ATOM-style. */
+    .filter-bar { display: flex; gap: var(--gap-sm); flex-wrap: wrap; align-items: center; }
+    .filter-group { position: relative; }
+    .filter-btn { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 12px; font-family: inherit; white-space: nowrap; }
+    .filter-btn:hover, .filter-btn.open { background: var(--bg-tertiary); color: var(--text-primary); }
+    .filter-btn .count { background: var(--ui); color: #fff; border-radius: 10px; padding: 1px 6px; margin-left: 4px; font-size: 10px; }
+    .filter-dropdown { display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 0; min-width: 220px; max-height: 320px; overflow-y: auto; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .filter-group:nth-last-of-type(-n+2) .filter-dropdown { left: auto; right: 0; }
+    .filter-dropdown.open { display: block; }
+    .filter-dropdown label { display: flex; align-items: center; gap: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer; color: var(--text-secondary); }
+    .filter-dropdown label:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+    .filter-dropdown label.unavailable { opacity: 0.45; cursor: default; }
+    .filter-dropdown input { accent-color: var(--ui); }
+    .filter-dropdown .opt-label { flex: 1; white-space: nowrap; }
+    .filter-dropdown .opt-count { font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+    .filter-dropdown .sep { border-top: 1px solid var(--border); margin: 4px 0; }
+    .filter-summary { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
+    .filter-reset { background: none; color: var(--text-tertiary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; font-size: 12px; font-family: inherit; cursor: pointer; white-space: nowrap; }
+    .filter-reset:hover:not(:disabled) { color: var(--text-secondary); background: var(--bg-tertiary); }
+    .filter-reset:disabled { opacity: 0.45; cursor: default; }
+    .btn { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; cursor: pointer; font-size: 11px; font-family: inherit; white-space: nowrap; }
+    .btn:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+    /* Icon button, sharing .btn's frame. The icon is the mode the click gives
+       you: a sun while dark, a moon while light. Swapped in CSS, so it cannot
+       fall out of step with data-theme. */
+    /* 6px, not .btn's 5px: the icon is shorter than a line of 11px text, and
+       the two buttons sit side by side. */
+    .theme-toggle { display: inline-flex; align-items: center; justify-content: center; padding: 6px 8px; flex: none; }
+    .theme-toggle svg { width: 13px; height: 13px; display: block; }
+    .theme-toggle .icon-moon { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: block; }
+
+    /* ============================================================
+       STALE-DATA NOTICE
+       ============================================================ */
+    .notice { display: flex; align-items: center; gap: var(--gap-md); background: var(--bg-secondary); border: 1px solid var(--accent-orange); border-radius: var(--radius); padding: 12px 14px; margin-bottom: var(--gap-lg); font-size: 12px; line-height: 1.5; }
+    .notice strong { color: var(--text-primary); }
+    .notice .btn { margin-left: auto; }
+
+    /* ============================================================
+       CONTROLS
+       ============================================================ */
+    .controls { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-md); margin-bottom: var(--gap-lg); }
+    .controls-row { display: flex; align-items: center; gap: var(--gap-sm); flex-wrap: wrap; }
+    .controls-row + .controls-row { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-light); }
+    .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .segmented button { background: var(--bg-tertiary); color: var(--text-tertiary); border: none; border-right: 1px solid var(--border); padding: 5px 12px; font-size: 11px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .segmented button:last-child { border-right: none; }
+    .segmented button:hover { color: var(--text-primary); }
+    .segmented button.on { background: var(--ui); color: #fff; }
+    .spacer { flex: 1; }
+    /* Facets: every value visible and one click away, no dropdowns. */
+    .facet-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(165px,1fr)); gap: var(--gap-md); width: 100%; }
+    .facet-col { min-width: 0; }
+    /* A long facet (Model) spans two tracks and two columns, so it does not
+       set the height of the whole panel. */
+    .facet-col.wide { grid-column: span 2; }
+    .facet-col.wide .facet-opts { columns: 2; column-gap: var(--gap-md); }
+    .facet-opt { break-inside: avoid; }
+    @media (max-width: 600px) {
+      .facet-col.wide { grid-column: auto; }
+      .facet-col.wide .facet-opts { columns: 1; }
+    }
+    .facet-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-tertiary); font-weight: 600; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border-light); }
+    .facet-opt { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--text-secondary); user-select: none; min-width: 0; }
+    .facet-opt:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+    .facet-opt.on { color: var(--text-primary); }
+    /* Not .empty, which is the page-wide empty state. Hidden rather than
+       removed, so labels stay aligned. */
+    .facet-opt.unavailable { opacity: 0.4; cursor: default; }
+    .facet-opt.unavailable:hover { background: none; color: var(--text-secondary); }
+    .facet-opt.unavailable .facet-box { visibility: hidden; }
+    .facet-box { width: 12px; height: 12px; border: 1px solid var(--border); border-radius: 3px; flex: none; position: relative; }
+    .facet-opt.on .facet-box { background: var(--ui); border-color: var(--ui); }
+    .facet-opt.on .facet-box::after { content: ''; position: absolute; left: 3.5px; top: 1px; width: 3px; height: 6px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+    .facet-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .facet-count { margin-left: auto; font-size: 10px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; padding-left: 6px; }
+    .facet-actions { display: flex; gap: var(--gap-sm); margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-light); }
+    .facet-actions .btn.on { background: var(--accent-red); border-color: var(--accent-red); color: #fff; }
+    .facet-actions .btn:disabled { opacity: 0.45; cursor: default; }
+
+    /* ============================================================
+       KPI ROW
+       ============================================================ */
+    /* Six cards on one row down to a 14" laptop, around 1280 CSS px: the track
+       min and the gap are what that width allows, and auto-fit still grows the
+       cards to fill a wider window, or reflows when the band is narrower. */
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit,minmax(172px,1fr)); gap: 12px; margin-bottom: var(--gap-lg); }
+    .kpi-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-md); }
+    .kpi-card.alert { border-color: var(--accent-red); }
+    .kpi-card.ok { border-color: rgba(109,191,128,0.45); }
+    .kpi-card.linked { display: block; text-decoration: none; color: inherit; position: relative; }
+    .kpi-card.linked:hover { background: var(--bg-tertiary); border-color: var(--ui); text-decoration: none; }
+    .kpi-card[data-goto-tab] { cursor: pointer; }
+    /* Keep the label clear of the corner arrow. */
+    .kpi-card.linked .kpi-label { padding-right: 22px; }
+    .kpi-ext { position: absolute; top: 10px; right: 11px; display: inline-flex; color: var(--ui-bright); opacity: 0.85; }
+    .kpi-ext .ext-icon { width: 17px; height: 17px; }
+    .kpi-card.linked:hover .kpi-ext { opacity: 1; transform: translate(1px,-1px); }
+
+    /* A drawn arrow: the ↗ glyph renders thin and inconsistently. */
+    .ext-icon { width: 14px; height: 14px; display: block; }
+    .ext-inline { display: inline-flex; vertical-align: -2px; margin-left: 4px; opacity: 0.7; transition: transform 0.12s, opacity 0.12s; }
+    .kpi-ext { transition: transform 0.12s, opacity 0.12s; }
+    a:hover .ext-inline, .reg-item.linked:hover .ext-inline { opacity: 1; transform: translate(1px,-1px); }
+    /* Visible focus ring on anything activatable. */
+    .kpi-card.linked:focus-visible, .reg-item.linked:focus-visible, tr.clickable:focus-visible, td.clickable:focus-visible { outline: 2px solid var(--ui); outline-offset: -2px; }
+    .kpi-label { font-size: 10px; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 5px; }
+    .kpi-value { font-size: 25px; font-weight: 700; color: var(--text-primary); font-family: "SF Mono", Consolas, monospace; line-height: 1.1; }
+    .kpi-value.up { color: var(--accent-green); }
+    .kpi-value.down { color: var(--accent-red); }
+    .kpi-value.stacked { font-size: 19px; line-height: 1.35; display: grid; grid-template-columns: auto auto auto 1fr; column-gap: 8px; align-items: baseline; }
+    .kpi-value.stacked .num { text-align: right; }
+    .kpi-value .up { color: var(--accent-green); }
+    .kpi-value .down { color: var(--accent-red); }
+    .kpi-unit { font-size: 12px; color: var(--text-tertiary); font-weight: 400; }
+    .kpi-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
+    .kpi-sub b, .reg-count b, .card-hint b, .hint-key b { color: var(--text-secondary); font-weight: 600; }
+    /* Six across, the cards are near the track min and a 25px date would not
+       fit one, so the numbers step down rather than the band breaking. */
+    @media (max-width: 1250px) {
+      .kpi-value { font-size: 21px; }
+      .kpi-value.stacked { font-size: 17px; }
+      .kpi-label { letter-spacing: 0.4px; }
+    }
+
+    /* ============================================================
+       TABS
+       ============================================================ */
+    .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: var(--gap-lg); overflow-x: auto; }
+    .tab { padding: 8px 16px; font-size: 13px; font-weight: 600; color: var(--text-tertiary); cursor: pointer; border-bottom: 2px solid transparent; user-select: none; white-space: nowrap; }
+    .tab:hover { color: var(--text-secondary); }
+    .tab.on { color: var(--text-primary); border-bottom-color: var(--ui); }
+    .card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-md); margin-bottom: var(--gap-lg); }
+    .card h3 { font-size: 13px; color: var(--text-primary); font-weight: 600; margin-bottom: 4px; }
+    .card-hint { font-size: 11px; color: var(--text-tertiary); margin-bottom: var(--gap-md); line-height: 1.5; }
+    /* Sits directly above its legend, so it keeps only enough room to separate. */
+    .card-hint.tight { margin-bottom: 6px; }
+    /* Legend, for what a chart says in colour rather than in a sentence. */
+    .hint-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; font-size: 11px; color: var(--text-tertiary); margin-bottom: var(--gap-md); }
+    .hint-key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .hint-key i { width: 11px; height: 11px; border-radius: 2px; flex: none; border: 1px solid var(--ui); background: var(--ui-dim); }
+    .hint-key i.reg { border: 2px solid var(--accent-red); }
+    .hint-key i.absent { opacity: 0.35; }
+    .hint-key i.edge { border-color: transparent; }
+    .hint-key i.edge.minor { background: var(--accent-yellow); }
+    .hint-key i.edge.moderate { background: var(--accent-orange); }
+    .hint-key i.edge.major { background: var(--accent-red); }
+    .hint-key i.heat { width: 28px; border-color: transparent; background: linear-gradient(90deg, #6dbf80, #e3c75a, #f25c4e); }
+    .empty { text-align: center; padding: 60px 20px; color: var(--text-tertiary); font-size: 14px; }
+
+    /* ============================================================
+       REGRESSION PANEL
+       ============================================================ */
+    .reg-panel { border: 1px solid var(--accent-red); border-radius: var(--radius); padding: var(--gap-md); margin-bottom: var(--gap-lg); background: var(--bg-secondary); }
+    .reg-panel.clean { border-color: var(--accent-green); }
+    .reg-panel.unknown { border-color: var(--border); }
+    .reg-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; flex-wrap: wrap; }
+    .reg-head h3 { font-size: 13px; color: var(--text-primary); font-weight: 600; }
+    .reg-head .reg-count { font-size: 11px; color: var(--text-tertiary); }
+    .reg-list { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+    .reg-item { display: grid; grid-template-columns: minmax(220px,330px) minmax(0,1fr) auto; gap: 14px; align-items: center; padding: 11px 12px; background: var(--bg-primary); border-radius: 6px; border-left: 3px solid var(--accent-orange); font-size: 13px; text-decoration: none; }
+    .reg-item.minor { border-left-color: var(--accent-yellow); }
+    .reg-item.major { border-left-color: var(--accent-red); }
+    .reg-item.linked:hover { background: var(--bg-tertiary); text-decoration: none; }
+    /* Wraps rather than truncates: the concurrency suffix names the config. */
+    .reg-config { color: var(--text-primary); font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+    .reg-metrics { display: flex; flex-wrap: wrap; gap: 7px; }
+    .reg-chip { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 6px; background: rgba(237,160,106,0.16); color: var(--accent-orange); white-space: nowrap; border: 1px solid rgba(237,160,106,0.3); }
+    .reg-chip.minor { background: rgba(227,199,90,0.14); color: var(--accent-yellow); border-color: rgba(227,199,90,0.35); }
+    .reg-chip.major { background: rgba(242,92,78,0.18); color: var(--accent-red); border-color: rgba(242,92,78,0.4); }
+    .tier-key { display: inline-flex; gap: 10px; margin-left: 6px; }
+    .tier-key span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; background: currentColor; }
+    .tier-key .minor { color: var(--accent-yellow); }
+    .tier-key .moderate { color: var(--accent-orange); }
+    .tier-key .major { color: var(--accent-red); }
+    .reg-chip b { font-family: "SF Mono", Consolas, monospace; font-weight: 700; }
+
+    /* ============================================================
+       COVERAGE PANEL
+       ============================================================ */
+    /* Grouped by workload: a failed step drops all its configs at once. Kept
+       out of the KPI card so a long list cannot push the charts down. */
+    .cov-panel { border: 1px solid var(--accent-red); border-radius: var(--radius); padding: var(--gap-md); margin-bottom: var(--gap-lg); background: var(--bg-secondary); }
+    .cov-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; flex-wrap: wrap; }
+    .cov-head h3 { font-size: 13px; color: var(--text-primary); font-weight: 600; }
+    .cov-head .cov-count { font-size: 11px; color: var(--text-tertiary); }
+    .cov-list { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+    .cov-item { display: grid; grid-template-columns: minmax(200px,300px) minmax(0,1fr) auto; gap: 14px; align-items: baseline; padding: 10px 12px; background: var(--bg-primary); border-radius: 6px; border-left: 3px solid var(--accent-orange); font-size: 13px; }
+    .cov-item.whole { border-left-color: var(--accent-red); }
+    .cov-name { color: var(--text-primary); font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+    .cov-shapes { display: flex; flex-wrap: wrap; gap: 7px; }
+    .cov-shape { font-size: 12px; padding: 4px 10px; border-radius: 6px; white-space: nowrap; font-family: "SF Mono", Consolas, monospace; background: rgba(237,160,106,0.16); color: var(--accent-orange); border: 1px solid rgba(237,160,106,0.3); }
+    .cov-tag { font-size: 11px; font-weight: 600; color: var(--accent-red); white-space: nowrap; }
+    /* Space between the direction triangle and the number. */
+    .reg-chip .dir { margin-right: 5px; }
+    .reg-build { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
+    .reg-failed { color: var(--accent-yellow); }
+
+    /* ============================================================
+       CHART WINDOW
+       ============================================================ */
+    .window-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: var(--gap-md); }
+    .window-bar input[type=range] { width: 160px; accent-color: var(--ui); }
+    .window-value { font-size: 12px; color: var(--text-primary); font-variant-numeric: tabular-nums; min-width: 86px; }
+    .window-note { font-size: 11px; color: var(--text-tertiary); }
+    .window-bar .bar-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-tertiary); font-weight: 600; margin-right: 2px; }
+
+    /* ============================================================
+       STACKED TREND CHARTS
+       ============================================================ */
+    /* Full width, one chart per metric, so every nightly is a distinct point. */
+    .mini-grid { display: flex; flex-direction: column; gap: var(--gap-md); }
+    .mini-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px 8px; }
+    .mini-card.has-reg { border-color: var(--accent-red); }
+    .mini-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 8px; flex-wrap: wrap; }
+    .mini-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .mini-unit { font-size: 11px; color: var(--text-tertiary); }
+    .mini-dir { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; }
+    .mini-reg { margin-left: auto; font-size: 10px; font-weight: 600; color: var(--accent-red); background: rgba(242,92,78,0.15); border-radius: 9px; padding: 1px 8px; }
+    .mini-wrap { position: relative; height: 300px; }
+    /* Says "this is interactive" before the tooltip gets a chance to. */
+    .mini-wrap canvas { cursor: pointer; }
+    @media (max-width: 760px) {
+      .mini-wrap { height: 230px; }
+    }
+
+    /* Disambiguation list, shown when several series sit on the same point. */
+    .pick-list { display: flex; flex-direction: column; gap: 6px; }
+    .pick-item { display: grid; grid-template-columns: 12px minmax(0,1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 13px; text-align: left; color: var(--text-secondary); font-family: inherit; }
+    .pick-item:hover { background: var(--bg-tertiary); border-color: var(--ui); color: var(--text-primary); }
+    .pick-item:focus-visible { outline: 2px solid var(--ui); outline-offset: 2px; }
+    .pick-swatch { width: 10px; height: 10px; border-radius: 2px; }
+    .pick-label { overflow-wrap: anywhere; }
+
+    /* ============================================================
+       PERFORMANCE TAB
+       ============================================================ */
+    .section-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--gap-sm); margin-bottom: var(--gap-md); padding-bottom: var(--gap-sm); border-bottom: 1px solid var(--border-light); }
+    .section-head h3 { margin: 0; }
+    .metric-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+    .metric-picker button { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .metric-picker button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+    .metric-picker button.on { background: var(--ui); border-color: var(--ui); color: #fff; }
+    .perf-grid { display: grid; grid-template-columns: 1fr; gap: var(--gap-md); }
+    @media (min-width: 1024px) {
+      .perf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .perf-card.hero { grid-column: 1 / -1; }
+    }
+    .perf-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+    .perf-card h4 { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+    .perf-wrap { position: relative; height: 300px; }
+    .perf-card.hero .perf-wrap { height: 360px; }
+    .perf-wrap canvas { cursor: pointer; }
+    @media (max-width: 760px) { .perf-wrap, .perf-card.hero .perf-wrap { height: 240px; } }
+
+    /* Hover card for a bar: a spec, not a paragraph. Pointer-events none so it
+       cannot steal the hover that keeps it open. */
+    .chart-tip {
+      position: fixed; z-index: 80; pointer-events: none;
+      min-width: 216px; max-width: 280px;
+      background: var(--bg-secondary); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 10px 12px;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+      opacity: 0; visibility: hidden;
+    }
+    .chart-tip.on { opacity: 1; visibility: visible; }
+    [data-theme="light"] .chart-tip { box-shadow: 0 8px 24px rgba(20,24,40,0.14); }
+    .chart-tip .tip-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+    .chart-tip .tip-value { font-size: 18px; font-weight: 700; color: var(--text-primary); font-family: "SF Mono", Consolas, monospace; line-height: 1.1; }
+    .chart-tip .tip-unit { font-size: 11px; color: var(--text-tertiary); margin: 2px 0 8px; }
+    .chart-tip .tip-rows { display: grid; grid-template-columns: 54px minmax(0,1fr); gap: 3px 10px; align-items: start; }
+    .chart-tip .tip-k { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; padding-top: 2px; }
+    .chart-tip .tip-v { font-size: 12px; color: var(--text-primary); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .chart-tip .tip-v.bad { color: var(--accent-red); font-weight: 600; }
+    .chart-tip .tip-v.warnc { color: var(--accent-orange); font-weight: 600; }
+    .chart-tip .tip-v.good { color: var(--accent-green); }
+    .chart-tip .tip-v.neutral { color: var(--text-secondary); }
+    .chart-tip .tip-note { grid-column: 2; font-size: 11px; color: var(--text-tertiary); line-height: 1.35; }
+    .chart-tip .tip-foot { margin-top: 8px; font-size: 10px; color: var(--text-tertiary); }
+
+    /* Tradeoff tab: ATOM's interactivity-vs-throughput pair, then a heatmap. */
+    .tradeoff-pair { display: grid; grid-template-columns: 1fr; gap: var(--gap-md); margin-bottom: var(--gap-md); }
+    @media (min-width: 1024px) {
+      .tradeoff-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    .heatmap-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+    .heatmap-table th { text-align: center; }
+    .heatmap-table td { text-align: center; border: 1px solid var(--border-light); }
+    .heatmap-table td.row-label { text-align: left; font-family: inherit; color: var(--text-secondary); white-space: nowrap; }
+
+    /* Detail table: a data row, then its hidden detail row, so stripe in fours. */
+    .perf-table tbody tr:nth-child(even) { background: none; }
+    .perf-table tbody tr:nth-child(4n+1), .perf-table tbody tr:nth-child(4n+2) { background: var(--table-stripe); }
+    .perf-table tbody tr:hover { background: var(--bg-tertiary); }
+    .perf-table td.model { color: var(--text-primary); font-weight: 500; white-space: nowrap; }
+    .perf-table tbody tr[data-row] { cursor: pointer; }
+    .perf-table tbody tr[data-row] td:first-child::before { content: '▸ '; color: var(--text-tertiary); font-size: 10px; }
+    .perf-table tbody tr[data-row].open td:first-child::before { content: '▾ '; }
+    .perf-table tbody tr.reg-minor { background: rgba(227,199,90,0.07); }
+    .perf-table tbody tr.reg-minor td:first-child { box-shadow: inset 3px 0 var(--accent-yellow); }
+    .perf-table tbody tr.reg-moderate { background: rgba(237,160,106,0.07); }
+    .perf-table tbody tr.reg-moderate td:first-child { box-shadow: inset 3px 0 var(--accent-orange); }
+    .perf-table tbody tr.reg-major { background: rgba(242,92,78,0.07); }
+    .perf-table tbody tr.reg-major td:first-child { box-shadow: inset 3px 0 var(--accent-red); }
+    .perf-table tbody tr.stale td { opacity: 0.55; }
+    .data-bar { position: relative; }
+    .data-bar-fill { position: absolute; left: 0; top: 3px; bottom: 3px; border-radius: 2px; pointer-events: none; }
+    .data-bar-text { position: relative; }
+    .detail-row { display: none; }
+    .detail-row.open { display: table-row; }
+    .detail-row > td { padding: 12px 16px; background: var(--bg-tertiary); }
+    .detail-box { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-md); font-size: 12px; }
+    @media (max-width: 760px) { .detail-box { grid-template-columns: 1fr; } }
+    .detail-box h5 { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; font-weight: 500; }
+    .detail-item { display: flex; justify-content: space-between; gap: var(--gap-sm); padding: 3px 0; border-bottom: 1px solid var(--border-light); }
+    .detail-item.clickable { cursor: pointer; }
+    .detail-item.clickable:hover .detail-key { color: var(--text-primary); }
+    .detail-key { color: var(--text-tertiary); }
+    .detail-val { color: var(--text-primary); font-family: "SF Mono", Consolas, monospace; text-align: right; overflow-wrap: anywhere; }
+    .pick-value { font-family: "SF Mono", Consolas, monospace; color: var(--text-primary); white-space: nowrap; }
+
+    /* ============================================================
+       TABLES
+       ============================================================ */
+    .table-scroll { overflow: auto; max-height: 640px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--border); color: var(--text-tertiary); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; position: sticky; top: 0; background: var(--bg-secondary); z-index: 1; }
+    th.num, td.num { text-align: right; }
+    td { padding: 7px 10px; border-bottom: 1px solid var(--border-light); }
+    td.num { font-family: "SF Mono", Consolas, monospace; }
+    td.config { color: var(--text-primary); font-weight: 500; overflow-wrap: anywhere; }
+    tbody tr:nth-child(even) { background: var(--table-stripe); }
+    tbody tr:hover { background: var(--bg-tertiary); }
+    tbody tr.clickable { cursor: pointer; }
+    .good { color: var(--accent-green); }
+    .bad { color: var(--accent-red); }
+    .warnc { color: var(--accent-orange); }
+    .neutral { color: var(--text-tertiary); }
+    .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 10px; background: var(--bg-tertiary); color: var(--text-tertiary); border: 1px solid var(--border); white-space: nowrap; }
+    .pill.alert { border-color: var(--accent-red); color: var(--accent-red); background: rgba(242,92,78,0.12); }
+    .pill.warn { border-color: var(--accent-orange); color: var(--accent-orange); background: rgba(237,160,106,0.12); }
+    .pill.ok { border-color: rgba(109,191,128,0.5); color: var(--accent-green); background: rgba(109,191,128,0.10); }
+
+    /* ============================================================
+       HISTORY OVERLAY
+       ============================================================ */
+    .overlay { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.55); }
+    .overlay.open { display: flex; align-items: center; justify-content: center; }
+    .overlay-panel { position: relative; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--gap-lg); max-width: 940px; width: 92vw; max-height: 86vh; overflow-y: auto; box-shadow: 0 16px 48px rgba(0,0,0,0.6); }
+    .overlay-panel h3 { color: var(--text-primary); font-size: 15px; margin-bottom: 4px; padding-right: 32px; }
+    .overlay-close { position: absolute; top: 10px; right: 14px; background: none; border: none; color: var(--text-tertiary); font-size: 22px; cursor: pointer; line-height: 1; }
+    .overlay-close:hover { color: var(--text-primary); }
+    .overlay-sub { font-size: 12px; color: var(--text-tertiary); margin-bottom: var(--gap-md); }
+    .overlay-summary { display: grid; grid-template-columns: repeat(auto-fit,minmax(115px,1fr)); gap: var(--gap-sm); margin-bottom: var(--gap-md); }
+    .overlay-summary .item { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+    .overlay-summary .item .k { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; }
+    .overlay-summary .item .v { font-size: 15px; color: var(--text-primary); font-family: "SF Mono", Consolas, monospace; font-weight: 600; }
+    .chart-wrap { position: relative; height: 270px; margin-bottom: var(--gap-md); }
+
+    footer { padding: 12px 0; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-tertiary); flex-wrap: wrap; gap: var(--gap-sm); }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="header-left">
+      <img class="brand-logo" src="vendor/amd.png" alt="AMD" width="32" height="32" />
+      <div>
+        <h1>Perf Eval Dashboard</h1>
+        <!-- Scope is stated on the page, so an absent model reads as out of scope,
+             not as a missing run. -->
+        <div class="meta"><strong class="scope-note" title="NVIDIA workloads (H200/B200) and ad-hoc builds run upstream but are deliberately excluded.">AMD nightly runs only</strong>
+          · <span id="generated-at">Loading…</span>
+          · <a id="pipeline-link" target="_blank" rel="noopener noreferrer">vllm/perf-eval pipeline</a></div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="filter-bar" id="filter-bar"></div>
+      <button class="btn" id="copy-link" title="Copy a link to the current view">Copy link</button>
+      <!-- Drawn rather than an emoji: ☀/☾ render at different sizes and
+           weights per platform, and neither takes the button's colour. -->
+      <!-- Labelled here too: the script sets the exact wording, but it runs
+           after the payload resolves, and a failed load must not leave the
+           button nameless. -->
+      <button class="btn theme-toggle" id="theme-toggle" type="button"
+              title="Switch colour theme" aria-label="Switch colour theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4.5"/>
+          <path d="M12 1.5v2M12 20.5v2M3.6 3.6l1.4 1.4M19 19l1.4 1.4M1.5 12h2M20.5 12h2M3.6 20.4L5 19M19 5l1.4-1.4"/>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div id="notice-host"></div>
+  <!-- KPI row first: read the state of the night, then narrow down. -->
+  <div class="kpi-row" id="kpi-host"></div>
+  <div id="controls-host"></div>
+  <div class="tabs" id="tabs-host"></div>
+  <div id="main"></div>
+  <div id="coverage-host"></div>
+
+  <footer>
+    <span id="retention-note"></span>
+    <span>AMD nightly performance and accuracy from the <a id="pipeline-link-footer" target="_blank" rel="noopener noreferrer">vllm/perf-eval</a> Buildkite pipeline</span>
+  </footer>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="overlay-panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
+    <button class="overlay-close" id="overlay-close" aria-label="Close">&times;</button>
+    <h3 id="overlay-title"></h3>
+    <div class="overlay-sub" id="overlay-sub"></div>
+    <div class="overlay-summary" id="overlay-summary"></div>
+    <div class="chart-wrap" id="history-chart-wrap"><canvas id="history-chart"></canvas></div>
+    <div class="table-scroll" id="overlay-table"></div>
+  </div>
+</div>
+
+<!-- Chart.js 4.4.1, vendored: a blocked CDN would leave blank charts with no
+     error. Provenance: site/vendor/README.md. -->
+<script src="vendor/chart.umd.min.js"></script>
+<script>
+'use strict';
+(function() {
+
+/* ================================================================
+   1. COLOUR SEMANTICS
+   ================================================================ */
+// PALETTE has no red or pink, so a red line always means "regressed".
+const PALETTE = ['#6aa6ed', '#6dbf80', '#c49af5', '#4fc3c3', '#ddb040', '#8899b8', '#9ad06a',
+  '#7c83f0', '#5fc9a0', '#c8b06a', '#79c0ff', '#d0a3e8', '#4fa3a3', '#a3c46a'
+];
+// The same hues, index for index, dark enough to read on white: a series keeps
+// its identity across themes. Add to both lists together.
+const PALETTE_LIGHT = ['#2563b8', '#2e8b47', '#7b4cc0', '#138a8a', '#8f6a00', '#4f6180', '#5a8a1f',
+  '#4a50c8', '#1f8a64', '#85702a', '#1f78c8', '#9050b8', '#2c7676', '#66802a'
+];
+function isLightTheme() { return document.documentElement.getAttribute('data-theme') === 'light'; }
+function activePalette() { return isLightTheme() ? PALETTE_LIGHT : PALETTE; }
+// Regression red, read from --accent-red at draw time; this is the fallback.
+// A series turns red only on the metrics it regressed on.
+const REG_COLOR = '#f25c4e';
+
+// Days of history the page shows, ending now, so a stalled nightly shows as
+// empty rather than as old data. Set from the payload (aggregate.py owns it);
+// this is the fallback. The charts can narrow it (chartDays) but not widen it.
+let WINDOW_DAYS = 14;
+// The headline metric for the Performance overnight card.
+const PRIMARY_METRIC = 'output_tput_per_gpu';
+const FACETS = [
+  { key: 'device', label: 'Device', get: c => c.device },
+  { key: 'model', label: 'Model', get: c => c.shortModel },
+  { key: 'precision', label: 'Precision', get: c => c.precision || '—' },
+  { key: 'shape', label: 'ISL/OSL', get: c => c.isl + '/' + c.osl },
+  { key: 'conc', label: 'Concurrency', get: c => String(c.conc) },
+];
+
+/* ================================================================
+   2. HELPERS
+   ================================================================ */
+// Upstream strings go into markup, so everything interpolated goes through esc().
+function esc(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+// HTML escaping still allows javascript: URLs, so only http(s) passes.
+function safeUrl(v) {
+  const url = String(v || '').trim();
+  return /^https?:\/\//i.test(url) ? url : '';
+}
+
+function integer(v) { return Number(v || 0).toLocaleString('en-US'); }
+
+// A run with failed requests is not comparable to a clean one; say so wherever it shows.
+function failedNote(p) {
+  if (!(p && p.failed_requests > 0)) return '';
+  const total = p.failed_requests + (p.completed_requests || 0);
+  return integer(Math.round(p.failed_requests)) + ' of ' + integer(Math.round(total)) + ' requests failed';
+}
+
+function fmt(v, d) { return v == null || !isFinite(v) ? '—' : Number(v).toFixed(d == null ? 1 : d); }
+
+function shortModel(m) { return String(m || '').split('/').pop(); }
+
+function shortSha(s) { return s ? String(s).slice(0, 8) : '—'; }
+
+function pct(r, d) { return r == null ? '—' : (r > 0 ? '+' : '') + (r * 100).toFixed(d == null ? 1 : d) + '%'; }
+// The arrow shows which way the number moved, not whether that is good: a
+// latency regression is ▲, a throughput regression ▼.
+function pctDirection(r, d) {
+  if (r == null) return '—';
+  const arrow = r > 0 ? '▲' : (r < 0 ? '▼' : '');
+  return (arrow ? '<span class="dir">' + arrow + '</span>' : '')
+    + Math.abs(r * 100).toFixed(d == null ? 1 : d) + '%';
+}
+
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+// Makes a non-button element keyboard-operable. No role="button": these
+// are often table cells, and the role would break table semantics.
+function activatable(el, label, handler) {
+  el.setAttribute('tabindex', '0');
+  if (label) el.setAttribute('aria-label', label);
+  el.addEventListener('click', handler);
+  el.addEventListener('keydown', event => {
+    // Keys on a nested link or control belong to it, so Enter follows the link.
+    if (event.target !== el && event.target.closest
+      && event.target.closest('a,button,input,select,textarea')) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handler(event);
+    }
+  });
+}
+// Renders replace the controls, so restore focus to the matching new one.
+function focusAfterRender(selector) {
+  const el = document.querySelector(selector);
+  if (el) el.focus();
+}
+
+function cssEscape(value) {
+  return window.CSS && CSS.escape ? CSS.escape(String(value)) : String(value).replace(/["\\]/g, '\\$&');
+}
+
+function median(nums) {
+  if (!nums.length) return null;
+  const s = [...nums].sort((a, b) => a - b),
+    mid = s.length >> 1;
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+// Safari will not parse "YYYY-MM-DD HH:MM:SS" without the T and Z.
+function parseTime(s) {
+  const t = String(s || '').trim();
+  if (!t) return 0;
+  const ms = Date.parse(t.includes('T') ? t : t.replace(' ', 'T') + 'Z');
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function fmtDate(ms) {
+  const d = new Date(ms);
+  return isNaN(d) ? '—' : d.toISOString().slice(0, 10);
+}
+
+// Drawn: the ↗ glyph renders inconsistently. aria-hidden because the
+// link text already says where it goes.
+const EXT_ARROW = '<svg class="ext-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+  + 'stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<path d="M6 18 18 6"/><path d="M8.5 6H18v9.5"/></svg>';
+const EXT_INLINE = '<span class="ext-inline">' + EXT_ARROW + '</span>';
+
+function buildLink(p, label, cls) {
+  const text = esc(label == null ? ('#' + (p.build_number || '?')) : label);
+  if (!p.build_url) return text;
+  // Every outbound link carries the arrow, so leaving the page is no surprise.
+  return '<a href="' + esc(p.build_url) + '" target="_blank" rel="noopener noreferrer"'
+    + (cls ? ' class="' + cls + '"' : '') + '>' + text + EXT_INLINE + '</a>';
+}
+
+/* ================================================================
+   3. DATA
+   ================================================================ */
+let DATA = null,
+  METRICS = [],
+  METRIC_BY_KEY = {},
+  CONFIGS = [],
+  ACC_TASKS = [],
+  BASELINE_BY_ID = {};
+let BASE_COLOR = {},
+  historyChart = null;
+
+// Stored in canonical units (latency in seconds); display_scale converts
+// per metric for the axis.
+function display(value, metric) {
+  if (value == null || !isFinite(value)) return null;
+  return metric.display_scale ? value * metric.display_scale : value;
+}
+
+function unitOf(metric) { return metric.display_unit || metric.unit || ''; }
+
+// "Total Throughput (tok/s/GPU)". Read from the registry, so renaming a metric
+// cannot leave a stale unit behind on an axis.
+function axisTitle(metric, fallback) {
+  if (!metric) return fallback || '';
+  const unit = unitOf(metric);
+  return metric.label + (unit ? ' (' + unit + ')' : '');
+}
+
+// Flatten model -> config -> metric -> series into (config, metric) series.
+function buildConfigs(payload) {
+  const out = [];
+  (payload.models || []).forEach(model => {
+    (model.perf_configs || []).forEach(cfg => {
+      const metrics = {},
+        builds = new Map();
+      Object.keys(cfg.metrics || {}).forEach(mk => {
+        const pts = ((cfg.metrics[mk] || {}).series || [])
+          .map(p => ({
+            t: parseTime(p.date),
+            value: Number(p.value),
+            date: p.date,
+            vllm_commit: p.vllm_commit,
+            image: p.image,
+            build_url: safeUrl(p.build_url),
+            build_number: p.build_number,
+            completed_requests: p.completed_requests,
+            failed_requests: p.failed_requests
+          }))
+          .filter(p => p.t > 0 && Number.isFinite(p.value))
+          .sort((a, b) => a.t - b.t);
+        if (!pts.length) return;
+        metrics[mk] = pts;
+        pts.forEach(p => { if (p.build_number != null) builds.set(String(p.build_number), p.t); });
+      });
+      if (!Object.keys(metrics).length) return;
+      const sm = shortModel(model.model);
+      out.push({
+        key: configKeyOf({ ...cfg, model: model.model }),
+        model: model.model,
+        shortModel: sm,
+        device: cfg.device || '',
+        precision: cfg.precision || '',
+        parallel_label: cfg.parallel_label || '—',
+        gpus: cfg.gpus,
+        isl: cfg.isl,
+        osl: cfg.osl,
+        conc: cfg.conc,
+        // Never truncated: the concurrency suffix names the config.
+        label: sm + ' · ' + (cfg.device || '?') + ' · ' + cfg.isl + '/' + cfg.osl + ' · c=' + cfg.conc,
+        metrics: metrics,
+        builds: builds,
+      });
+    });
+  });
+  // A recipe change (parallelism, precision) starts a new series; name both apart.
+  const seen = new Map();
+  out.forEach(c => seen.set(c.label, (seen.get(c.label) || 0) + 1));
+  out.forEach(c => {
+    if (seen.get(c.label) > 1) c.label += ' · ' + (c.precision || '?') + ' · ' + c.parallel_label;
+  });
+  return out.sort(compareConfigs);
+}
+
+// Model, device, ISL/OSL, concurrency; numbers compare as numbers, so c=64
+// sorts before c=128.
+function compareConfigs(a, b) {
+  const num = (x, y) => (Number(x) || 0) - (Number(y) || 0);
+  return a.shortModel.localeCompare(b.shortModel)
+    || String(a.device).localeCompare(String(b.device))
+    || num(a.isl, b.isl) || num(a.osl, b.osl) || num(a.conc, b.conc)
+    || String(a.precision).localeCompare(String(b.precision))
+    || num(a.gpus, b.gpus) || String(a.parallel_label).localeCompare(String(b.parallel_label));
+}
+
+function buildAccuracy(payload) {
+  const out = [];
+  (payload.models || []).forEach(model => {
+    (model.accuracy_tasks || []).forEach(task => {
+      const pts = (task.series || [])
+        .map(p => ({
+          t: parseTime(p.date),
+          value: Number(p.value),
+          date: p.date,
+          vllm_commit: p.vllm_commit,
+          image: p.image,
+          build_url: safeUrl(p.build_url),
+          build_number: p.build_number
+        }))
+        .filter(p => p.t > 0 && Number.isFinite(p.value))
+        .sort((a, b) => a.t - b.t);
+      if (!pts.length) return;
+      out.push({
+        key: [model.model, task.workload || '', task.device || '', task.task, task.metric].join('|'),
+        model: model.model,
+        shortModel: shortModel(model.model),
+        device: task.device || '',
+        workload: task.workload || '',
+        task: task.task,
+        metric: task.metric,
+        primary: !!task.primary,
+        points: pts,
+      });
+    });
+  });
+  return out;
+}
+
+// One row per model, device and task: the headline score plus the others.
+function accuracyGroups(series) {
+  const groups = new Map();
+  series.forEach(s => {
+    const k = [s.model, s.workload, s.device, s.task].join('|');
+    if (!groups.has(k)) groups.set(k, {
+      model: s.model,
+      shortModel: s.shortModel,
+      device: s.device,
+      workload: s.workload,
+      task: s.task,
+      primary: null,
+      others: []
+    });
+    const g = groups.get(k);
+    if (s.primary && !g.primary) g.primary = s;
+    else g.others.push(s);
+  });
+  return [...groups.values()].map(g => {
+    if (!g.primary) g.primary = g.others.shift();
+    g.others.sort((a, b) => a.metric.localeCompare(b.metric));
+    return g;
+  }).sort((a, b) => a.shortModel.localeCompare(b.shortModel)
+    || a.device.localeCompare(b.device) || a.task.localeCompare(b.task));
+}
+
+// "exact_match,flexible-extract" -> "flexible extract".
+function accuracyMetricLabel(metric) {
+  const [name, filter] = String(metric).split(',');
+  const text = (filter && filter !== 'none') ? filter : name;
+  return text.replace(/[_-]+/g, ' ');
+}
+
+/* ================================================================
+   4. STATE
+   ================================================================ */
+const state = {
+  tab: 'performance',
+  perfMetric: null, // Performance tab bar metric; null = the default
+  baseline: 'previous',
+  selected: {}, // facet key -> Set of allowed values (empty = all)
+  onlyRegressed: false, // charts and table show only regressed configs
+  chartDays: null, // trend chart window in days; null = the full window
+};
+FACETS.forEach(f => state.selected[f.key] = new Set());
+
+function windowCutoff() { return Date.now() - WINDOW_DAYS * 86400000; }
+
+// Chart window, 1 day up to WINDOW_DAYS. Charts only: the comparisons need
+// the previous run, which a short window would drop.
+function chartDays() {
+  const days = Math.round(state.chartDays || WINDOW_DAYS);
+  return Math.min(Math.max(days, 1), WINDOW_DAYS);
+}
+// Shared x-axis bounds, so the stacked charts line up by date. A narrowed
+// window counts back from the newest nightly (one ending now would often be
+// empty); the axis still ends now, so a stalled nightly shows as a gap.
+// Cached per render; renderAll clears it.
+let _chartBounds = null;
+
+function chartBounds() {
+  if (_chartBounds) return _chartBounds;
+  const now = Date.now(),
+    days = chartDays();
+  if (days >= WINDOW_DAYS) return (_chartBounds = { min: now - WINDOW_DAYS * 86400000, max: now });
+  // Newest nightly overall, ignoring filters, so every chart shares the anchor.
+  const build = latestNightlyBuild();
+  let anchor = 0;
+  CONFIGS.forEach(c => { const t = c.builds.get(build); if (t > anchor) anchor = t; });
+  if (!anchor) anchor = now;
+  return (_chartBounds = { min: Math.max(anchor - days * 86400000, now - WINDOW_DAYS * 86400000), max: now });
+}
+
+function chartPointsIn(cfg, metricKey) {
+  const min = chartBounds().min;
+  return pointsIn(cfg, metricKey).filter(p => p.t >= min);
+}
+// Only metrics the shown series have points for, so no empty chart cards.
+function chartedMetrics() {
+  const shown = seriesList();
+  return METRICS.filter(m => shown.some(s => chartPointsIn(s.config, m.key).length > 0));
+}
+
+// Points inside the window, for one config and metric.
+function pointsIn(cfg, metricKey) {
+  const cutoff = windowCutoff();
+  return (cfg.metrics[metricKey] || []).filter(p => p.t >= cutoff);
+}
+
+function facetMatches(cfg, exceptKey) {
+  return FACETS.every(f => {
+    if (f.key === exceptKey) return true;
+    const sel = state.selected[f.key];
+    return sel.size === 0 || sel.has(f.get(cfg));
+  });
+}
+
+function hasPointsInWindow(cfg) {
+  return Object.keys(cfg.metrics).some(mk => pointsIn(cfg, mk).length > 0);
+}
+
+function visibleConfigs() {
+  return CONFIGS.filter(c => facetMatches(c) && hasPointsInWindow(c));
+}
+
+// What the charts and table draw. Not visibleConfigs, which the regression
+// scan itself runs over.
+function shownConfigs() {
+  const configs = visibleConfigs();
+  if (!state.onlyRegressed) return configs;
+  const regressed = regressedKeys(state.baseline);
+  return configs.filter(c => regressed.has(c.key));
+}
+
+/* ================================================================
+   5. ANALYSIS
+   ================================================================ */
+// Computed here, not in aggregate.py, because the window decides which
+// runs are compared.
+function verdict(values, metric, baseline) {
+  if (values.length < 2) return null;
+  const latest = values[values.length - 1];
+  // Newest vs the run before it, with no smoothing: perf-eval already medians
+  // repeated runs, so averaging again would only blur the change.
+  const base = values[values.length - 2];
+  if (base == null || !isFinite(base) || base === 0) return null;
+  const ratio = (latest - base) / Math.abs(base);
+  const improved = metric.better === 'higher' ? ratio > 0 : ratio < 0;
+  const magnitude = Math.abs(ratio);
+  let severity = 'ok';
+  // ratio !== 0 keeps a flat value neutral if the threshold is ever zero.
+  if (ratio !== 0 && !improved) {
+    if (baseline.alert != null && magnitude >= baseline.alert) severity = 'alert';
+    else if (magnitude >= baseline.warn) severity = 'warn';
+  }
+  return {
+    latest: latest,
+    base: base,
+    ratio: ratio,
+    improved: improved,
+    magnitude: magnitude,
+    severity: severity,
+    points: values.length
+  };
+}
+
+// Absolute change: accuracy is on 0..1, so changes read in points.
+function accuracyVerdict(values, baseline) {
+  if (values.length < 2) return null;
+  const latest = values[values.length - 1];
+  const base = values[values.length - 2];
+  if (base == null || !isFinite(base)) return null;
+  const delta = latest - base;
+  const improved = delta > 0;
+  const magnitude = Math.abs(delta);
+  // Float tolerance: 0.9334 - 0.9234 is not exactly 0.01.
+  const counted = delta !== 0 && magnitude >= baseline.accuracy_abs - 1e-9;
+  const severity = (counted && !improved) ? 'warn' : 'ok';
+  return {
+    latest: latest,
+    base: base,
+    delta: delta,
+    ratio: base ? delta / Math.abs(base) : null,
+    improved: improved,
+    counted: counted,
+    magnitude: magnitude,
+    severity: severity,
+    points: values.length
+  };
+}
+
+// Every (config, metric) verdict, cached per filter state and baseline.
+const _scanCache = new Map();
+
+function scanKey(baselineId) {
+  return [baselineId, FACETS.map(f => [...state.selected[f.key]].sort().join(',')).join(';')].join('|');
+}
+// Nightlies across all configs, ignoring filters, newest first: every overnight
+// figure describes the first, compared against the second. CONFIGS is fixed
+// once the payload loads, so this is worked out once.
+let _nightlies = null;
+function recentNightlies() {
+  if (_nightlies) return _nightlies;
+  const at = new Map();
+  CONFIGS.forEach(c => c.builds.forEach((t, b) => { if (!(at.get(b) >= t)) at.set(b, t); }));
+  return (_nightlies = [...at.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]));
+}
+function latestNightlyBuild() { return recentNightlies()[0] || null; }
+function previousNightlyBuild() { return recentNightlies()[1] || null; }
+// True when the config's newest point is from the latest nightly. Otherwise
+// its last two points are an older night's change, not tonight's.
+function reportedTonight(pts, latest) {
+  return pts.length > 0 && String(pts[pts.length - 1].build_number) === latest;
+}
+// Tonight's run, and the run before it is the previous nightly. A config that
+// skipped last night compares against an older run, so its change spans every
+// night it missed and is not an overnight change.
+function comparedOvernight(pts, latest, previous) {
+  return pts.length >= 2 && reportedTonight(pts, latest)
+    && previous != null && String(pts[pts.length - 2].build_number) === previous;
+}
+
+function scan(baselineId) {
+  const ck = scanKey(baselineId);
+  if (_scanCache.has(ck)) return _scanCache.get(ck);
+  const out = scanConfigs(visibleConfigs(), baselineId);
+  _scanCache.set(ck, out);
+  return out;
+}
+
+function scanConfigs(configs, baselineId) {
+  const baseline = BASELINE_BY_ID[baselineId];
+  const latest = latestNightlyBuild(),
+    previous = previousNightlyBuild();
+  const out = [];
+  configs.forEach(cfg => {
+    METRICS.forEach(metric => {
+      const pts = pointsIn(cfg, metric.key);
+      if (!comparedOvernight(pts, latest, previous)) return;
+      const v = verdict(pts.map(p => p.value), metric, baseline);
+      if (!v) return;
+      out.push({
+        configKey: cfg.key,
+        config: cfg,
+        metricKey: metric.key,
+        metric: metric,
+        row: pts[pts.length - 1],
+        ...v
+      });
+    });
+  });
+  out.sort((a, b) => b.magnitude - a.magnitude);
+  return out;
+}
+
+function invalidateScan() { _scanCache.clear(); }
+
+// Configs regressed on any metric, ignoring the filters. scan() only covers
+// what the filters show, but a facet count asks about configs they hide: with
+// Model A picked, Model B's count must still know whether B regressed. Filters
+// cannot change a config's own verdict, so this needs no invalidation.
+const _regressedAnyCache = new Map();
+function regressedUnfiltered(baselineId) {
+  if (!_regressedAnyCache.has(baselineId)) {
+    _regressedAnyCache.set(baselineId, new Set(scanConfigs(CONFIGS.filter(hasPointsInWindow), baselineId)
+      .filter(d => d.severity !== 'ok').map(d => d.configKey)));
+  }
+  return _regressedAnyCache.get(baselineId);
+}
+
+const regressionsOf = id => scan(id).filter(d => d.severity !== 'ok');
+const improvementsOf = id => scan(id).filter(d => d.improved && d.magnitude >= BASELINE_BY_ID[id].warn);
+// Moves under the threshold, shown beside the counts they were left out of.
+const belowThresholdOf = id => scan(id).filter(d => d.ratio !== 0 && !d.improved && d.severity === 'ok');
+const belowThresholdGainsOf = id => scan(id).filter(d => d.improved && d.magnitude < BASELINE_BY_ID[id].warn);
+
+function thresholdLabel(baseline) { return +(baseline.warn * 100).toFixed(2) + '%'; }
+
+function regressedKeys(id) { return new Set(regressionsOf(id).map(d => d.configKey)); }
+// Regressed on *this* metric, not merely somewhere.
+function regressedKeysForMetric(id, metricKey) {
+  return new Set(regressionsOf(id).filter(d => d.metricKey === metricKey).map(d => d.configKey));
+}
+
+// Median night-over-night change across configs; one config's delta is noise.
+function nightOverNight() {
+  const metric = METRIC_BY_KEY[PRIMARY_METRIC];
+  if (!metric) return null;
+  const latest = latestNightlyBuild(),
+    previous = previousNightlyBuild();
+  const ratios = [];
+  visibleConfigs().forEach(cfg => {
+    const pts = pointsIn(cfg, PRIMARY_METRIC);
+    if (!comparedOvernight(pts, latest, previous)) return;
+    const prev = pts[pts.length - 2].value;
+    if (!prev) return;
+    ratios.push((pts[pts.length - 1].value - prev) / Math.abs(prev));
+  });
+  if (!ratios.length) return null;
+  const med = median(ratios);
+  return {
+    ratio: med,
+    configs: ratios.length,
+    improved: metric.better === 'higher' ? med > 0 : med < 0
+  };
+}
+
+// Coverage: did the configs in the recipes the latest nightly ran (payload
+// `expected`) report? Expected comes from the recipes, not recent data, so a
+// workload broken for weeks, or never working, stays missing.
+function configKeyOf(parts) {
+  return [parts.model, parts.device, parts.precision, parts.parallel_label, parts.isl, parts.osl, parts.conc].join('|');
+}
+
+function coverage() {
+  // Filtered like the other cards.
+  const expected = (((DATA.expected || {}).configs) || []).filter(e => facetMatches({
+    device: e.device,
+    shortModel: shortModel(e.model),
+    precision: e.precision,
+    isl: e.isl,
+    osl: e.osl,
+    conc: e.conc,
+  }));
+  if (!expected.length) return null;
+
+  const latestBuild = latestNightlyBuild();
+  if (latestBuild === null) return null;
+
+  // Which expected configs reported in that build.
+  const reported = new Set();
+  CONFIGS.forEach(c => {
+    if (!c.builds.has(latestBuild)) return;
+    reported.add(configKeyOf(c));
+  });
+
+  const missing = expected.filter(e => !reported.has(configKeyOf(e)));
+
+  // Grouped by workload: one failed step drops every config in it, which is
+  // one incident, not one per shape.
+  const groupKey = e => e.workload || ((e.model || '') + '|' + (e.device || ''));
+  const byWorkload = new Map();
+  expected.forEach(e => {
+    const key = groupKey(e);
+    if (!byWorkload.has(key)) {
+      byWorkload.set(key, {
+        name: (e.model ? shortModel(e.model) : e.workload) + ' · ' + (e.device || '?'),
+        total: 0,
+        shapes: [],
+      });
+    }
+    byWorkload.get(key).total++;
+  });
+  missing.forEach(e => {
+    byWorkload.get(groupKey(e)).shapes.push(e.isl + '/' + e.osl + ' c=' + e.conc);
+  });
+
+  const groups = [...byWorkload.values()]
+    .filter(g => g.shapes.length)
+    .map(g => ({ ...g, whole: g.shapes.length === g.total }))
+    // Whole-workload outages first, then by size of the gap.
+    .sort((a, b) => (b.whole - a.whole) || (b.shapes.length - a.shapes.length)
+      || a.name.localeCompare(b.name));
+
+  return {
+    present: expected.length - missing.length,
+    expected: expected.length,
+    build: latestBuild,
+    missing: missing.length,
+    groups,
+    accuracy: accuracyTonight(),
+  };
+}
+
+// Unfiltered, like the other cards that name tonight's build.
+function latestRun() {
+  let best = null;
+  CONFIGS.forEach(c => Object.keys(c.metrics).forEach(mk => {
+    pointsIn(c, mk).forEach(p => { if (!best || p.t > best.t) best = p; });
+  }));
+  return best;
+}
+// Distinct nightlies in the window, ignoring filters.
+function nightliesInWindow() {
+  const builds = new Set();
+  const cutoff = windowCutoff();
+  CONFIGS.forEach(config => config.builds.forEach((t, build) => {
+    if (t >= cutoff) builds.add(build);
+  }));
+  return builds.size;
+}
+
+/* ================================================================
+   6. CONTROLS
+   ================================================================ */
+function renderNotice() {
+  const host = document.getElementById('notice-host');
+  // Unfiltered: an empty filter combination is not a stalled nightly.
+  const inWindow = CONFIGS.some(hasPointsInWindow);
+  if (inWindow) { host.innerHTML = ''; return; }
+  host.innerHTML = '<div class="notice"><span><strong>No AMD nightly results in the last '
+    + WINDOW_DAYS + ' days.</strong> '
+    + 'The nightly or the collector may have stopped. '
+    + 'Check the <a id="notice-pipeline" target="_blank" rel="noopener noreferrer">perf-eval pipeline</a>.'
+    + '</span></div>';
+  const link = document.getElementById('notice-pipeline');
+  if (link) link.href = safeUrl((DATA.pipeline || {}).url) || 'https://buildkite.com/vllm/perf-eval';
+}
+
+// Selected values stay listed with no matching config (a stale shared link,
+// say), or they could never be unticked.
+function facetValues(f) {
+  const values = [...new Set([...CONFIGS.map(f.get), ...state.selected[f.key]])]
+    .filter(v => v !== undefined && v !== '');
+  return values.sort(f.key === 'conc' ? (a, b) => (+a) - (+b) : (a, b) => String(a).localeCompare(String(b)));
+}
+// The configs a value adds under the other active filters, so it can read 0.
+// Only regressed is one of those filters: without it, a value with no
+// regressions would stay clickable and select nothing.
+function facetCount(f, v) {
+  const regressed = state.onlyRegressed ? regressedUnfiltered(state.baseline) : null;
+  return CONFIGS.filter(c => f.get(c) === v && facetMatches(c, f.key) && hasPointsInWindow(c)
+    && (!regressed || regressed.has(c.key))).length;
+}
+function activeFilterCount() {
+  return FACETS.reduce((n, f) => n + state.selected[f.key].size, 0) + (state.onlyRegressed ? 1 : 0);
+}
+
+function facetOptions(f) {
+  return facetValues(f).map(v => {
+    const on = state.selected[f.key].has(v);
+    const count = facetCount(f, v);
+    return { value: v, on: on, count: count, unavailable: count === 0 && !on };
+  });
+}
+
+function applyFilters(focusSelector) {
+  invalidateScan();
+  syncToHash();
+  renderAll();
+  if (focusSelector) focusAfterRender(focusSelector);
+}
+
+function setFacet(key, update) {
+  const sel = state.selected[key];
+  if (update.clear) sel.clear();
+  else if (update.toggle) {
+    if (sel.has(update.value)) sel.delete(update.value);
+    else sel.add(update.value);
+  } else if (update.on) sel.add(update.value);
+  else sel.delete(update.value);
+}
+
+function resetFilters() {
+  FACETS.forEach(f => state.selected[f.key].clear());
+  state.onlyRegressed = false;
+  applyFilters();
+}
+
+function renderControls() {
+  const host = document.getElementById('controls-host');
+  let html = '<div class="controls">';
+
+  html += '<div class="controls-row"><div class="facet-grid">';
+  FACETS.forEach(f => {
+    const values = facetValues(f);
+    // Any facet with many values gets the wide layout.
+    const wide = values.length > 6;
+    html += '<div class="facet-col' + (wide ? ' wide' : '') + '"><div class="facet-head">' + esc(f.label) + '</div>'
+      + '<div class="facet-opts">';
+    facetOptions(f).forEach(opt => {
+      // A selected option stays clickable at zero so it can be cleared.
+      html += '<div class="facet-opt' + (opt.on ? ' on' : '') + (opt.unavailable ? ' unavailable' : '')
+        + '" data-facet="' + esc(f.key) + '" data-value="' + esc(opt.value) + '" role="checkbox"'
+        + ' aria-checked="' + (opt.on ? 'true' : 'false') + '"'
+        + (opt.unavailable ? ' aria-disabled="true"' : '') + '>'
+        + '<span class="facet-box"></span>'
+        + '<span class="facet-label" title="' + esc(opt.value) + '">' + esc(opt.value) + '</span>'
+        + '<span class="facet-count">' + opt.count + '</span></div>';
+    });
+    html += '</div></div>';
+  });
+  html += '</div>';
+
+  const activeFilters = activeFilterCount();
+  const regressedCount = regressedKeys(state.baseline).size;
+  html += '<div class="facet-actions">'
+    + '<button class="btn' + (state.onlyRegressed ? ' on' : '') + '" id="only-regressed"'
+    + ' aria-pressed="' + (state.onlyRegressed ? 'true' : 'false') + '"'
+    + (regressedCount || state.onlyRegressed ? '' : ' disabled')
+    + ' title="The Performance, Tradeoff, Trends and Configurations tabs show only configurations that regressed">'
+    + 'Only regressed (' + integer(regressedCount) + ')</button>'
+    + (activeFilters
+      ? '<button class="btn" id="reset-facets">Clear ' + activeFilters
+        + (activeFilters === 1 ? ' filter' : ' filters') + '</button>'
+      : '')
+    + '</div>';
+  html += '</div></div>';
+  host.innerHTML = html;
+
+  host.querySelectorAll('.facet-opt:not(.unavailable)').forEach(el => {
+    const k = el.getAttribute('data-facet'),
+      v = el.getAttribute('data-value');
+    activatable(el, null, () => {
+      setFacet(k, { toggle: true, value: v });
+      applyFilters('.facet-opt[data-facet="' + cssEscape(k) + '"][data-value="' + cssEscape(v) + '"]');
+    });
+  });
+  const only = document.getElementById('only-regressed');
+  if (only) only.addEventListener('click', () => {
+    state.onlyRegressed = !state.onlyRegressed;
+    applyFilters('#only-regressed');
+  });
+  const reset = document.getElementById('reset-facets');
+  if (reset) reset.addEventListener('click', resetFilters);
+}
+
+// ATOM-style dropdowns in the header, on the same state as the filter panel.
+let openFilter = null;
+
+function renderHeaderFilters() {
+  const bar = document.getElementById('filter-bar');
+  const active = activeFilterCount();
+  bar.innerHTML = FACETS.map(f => {
+    const sel = state.selected[f.key];
+    const open = openFilter === f.key;
+    return '<div class="filter-group"><button class="filter-btn' + (open ? ' open' : '') + '" data-filter="' + esc(f.key) + '"'
+      + ' aria-expanded="' + (open ? 'true' : 'false') + '">' + esc(f.label) + ' ▾'
+      + (sel.size ? '<span class="count">' + sel.size + '</span>' : '') + '</button>'
+      + '<div class="filter-dropdown' + (open ? ' open' : '') + '" data-dropdown="' + esc(f.key) + '">'
+      + '<label><input type="checkbox" data-all' + (sel.size ? '' : ' checked') + '> All</label><div class="sep"></div>'
+      + facetOptions(f).map(opt =>
+        '<label' + (opt.unavailable ? ' class="unavailable"' : '') + '><input type="checkbox" value="' + esc(opt.value) + '"'
+        + (opt.on ? ' checked' : '') + (opt.unavailable ? ' disabled' : '') + '> <span class="opt-label">' + esc(opt.value)
+        + '</span><span class="opt-count">' + opt.count + '</span></label>').join('')
+      + '</div></div>';
+  }).join('')
+    + '<span class="filter-summary">' + (active ? integer(shownConfigs().length) + ' configs' : 'Showing all') + '</span>'
+    + '<button class="filter-reset" id="header-reset"' + (active ? '' : ' disabled') + '>Reset</button>';
+
+  bar.querySelectorAll('.filter-btn').forEach(btn => btn.addEventListener('click', event => {
+    event.stopPropagation();
+    const key = btn.getAttribute('data-filter');
+    openFilter = openFilter === key ? null : key;
+    renderHeaderFilters();
+    focusAfterRender('.filter-btn[data-filter="' + cssEscape(key) + '"]');
+  }));
+  bar.querySelectorAll('.filter-dropdown').forEach(dd => {
+    dd.addEventListener('click', event => event.stopPropagation());
+    dd.addEventListener('change', event => {
+      const key = dd.getAttribute('data-dropdown');
+      const input = event.target;
+      if (input.hasAttribute('data-all')) setFacet(key, { clear: true });
+      else setFacet(key, { on: input.checked, value: input.value });
+      applyFilters('[data-dropdown="' + cssEscape(key) + '"] input'
+        + (input.hasAttribute('data-all') ? '[data-all]' : '[value="' + cssEscape(input.value) + '"]'));
+    });
+  });
+  const reset = document.getElementById('header-reset');
+  if (reset) reset.addEventListener('click', resetFilters);
+}
+
+function closeHeaderFilters() {
+  if (openFilter === null) return;
+  openFilter = null;
+  renderHeaderFilters();
+}
+
+/* ================================================================
+   7. KPI ROW
+   ================================================================ */
+function renderKpis() {
+  const host = document.getElementById('kpi-host');
+  const configs = visibleConfigs();
+  if (!configs.length) { host.innerHTML = ''; return; }
+
+  const regs = regressionsOf(state.baseline);
+  const imps = improvementsOf(state.baseline);
+  const non = nightOverNight();
+  const cov = coverage();
+  const latest = latestRun();
+  const cards = [];
+
+  if (latest) {
+    cards.push({
+      cls: 'linked',
+      href: latest.build_url,
+      label: 'Latest nightly',
+      value: fmtDate(latest.t),
+      sub: 'build #' + esc(latest.build_number || '?') + ' · vLLM <code>' + esc(shortSha(latest.vllm_commit)) + '</code>',
+    });
+  }
+
+  if (non) {
+    // Outline shows direction (green up, red down), neutral inside the threshold.
+    // Uses `improved`, not the sign, in case the metric becomes lower-is-better.
+    const moved = Math.abs(non.ratio) >= BASELINE_BY_ID[state.baseline].warn;
+    cards.push({
+      cls: moved ? (non.improved ? 'ok' : 'alert') : '',
+      label: 'Performance overnight',
+      value: pct(non.ratio, 2),
+      valueCls: moved ? (non.improved ? 'up' : 'down') : '',
+      sub: 'median change in ' + esc((METRIC_BY_KEY[PRIMARY_METRIC] || {}).label || PRIMARY_METRIC),
+    });
+  }
+
+  // Colour only when there is something to report.
+  const threshold = thresholdLabel(BASELINE_BY_ID[state.baseline]);
+  const below = belowThresholdOf(state.baseline).length;
+  const belowGains = belowThresholdGainsOf(state.baseline).length;
+  cards.push({
+    cls: regs.length ? 'alert' : '',
+    label: 'Regressions overnight',
+    value: integer(regs.length),
+    valueCls: regs.length ? 'down' : '',
+    sub: 'drops of at least <b>' + threshold + '</b>'
+      + (below ? '<br><b>' + integer(below) + '</b> smaller not counted' : ''),
+  });
+
+  cards.push({
+    cls: imps.length ? 'ok' : '',
+    label: 'Improvements overnight',
+    value: integer(imps.length),
+    valueCls: imps.length ? 'up' : '',
+    sub: 'gains of at least <b>' + threshold + '</b>'
+      + (belowGains ? '<br><b>' + integer(belowGains) + '</b> smaller not counted' : ''),
+  });
+
+  const acc = accuracyTonight();
+  if (acc) {
+    cards.push({
+      cls: acc.regressed ? 'alert' : '',
+      tab: 'accuracy',
+      label: 'Accuracy overnight',
+      value: integer(acc.regressed),
+      valueCls: acc.regressed ? 'down' : '',
+      sub: 'drops of at least <b>' + acc.threshold + '</b>',
+    });
+  }
+
+  if (cov) {
+    // Perf and accuracy coverage in one card. Each line is coloured on its own;
+    // the border is red if either is incomplete.
+    const accMissing = cov.accuracy ? cov.accuracy.total - cov.accuracy.reported : 0;
+    // Grid cells, so the two lines align on the slash.
+    const covRow = (present, total, label) => {
+      const cls = present < total ? 'down' : 'up';
+      return '<span class="' + cls + ' num">' + integer(present) + '</span>'
+        + '<span class="' + cls + '">/</span>'
+        + '<span class="' + cls + '">' + integer(total) + '</span>'
+        + '<span class="kpi-unit">' + label + '</span>';
+    };
+    cards.push({
+      cls: (cov.missing || accMissing) ? 'alert' : 'ok',
+      label: 'Coverage',
+      valueCls: 'stacked',
+      value: covRow(cov.present, cov.expected, 'performance')
+        + (cov.accuracy ? covRow(cov.accuracy.reported, cov.accuracy.total, 'accuracy') : ''),
+    });
+  }
+
+  host.innerHTML = cards.map(c => {
+    const inner = '<div class="kpi-label">' + esc(c.label) + '</div>'
+      + '<div class="kpi-value' + (c.valueCls ? ' ' + c.valueCls : '') + '">' + c.value + '</div>'
+      + '<div class="kpi-sub">' + (c.sub || '') + '</div>';
+    // The whole card is the link, with the arrow in the corner saying so.
+    if (c.href) {
+      return '<a class="kpi-card linked' + (c.cls && c.cls !== 'linked' ? ' ' + c.cls : '') + '" href="' + esc(c.href)
+        + '" target="_blank" rel="noopener noreferrer">'
+        + '<span class="kpi-ext">' + EXT_ARROW + '</span>' + inner + '</a>';
+    }
+    // No arrow on a card that opens a tab: it stays on the page.
+    return '<div class="kpi-card' + (c.tab ? ' linked' : '') + (c.cls ? ' ' + c.cls : '') + '"'
+      + (c.tab ? ' data-goto-tab="' + esc(c.tab) + '"' : '') + '>' + inner + '</div>';
+  }).join('');
+  host.querySelectorAll('[data-goto-tab]').forEach(el => {
+    const tab = el.getAttribute('data-goto-tab');
+    activatable(el, 'Open the ' + tab + ' tab', () => { state.tab = tab;
+      syncToHash();
+      renderAll(); });
+  });
+}
+
+// The accuracy results the recipes' `lm_eval.tasks` say should run, each
+// paired with the series that reported for it, or null. Expectation comes
+// from the recipes for the same reason perf's does: one inferred from the
+// window forgets whatever has been absent longer than the window, so a
+// workload whose lm-eval kept failing would quietly leave its own denominator
+// and stop being reported missing. Payloads written before the collector
+// recorded this fall back to the observed groups.
+function expectedAccuracy(groups) {
+  const declared = ((DATA.expected || {}).accuracy) || [];
+  if (!declared.length) {
+    return groups.map(g => ({ shortModel: g.shortModel, device: g.device, task: g.task, group: g }));
+  }
+  // Not keyed on model: older accuracy events resolved it from lm-eval's
+  // backend name, and the workload already identifies the recipe.
+  const key = (workload, device, task) => [workload || '', device || '', task].join('|');
+  const byKey = new Map();
+  groups.forEach(g => {
+    const k = key(g.workload, g.device, g.task);
+    if (!byKey.has(k)) byKey.set(k, g);
+  });
+  return declared
+    .filter(e => accuracyFacetMatches({ device: e.device || '', shortModel: shortModel(e.model) }))
+    .map(e => ({
+      shortModel: shortModel(e.model),
+      device: e.device || '',
+      task: e.task,
+      group: byKey.get(key(e.workload, e.device, e.task)) || null,
+    }));
+}
+
+// Tonight's accuracy per model, device and task, on the headline score.
+function accuracyTonight() {
+  const build = latestNightlyBuild();
+  const baseline = BASELINE_BY_ID[state.baseline];
+  const cutoff = windowCutoff();
+  const series = ACC_TASKS.map(t => {
+    const pts = t.points.filter(p => p.t >= cutoff);
+    return { ...t, windowed: pts, verdict: accuracyVerdict(pts.map(p => p.value), baseline) };
+  }).filter(t => t.windowed.length && accuracyFacetMatches(t));
+
+  const expected = expectedAccuracy(accuracyGroups(series));
+  if (!expected.length) return null;
+
+  const tonight = [], missing = [];
+  expected.forEach(e => {
+    if (e.group && reportedTonight(e.group.primary.windowed, build)) tonight.push(e.group);
+    else missing.push(e);
+  });
+  return {
+    build: build,
+    total: expected.length,
+    reported: tonight.length,
+    regressed: tonight.filter(g => g.primary.verdict && g.primary.verdict.severity !== 'ok').length,
+    missing: missing.map(e => ({
+      name: e.shortModel + ' · ' + (e.device || '?'),
+      task: e.task,
+      // Null when nothing reported inside the window: the outage is older
+      // than the results the store keeps, so there is no run to link to.
+      last: e.group ? e.group.primary.windowed[e.group.primary.windowed.length - 1] : null,
+    })),
+    threshold: accuracyPoints(baseline.accuracy_abs),
+  };
+}
+
+/* ================================================================
+   7b. COVERAGE PANEL
+   ================================================================ */
+// Below the tabs, not in one, so it shows on every tab.
+function renderCoveragePanel() {
+  const host = document.getElementById('coverage-host');
+  const cov = coverage();
+  const accMissing = (cov && cov.accuracy) ? cov.accuracy.missing : [];
+  if (!cov || (!cov.missing && !accMissing.length)) { host.innerHTML = ''; return; }
+
+  const parts = [];
+  if (cov.missing) {
+    parts.push(integer(cov.missing) + ' perf config' + (cov.missing === 1 ? '' : 's'));
+  }
+  if (accMissing.length) {
+    parts.push(integer(accMissing.length) + ' accuracy result' + (accMissing.length === 1 ? '' : 's'));
+  }
+  host.innerHTML = '<div class="cov-panel"><div class="cov-head">'
+    + '<h3>Missing in build #' + esc(cov.build) + ': ' + parts.join(', ') + '</h3>'
+    + '</div><div class="cov-list">'
+    + cov.groups.map(g =>
+      '<div class="cov-item' + (g.whole ? ' whole' : '') + '">'
+      + '<div class="cov-name">' + esc(g.name) + '</div>'
+      +
+      // A workload with nothing reported is one line, not one per shape.
+      '<div class="cov-shapes">'
+      + (g.whole
+        ? '<span class="cov-shape">all ' + integer(g.total) + ' configs</span>'
+        : g.shapes.map(s => '<span class="cov-shape">' + esc(s) + '</span>').join(''))
+      + '</div>'
+      + '<div class="cov-tag">'
+      + (g.whole ? 'no results' : integer(g.shapes.length) + ' of ' + integer(g.total))
+      + '</div>'
+      + '</div>').join('')
+    + accMissing.map(m =>
+      '<div class="cov-item' + (m.last ? '' : ' whole') + '">'
+      + '<div class="cov-name">' + esc(m.name) + '</div>'
+      + '<div class="cov-shapes"><span class="cov-shape">' + esc(m.task) + ' accuracy</span>'
+      + '<span class="neutral" style="font-size:11px;margin-left:8px">'
+      + (m.last
+        ? 'last result ' + buildLink(m.last, null) + ' · ' + esc(fmtDate(m.last.t))
+        : 'no result in the last ' + WINDOW_DAYS + ' days')
+      + '</span></div>'
+      + '<div class="cov-tag">no accuracy</div>'
+      + '</div>').join('')
+    + '</div></div>';
+}
+
+/* ================================================================
+   8. TABS
+   ================================================================ */
+const TABS = [
+  { id: 'performance', label: 'Performance' },
+  { id: 'tradeoff', label: 'Throughput vs Latency' },
+  { id: 'trends', label: 'Trends' },
+  { id: 'accuracy', label: 'Accuracy' },
+  { id: 'configs', label: 'Configurations' },
+];
+
+function renderTabs() {
+  const host = document.getElementById('tabs-host');
+  host.setAttribute('role', 'tablist');
+  host.innerHTML = TABS.map(t =>
+    '<div class="tab' + (state.tab === t.id ? ' on' : '') + '" data-tab="' + t.id + '" role="tab"'
+    + ' aria-selected="' + (state.tab === t.id ? 'true' : 'false') + '">' + esc(t.label)
+    + '</div>').join('');
+  host.querySelectorAll('.tab').forEach(el => {
+    const id = el.getAttribute('data-tab');
+    activatable(el, null, () => {
+      state.tab = id;
+      syncToHash();
+      renderAll();
+      focusAfterRender('.tab[data-tab="' + id + '"]');
+    });
+  });
+}
+
+/* ================================================================
+   9. REGRESSION PANEL
+   ================================================================ */
+// Tier by the displayed 1-decimal value, so "2.5%" is always yellow.
+const REG_TIERS = [
+  { cls: 'minor', max: 2.5, label: 'up to 2.5%' },
+  { cls: 'moderate', max: 5, label: 'up to 5%' },
+  { cls: 'major', max: Infinity, label: 'over 5%' },
+];
+
+function regTier(magnitude) {
+  const shown = Number((magnitude * 100).toFixed(1));
+  return REG_TIERS.findIndex(t => shown <= t.max);
+}
+
+// Grouped by config: one slowdown usually moves several metrics.
+function renderRegressionPanel() {
+  const regs = regressionsOf(state.baseline);
+  const active = BASELINE_BY_ID[state.baseline];
+  const below = belowThresholdOf(state.baseline).length;
+  const thresholdNote = ' · counting drops of <b>' + thresholdLabel(active) + ' or more</b>'
+    + (below ? ' · ' + integer(below) + ' smaller drop' + (below === 1 ? '' : 's') + ' not counted' : '');
+  if (!regs.length) {
+    // Counts configs actually compared: one with no previous run was never
+    // checked, so the green panel must not include it.
+    const compared = new Set(scan(state.baseline).map(d => d.configKey)).size;
+    if (!compared) {
+      return '<div class="reg-panel unknown"><div class="reg-head">'
+        + '<h3>Nothing to compare</h3><span class="reg-count">no configuration ran in both '
+        + 'build #' + esc(latestNightlyBuild() || '?') + ' and the nightly before it, #'
+        + esc(previousNightlyBuild() || '?') + '</span></div></div>';
+    }
+    return '<div class="reg-panel clean"><div class="reg-head">'
+      + '<h3>No regressions</h3><span class="reg-count">' + esc(active.label)
+      + ', across ' + integer(compared) + ' compared configuration' + (compared === 1 ? '' : 's')
+      + thresholdNote + '</span></div></div>';
+  }
+  const groups = new Map();
+  regs.forEach(d => {
+    if (!groups.has(d.configKey)) groups.set(d.configKey, { config: d.config, items: [], row: d.row, tier: 0 });
+    const g = groups.get(d.configKey);
+    g.items.push(d);
+    g.tier = Math.max(g.tier, regTier(d.magnitude));
+    if (d.row.t > g.row.t) g.row = d.row;
+  });
+  // Fixed order, so a config is always in the same place.
+  const ordered = [...groups.values()].sort((a, b) => compareConfigs(a.config, b.config));
+
+  return '<div class="reg-panel"><div class="reg-head">'
+    + '<h3>' + integer(regs.length) + ' regression' + (regs.length === 1 ? '' : 's')
+    + ' across ' + integer(ordered.length) + ' configuration' + (ordered.length === 1 ? '' : 's') + '</h3>'
+    + '<span class="reg-count">' + esc(active.label) + thresholdNote
+    + '<span class="tier-key">' + REG_TIERS.map(t => '<span class="' + t.cls + '">' + t.label + '</span>').join('')
+    + '</span></span></div><div class="reg-list">'
+    + ordered.map(g => {
+      const linked = !!g.row.build_url;
+      const failed = failedNote(g.row);
+      const inner = '<span class="reg-config">' + esc(g.config.label) + '</span>'
+        + '<span class="reg-metrics">' + g.items.map(d => {
+          // Hover shows the actual values.
+          const detail = d.metric.label + ': ' + fmt(display(d.latest, d.metric), d.metric.digits)
+            + ' vs ' + fmt(display(d.base, d.metric), d.metric.digits) + ' ' + unitOf(d.metric);
+          return '<span class="reg-chip ' + REG_TIERS[regTier(d.magnitude)].cls
+            + '" title="' + esc(detail) + '">'
+            + esc(d.metric.label) + ' <b>' + pctDirection(d.ratio, 1) + '</b></span>';
+        }).join('') + '</span>'
+        + '<span class="reg-build">'
+        + (failed ? '<span class="reg-failed">' + esc(failed) + '</span> · ' : '')
+        + 'build #' + esc(g.row.build_number || '?')
+        + (linked ? EXT_INLINE : '') + '</span>';
+      // The whole row links to the build.
+      const tier = REG_TIERS[g.tier].cls;
+      return linked
+        ? '<a class="reg-item linked ' + tier + '" href="' + esc(g.row.build_url)
+        + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>'
+        : '<div class="reg-item ' + tier + '">' + inner + '</div>';
+    }).join('') + '</div></div>';
+}
+
+/* ================================================================
+   10. STACKED TREND CHARTS
+   ================================================================ */
+function seriesList() {
+  return shownConfigs().map(c => ({
+    config: c,
+    key: c.key,
+    label: c.label,
+    color: BASE_COLOR[c.key] || activePalette()[0],
+  }));
+}
+
+function daysLabel(days) { return 'Last ' + days + ' day' + (days === 1 ? '' : 's'); }
+// Short spans tick every 6 hours with the UTC hour, so labels do not repeat.
+function shortChartSpan(bounds) { return bounds.max - bounds.min <= 3 * 86400000; }
+
+function chartTick(v) {
+  const d = new Date(v);
+  if (isNaN(d)) return '';
+  const iso = d.toISOString();
+  return shortChartSpan(chartBounds()) ? iso.slice(5, 10) + ' ' + iso.slice(11, 13) + 'h' : iso.slice(5, 10);
+}
+
+// Presets for the common spans, and a slider for anything between.
+function renderWindowBar() {
+  const days = chartDays();
+  const presets = [...new Set([1, 3, 7, WINDOW_DAYS].filter(d => d <= WINDOW_DAYS))];
+  return '<div class="window-bar"><span class="bar-label">Chart window</span>'
+    + '<div class="segmented">' + presets.map(d =>
+      '<button class="' + (d === days ? 'on' : '') + '" data-days="' + d + '" aria-pressed="'
+      + (d === days ? 'true' : 'false') + '" aria-label="Last ' + d + ' day' + (d === 1 ? '' : 's') + '">' + d + 'd</button>').join('')
+    + '</div>'
+    + '<input type="range" id="chart-days" min="1" max="' + WINDOW_DAYS + '" step="1" value="' + days + '"'
+    + ' aria-label="Chart window in days">'
+    + '<span class="window-value" id="chart-days-label">' + daysLabel(days) + '</span>'
+    + '<span class="window-note">' + (days < WINDOW_DAYS ? 'counted back from the newest nightly · ' : '')
+    + 'charts only; regressions always compare the newest nightly with the one before it</span></div>';
+}
+
+function chartTheme() {
+  return { tick: cssVar('--text-tertiary'), grid: cssVar('--border-light') };
+}
+
+// Keep the y-axis at least 1% of the value tall, so float noise between
+// two equal runs draws flat instead of as a cliff.
+const MIN_Y_SPAN = 0.01;
+
+function floorYSpan(scale) {
+  const mid = (scale.max + scale.min) / 2;
+  const floor = Math.abs(mid) * MIN_Y_SPAN;
+  if (scale.max - scale.min < floor) {
+    scale.min = mid - floor / 2;
+    scale.max = mid + floor / 2;
+  }
+}
+
+function renderTrendCharts() {
+  const series = seriesList();
+  const present = chartedMetrics();
+  if (!present.length || !series.length) {
+    return '<div class="card"><div class="empty">Nothing to plot for the current filters.</div></div>';
+  }
+  return '<div class="mini-grid">' + present.map(m => {
+    const regCount = regressedKeysForMetric(state.baseline, m.key).size;
+    return '<div class="mini-card' + (regCount ? ' has-reg' : '') + '">'
+      + '<div class="mini-head"><span class="mini-title">' + esc(m.label) + '</span>'
+      + '<span class="mini-unit">' + esc(unitOf(m)) + '</span>'
+      + '<span class="mini-dir">' + (m.better === 'higher' ? 'higher is better' : 'lower is better') + '</span>'
+      + (regCount ? '<span class="mini-reg">' + regCount + ' regressed</span>' : '')
+      + '</div><div class="mini-wrap"><canvas id="trend-' + esc(m.key) + '"></canvas></div></div>';
+  }).join('') + '</div>';
+}
+
+function drawTrendChart(metric) {
+  const canvas = document.getElementById('trend-' + metric.key);
+  if (!canvas) return;
+  const existing = Chart.getChart(canvas);
+  if (existing) existing.destroy();
+
+  const theme = chartTheme();
+  const bounds = chartBounds();
+  const regColor = cssVar('--accent-red') || REG_COLOR;
+  // Text colour, so the ring contrasts in both themes.
+  const ringColor = cssVar('--text-primary') || '#fff';
+  const regForMetric = regressedKeysForMetric(state.baseline, metric.key);
+  const datasets = seriesList()
+    .map(s => {
+      const pts = chartPointsIn(s.config, metric.key);
+      if (!pts.length) return null;
+      // Red only on the metrics that regressed.
+      const isReg = regForMetric.has(s.key);
+      const color = isReg ? regColor : s.color;
+      const last = pts.length - 1;
+      return {
+        label: s.label,
+        _key: s.key,
+        data: pts.map(p => ({ x: p.t, y: display(p.value, metric), _p: p })),
+        borderColor: color,
+        backgroundColor: color,
+        borderWidth: isReg ? 2.75 : 1.6,
+        tension: 0,
+        spanGaps: true,
+        // Ring the newest point: that is the build to blame.
+        pointRadius: ctx => (isReg && ctx.dataIndex === last) ? 6 : 2.5,
+        pointHoverRadius: 7,
+        pointBackgroundColor: color,
+        pointBorderColor: ctx => (isReg && ctx.dataIndex === last) ? ringColor : color,
+        pointBorderWidth: ctx => (isReg && ctx.dataIndex === last) ? 2 : 0,
+      };
+    }).filter(Boolean);
+  if (!datasets.length) return;
+
+  new Chart(canvas, {
+    type: 'line',
+    data: { datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false, // many charts re-render on every filter change
+      interaction: { mode: 'nearest', intersect: false },
+      // Several series can share a point: open it when unambiguous, otherwise
+      // let the reader pick.
+      onClick: (event, _els, chart) => {
+        const hits = chart.getElementsAtEventForMode(event, 'point', { intersect: true }, true);
+        const candidates = (hits.length ? hits : chart.getElementsAtEventForMode(
+            event, 'nearest', { intersect: false }, true))
+          .map(hit => {
+            const dataset = chart.data.datasets[hit.datasetIndex];
+            const point = dataset.data[hit.index];
+            return point && point._p
+              ? {
+                label: dataset.label,
+                key: dataset._key,
+                color: dataset.borderColor,
+                point: point._p,
+                value: point.y,
+                metric: metric
+              }
+              : null;
+          })
+          .filter(Boolean);
+        if (!candidates.length) return;
+        if (candidates.length === 1) {
+          openSeriesHistory(candidates[0]);
+          return;
+        }
+        openPointChooser(metric, candidates);
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          min: bounds.min,
+          max: bounds.max,
+          ticks: {
+            color: theme.tick,
+            maxTicksLimit: 12,
+            font: { size: 10 },
+            maxRotation: 0,
+            autoSkipPadding: 14,
+            callback: chartTick,
+            // Whole days, or 6 hours on short spans, so no two ticks share a label.
+            stepSize: shortChartSpan(bounds) ? 21600000 : 86400000
+          },
+          grid: { color: theme.grid }
+        },
+        y: {
+          afterDataLimits: floorYSpan,
+          ticks: { color: theme.tick, maxTicksLimit: 7, font: { size: 10 } },
+          grid: { color: theme.grid }
+        },
+      },
+      plugins: {
+        legend: { display: false }, // the shared bar above drives every chart
+        tooltip: {
+          callbacks: {
+            title: items => fmtDate(items[0].parsed.x),
+            label: item => {
+              const p = item.dataset.data[item.dataIndex]._p;
+              const sha = p.vllm_commit ? ' · ' + shortSha(p.vllm_commit) : '';
+              const note = failedNote(p);
+              const failed = note ? ' · ' + note : '';
+              return item.dataset.label + ': ' + fmt(item.parsed.y, metric.digits) + ' ' + unitOf(metric) + sha + failed;
+            },
+            // Nothing else says the points are clickable.
+            afterBody: () => '\nClick for history',
+          }
+        },
+      },
+    },
+  });
+}
+
+function renderTrendsTab() {
+  const host = document.getElementById('main');
+  if (!visibleConfigs().length) {
+    host.innerHTML = '<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
+    return;
+  }
+  host.innerHTML = '<div class="card"><h3>Metric trends</h3>'
+    + '<div class="card-hint">One chart per metric so a regression that only moves TTFT is '
+    + 'visible without hunting through a dropdown. A red line means that configuration regressed '
+    + 'by <b>' + thresholdLabel(BASELINE_BY_ID[state.baseline]) + ' or more</b> on <em>that</em> metric; '
+    + 'the newest point is ringed. Click any point for its history and build. '
+    + 'Narrow the lines with the filters above.</div>'
+    + renderWindowBar() + renderTrendCharts() + '</div>'
+    + renderRegressionPanel();
+
+  const setDays = days => {
+    state.chartDays = days >= WINDOW_DAYS ? null : days;
+    syncToHash();
+    renderAll();
+  };
+  host.querySelectorAll('[data-days]').forEach(el => el.addEventListener('click', () => {
+    const days = Number(el.getAttribute('data-days'));
+    setDays(days);
+    focusAfterRender('[data-days="' + days + '"]');
+  }));
+  const slider = document.getElementById('chart-days');
+  if (slider) {
+    // The label follows the drag; the charts redraw once, on release.
+    slider.addEventListener('input', () => {
+      document.getElementById('chart-days-label').textContent = daysLabel(Number(slider.value));
+    });
+    slider.addEventListener('change', () => {
+      setDays(Number(slider.value));
+      focusAfterRender('#chart-days');
+    });
+  }
+
+  chartedMetrics().forEach(drawTrendChart);
+}
+
+/* ================================================================
+   10b. PERFORMANCE TAB
+   ================================================================ */
+// Each config's newest run in the window: one bar chart per model and device
+// (per-GPU numbers do not compare across devices), then a detail table.
+const PERF_TABLE_METRICS = ['tput_per_gpu', 'output_tput_per_gpu', 'mean_intvty', 'mean_tpot', 'mean_ttft'];
+let MODEL_COLOR = {};
+
+// Assigned over the full dataset, so a series keeps its colour across filters
+// and charts. Rebuilt on theme change: each theme has its own palette.
+function assignColors() {
+  const palette = activePalette();
+  BASE_COLOR = Object.fromEntries(
+    CONFIGS.map(c => c.key).sort().map((k, i) => [k, palette[i % palette.length]]));
+  MODEL_COLOR = Object.fromEntries(
+    [...new Set(CONFIGS.map(perfGroupKey))].sort().map((k, i) => [k, palette[i % palette.length]]));
+}
+
+function defaultPerfMetric() { return METRIC_BY_KEY.tput_per_gpu ? 'tput_per_gpu' : (METRICS[0] || {}).key; }
+function perfMetric() { return METRIC_BY_KEY[state.perfMetric] || METRIC_BY_KEY[defaultPerfMetric()]; }
+function perfGroupKey(c) { return c.model + '|' + c.device; }
+
+function lenLabel(v) {
+  if (v == null) return '?';
+  return v >= 1024 && v % 1024 === 0 ? (v / 1024) + 'K' : String(v);
+}
+function shapeLabel(c) { return lenLabel(c.isl) + '/' + lenLabel(c.osl) + ' c=' + c.conc; }
+
+function perfGroups(configs) {
+  const groups = new Map();
+  configs.forEach(c => {
+    const key = perfGroupKey(c);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key: key,
+        name: c.shortModel + ' · ' + String(c.device || '?').toUpperCase(),
+        color: MODEL_COLOR[key] || activePalette()[0],
+        configs: [],
+      });
+    }
+    groups.get(key).configs.push(c);
+  });
+  groups.forEach(g => {
+    // Two configs at one shape differ by precision or TP; name it on both.
+    const count = new Map();
+    g.configs.forEach(c => count.set(shapeLabel(c), (count.get(shapeLabel(c)) || 0) + 1));
+    g.labels = g.configs.map(c => shapeLabel(c)
+      + (count.get(shapeLabel(c)) > 1 ? ' · ' + (c.precision || '?') + ' ' + c.parallel_label : ''));
+  });
+  return [...groups.values()];
+}
+
+// Newest point, its change against the run before, whether it is tonight's,
+// and whether that change is an overnight one.
+function latestOf(cfg, metric) {
+  const pts = pointsIn(cfg, metric.key);
+  if (!pts.length) return null;
+  const latestBuild = latestNightlyBuild();
+  return {
+    point: pts[pts.length - 1],
+    before: pts.length >= 2 ? pts[pts.length - 2] : null,
+    verdict: verdict(pts.map(p => p.value), metric, BASELINE_BY_ID[state.baseline]),
+    tonight: reportedTonight(pts, latestBuild),
+    overnight: comparedOvernight(pts, latestBuild, previousNightlyBuild()),
+  };
+}
+
+// Why a change from tonight's run is not being judged, or '' if it is.
+function notOvernightNote(latest) {
+  if (!latest || !latest.tonight || latest.overnight || !latest.before) return '';
+  return 'vs ' + comparedWhen(latest) + ' (#' + (latest.before.build_number || '?')
+    + '); skipped previous nightly #' + (previousNightlyBuild() || '?');
+}
+
+// How far back the compared run is, counted in nights: the runs are nightlies.
+function comparedWhen(latest) {
+  if (latest.overnight) return 'last night';
+  const nights = Math.max(1, Math.round((latest.point.t - latest.before.t) / 86400000));
+  return nights + (nights === 1 ? ' night ' : ' nights ') + (latest.tonight ? 'ago' : 'earlier');
+}
+
+// Colour a change only when it is overnight and past the threshold.
+function changeClass(latest) {
+  if (!latest || !latest.verdict || !latest.overnight) return 'neutral';
+  const v = latest.verdict,
+    baseline = BASELINE_BY_ID[state.baseline];
+  if (v.severity === 'alert') return 'bad';
+  if (v.severity === 'warn') return 'warnc';
+  if (v.improved && v.magnitude >= baseline.warn) return 'good';
+  return 'neutral';
+}
+
+function changeHtml(latest) {
+  if (!latest || !latest.verdict) return '<span class="neutral">—</span>';
+  const note = notOvernightNote(latest);
+  return '<span class="' + changeClass(latest) + '"'
+    + (note ? ' title="' + esc(note) + '"' : '') + '>'
+    + pctDirection(latest.verdict.ratio, Math.abs(latest.verdict.ratio) < 0.01 ? 2 : 1) + '</span>';
+}
+
+function withAlpha(hex, alpha) {
+  const n = parseInt(String(hex).replace('#', ''), 16);
+  return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha.toFixed(2) + ')';
+}
+
+function compact(v, digits) {
+  if (v == null || !isFinite(v)) return '—';
+  return Math.abs(v) >= 10000 ? (v / 1000).toFixed(1) + 'K' : fmt(v, digits);
+}
+
+// Values above the bars, skipped when there are too many to read. Always the
+// text colour: the red outline already marks a regression.
+function barValuesPlugin(color, format) {
+  return {
+    id: 'barValues',
+    afterDatasetsDraw(chart) {
+      const meta = chart.getDatasetMeta(0);
+      if (!meta || meta.data.length > 16) return;
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.font = '10px "SF Mono", Consolas, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = color;
+      meta.data.forEach((bar, i) => {
+        ctx.fillText(format(chart.data.datasets[0].data[i]), bar.x, bar.y - 4);
+      });
+      ctx.restore();
+    }
+  };
+}
+
+// Dashed average line across the chart, labelled at the right.
+function avgLinePlugin(avg, label, color) {
+  return {
+    id: 'avgLine',
+    afterDraw(chart) {
+      if (avg == null) return;
+      const y = chart.scales.y.getPixelForValue(avg);
+      if (y < chart.chartArea.top || y > chart.chartArea.bottom) return;
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(chart.chartArea.left, y);
+      ctx.lineTo(chart.chartArea.right, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '10px -apple-system, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(label, chart.chartArea.right, y - 4);
+      ctx.restore();
+    }
+  };
+}
+
+function commitLink(sha) {
+  if (!/^[0-9a-f]{7,40}$/i.test(String(sha || ''))) return esc(shortSha(sha));
+  return '<a href="https://github.com/vllm-project/vllm/commit/' + esc(sha) + '" target="_blank"'
+    + ' rel="noopener noreferrer">' + esc(shortSha(sha)) + EXT_INLINE + '</a>';
+}
+
+function renderPerformanceTab() {
+  const host = document.getElementById('main');
+  const configs = shownConfigs();
+  const metric = perfMetric();
+  if (!configs.length || !metric) {
+    host.innerHTML = '<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
+    return;
+  }
+  const groups = perfGroups(configs)
+    .map(g => ({ ...g, rows: g.configs.map((c, i) => ({ c: c, label: g.labels[i], latest: latestOf(c, metric) }))
+      .filter(r => r.latest) }))
+    .filter(g => g.rows.length);
+
+  const picker = '<div class="metric-picker">' + METRICS.map(m =>
+    '<button class="' + (m.key === metric.key ? 'on' : '') + '" data-perf-metric="' + esc(m.key) + '"'
+    + ' aria-pressed="' + (m.key === metric.key ? 'true' : 'false') + '">' + esc(m.label) + '</button>').join('')
+    + '</div>';
+  let html = '<div class="card"><div class="section-head"><h3>' + esc(metric.label)
+    + ' — by model</h3>' + picker + '</div>'
+    // Concurrency is already on the axis (c=). Caveats live in the bar tooltip.
+    + '<div class="hint-keys">'
+    + '<span class="hint-key"><i class="reg"></i><b>' + thresholdLabel(BASELINE_BY_ID[state.baseline])
+    + '+</b> worse vs #' + esc(previousNightlyBuild() || '?') + '</span>'
+    + '<span class="hint-key"><i class="absent"></i>not in #' + esc(latestNightlyBuild() || '?')
+    + '</span></div>';
+  html += groups.length
+    ? '<div class="perf-grid">' + groups.map((g, i) =>
+      '<div class="perf-card' + (groups.length <= 2 ? ' hero' : '') + '">'
+      + '<h4 style="color:' + esc(g.color) + '">' + esc(g.name) + '</h4>'
+      + '<div class="perf-wrap"><canvas id="perf-' + i + '"></canvas></div></div>').join('') + '</div>'
+    : '<div class="empty">No runs of ' + esc(metric.label) + ' for these filters.</div>';
+  html += '</div>' + renderPerfTable(configs);
+  host.innerHTML = html;
+
+  groups.forEach((g, i) => drawPerfChart(g, 'perf-' + i, metric));
+  host.querySelectorAll('[data-perf-metric]').forEach(btn => btn.addEventListener('click', () => {
+    const key = btn.getAttribute('data-perf-metric');
+    state.perfMetric = key === defaultPerfMetric() ? null : key;
+    syncToHash();
+    renderAll();
+    focusAfterRender('[data-perf-metric="' + cssEscape(key) + '"]');
+  }));
+  bindPerfTable(host, configs);
+}
+
+function chartTipEl() {
+  let el = document.getElementById('chart-tip');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'chart-tip';
+    el.className = 'chart-tip';
+    el.setAttribute('role', 'tooltip');
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function hideChartTip() {
+  const el = document.getElementById('chart-tip');
+  if (el) el.classList.remove('on');
+}
+
+function placeChartTip(el, chart, tooltip) {
+  const rect = chart.canvas.getBoundingClientRect();
+  const tw = el.offsetWidth, th = el.offsetHeight;
+  let left = rect.left + tooltip.caretX - tw / 2;
+  let top = rect.top + tooltip.caretY - th - 12;
+  left = Math.min(Math.max(8, left), window.innerWidth - tw - 8);
+  if (top < 8) top = rect.top + tooltip.caretY + 14;
+  el.style.left = left + 'px';
+  el.style.top = top + 'px';
+}
+
+function tipRow(k, v, vCls) {
+  return '<div class="tip-k">' + esc(k) + '</div>'
+    + '<div class="tip-v' + (vCls ? ' ' + vCls : '') + '">' + v + '</div>';
+}
+
+function perfBarTipHtml(row, metric, unit) {
+  const latest = row.latest, p = latest.point;
+  let rows = tipRow('Build', '#' + esc(p.build_number || '?'));
+  rows += tipRow('vLLM', esc(shortSha(p.vllm_commit)));
+  const prevNightly = '#' + (previousNightlyBuild() || '?');
+  const note = text => { rows += '<div class="tip-note">' + esc(text) + '</div>'; };
+  const days = integer(WINDOW_DAYS);
+  if (latest.verdict && latest.before) {
+    const vs = '#' + (latest.before.build_number || '?');
+    rows += tipRow('Change', esc(pct(latest.verdict.ratio, 2) + ' vs ' + comparedWhen(latest) + ' (' + vs + ')'),
+      changeClass(latest));
+    if (notOvernightNote(latest)) note('Skipped the previous nightly, ' + prevNightly);
+  } else if (latest.before) {
+    rows += tipRow('Change', 'Not available', 'neutral');
+    note('The run before it, #' + (latest.before.build_number || '?') + ', has no usable value');
+  } else if (latest.tonight) {
+    rows += tipRow('Change', 'No previous run', 'warnc');
+    note('Nothing to compare against: this is its first run in the last ' + days
+      + ' days, and it was not in ' + prevNightly);
+  } else {
+    rows += tipRow('Change', 'No previous run', 'neutral');
+    note('Nothing to compare against: its only run in the last ' + days + ' days');
+  }
+  if (!latest.tonight) {
+    rows += tipRow('Status', 'Not in #' + esc(latestNightlyBuild() || '?'));
+  }
+  if (failedNote(p)) rows += tipRow('Failed', esc(failedNote(p)), 'warnc');
+  return '<div class="tip-title">' + esc(row.label) + '</div>'
+    + '<div class="tip-value">' + esc(fmt(display(p.value, metric), metric.digits)) + '</div>'
+    + '<div class="tip-unit">' + esc(unit) + '</div>'
+    + '<div class="tip-rows">' + rows + '</div>'
+    + '<div class="tip-foot">Click for history</div>';
+}
+
+function perfBarExternalTooltip(group, metric) {
+  const unit = unitOf(metric);
+  return context => {
+    const tip = chartTipEl();
+    const tooltip = context.tooltip;
+    if (!tooltip.opacity || !tooltip.dataPoints || !tooltip.dataPoints.length) {
+      tip.classList.remove('on');
+      return;
+    }
+    const row = group.rows[tooltip.dataPoints[0].dataIndex];
+    if (!row) { tip.classList.remove('on'); return; }
+    tip.innerHTML = perfBarTipHtml(row, metric, unit);
+    tip.classList.add('on');
+    placeChartTip(tip, context.chart, tooltip);
+  };
+}
+
+function drawPerfChart(group, canvasId, metric) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const theme = chartTheme();
+  const regColor = cssVar('--accent-red') || REG_COLOR;
+  const valueColor = cssVar('--text-secondary');
+  const regKeys = regressedKeysForMetric(state.baseline, metric.key);
+  const concs = [...new Set(group.rows.map(r => Number(r.c.conc) || 0))].sort((a, b) => a - b);
+  // Darker with concurrency, as ATOM shades it; faded when not from tonight.
+  // A tint that reads on near-black washes out on white, so light mode starts
+  // higher and spans further.
+  const shade = isLightTheme()
+    ? { faded: 0.16, single: 0.65, lo: 0.35, span: 0.45 }
+    : { faded: 0.12, single: 0.55, lo: 0.3, span: 0.35 };
+  const alphaOf = r => {
+    if (!r.latest.tonight) return shade.faded;
+    if (concs.length <= 1) return shade.single;
+    return shade.lo + concs.indexOf(Number(r.c.conc) || 0) / (concs.length - 1) * shade.span;
+  };
+  const values = group.rows.map(r => display(r.latest.point.value, metric));
+  const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+  const unit = unitOf(metric);
+  new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: group.rows.map(r => r.label),
+      datasets: [{
+        data: values,
+        backgroundColor: group.rows.map(r => withAlpha(group.color, alphaOf(r))),
+        borderColor: group.rows.map(r => regKeys.has(r.c.key) ? regColor : group.color),
+        borderWidth: group.rows.map(r => regKeys.has(r.c.key) ? 2.5 : 1.5),
+        borderRadius: 4,
+      }]
+    },
+    plugins: [
+      barValuesPlugin(valueColor, v => compact(v, metric.digits)),
+      avgLinePlugin(avg, 'avg ' + compact(avg, metric.digits), theme.tick),
+    ],
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      layout: { padding: { top: 22 } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          enabled: false,
+          external: perfBarExternalTooltip(group, metric),
+        },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: theme.tick, maxRotation: 45, font: { size: 10 } } },
+        y: {
+          beginAtZero: true,
+          grace: '5%',
+          title: { display: !!unit, text: unit, color: theme.tick },
+          ticks: { color: theme.tick, font: { size: 10 } },
+          grid: { color: theme.grid },
+        },
+      },
+      onClick: (_event, elements) => {
+        if (elements.length) openConfigHistory(group.rows[elements[0].index].c, metric);
+      },
+    },
+  });
+}
+
+function renderPerfTable(configs) {
+  const cols = PERF_TABLE_METRICS.map(k => METRIC_BY_KEY[k]).filter(Boolean);
+  const selected = perfMetric();
+  const regs = regressionsOf(state.baseline);
+  const worstTier = new Map();
+  regs.forEach(d => worstTier.set(d.configKey, Math.max(worstTier.has(d.configKey) ? worstTier.get(d.configKey) : -1, regTier(d.magnitude))));
+  const latest = configs.map(c => Object.fromEntries(METRICS.map(m => [m.key, latestOf(c, m)])));
+
+  // Throughput gets a bar against the table's largest; latency a heat shade
+  // from the table's fastest (green) to slowest (red).
+  const range = key => {
+    const vals = latest.map(l => l[key] && l[key].point.value).filter(v => v != null);
+    return { min: Math.min(...vals), max: Math.max(...vals) };
+  };
+  const ranges = Object.fromEntries(cols.map(m => [m.key, range(m.key)]));
+  const heat = r => {
+    const x = Math.min(1, Math.max(0, r));
+    if (x < 0.33) return 'rgba(109,191,128,' + (0.08 + x * 0.2).toFixed(2) + ')';
+    if (x < 0.67) return 'rgba(227,199,90,' + (0.08 + (x - 0.33) * 0.2).toFixed(2) + ')';
+    return 'rgba(242,92,78,' + (0.08 + (x - 0.67) * 0.3).toFixed(2) + ')';
+  };
+  const cell = (m, l) => {
+    const entry = l[m.key];
+    if (!entry) return '<td class="num neutral">—</td>';
+    const text = esc(fmt(display(entry.point.value, m), m.digits));
+    const rg = ranges[m.key];
+    if (m.better === 'higher' && /tput/.test(m.key)) {
+      const w = rg.max > 0 ? entry.point.value / rg.max * 100 : 0;
+      return '<td class="num data-bar"><div class="data-bar-fill" style="width:' + w.toFixed(1)
+        + '%;background:' + (m.key === 'tput_per_gpu' ? 'rgba(109,191,128,0.14)' : 'rgba(136,153,184,0.14)')
+        + '"></div><span class="data-bar-text">' + text + '</span></td>';
+    }
+    if (m.better === 'lower') {
+      const r = rg.max > rg.min ? (entry.point.value - rg.min) / (rg.max - rg.min) : 0;
+      return '<td class="num" style="background:' + heat(r) + '">' + text + '</td>';
+    }
+    return '<td class="num">' + text + '</td>';
+  };
+
+  let html = '<div class="card"><div class="section-head"><h3>Detail table</h3></div>'
+    // Row tint is the worst regression on any metric. Latency fill is a
+    // separate scale: position in this table, not those cutoffs.
+    + '<div class="hint-keys">'
+    + '<span class="hint-key"><i class="edge minor"></i>worst metric, ' + REG_TIERS[0].label + '</span>'
+    + '<span class="hint-key"><i class="edge moderate"></i>' + REG_TIERS[1].label + '</span>'
+    + '<span class="hint-key"><i class="edge major"></i>' + REG_TIERS[2].label + '</span>'
+    + '<span class="hint-key"><i class="heat"></i>latency, fastest to slowest here</span>'
+    + '<span class="hint-key"><i class="absent"></i>not in #' + esc(latestNightlyBuild() || '?') + '</span>'
+    + '</div>'
+    + '<div class="table-scroll"><table class="perf-table"><thead><tr>'
+    + '<th>Model</th><th>Device</th><th>ISL/OSL</th><th class="num">Conc</th><th>Parallel</th><th>Precision</th>'
+    + cols.map(m => '<th class="num">' + esc(m.label) + (unitOf(m) ? '<br><span class="neutral">' + esc(unitOf(m)) + '</span>' : '') + '</th>').join('')
+    + '<th class="num">Change<br><span class="neutral">' + esc(selected.label)
+    + ' vs #' + esc(previousNightlyBuild() || '?') + '</span></th>'
+    + '<th>vLLM</th><th>Build</th></tr></thead><tbody>';
+
+  configs.forEach((c, i) => {
+    const l = latest[i];
+    const head = l[selected.key] || l[defaultPerfMetric()] || Object.values(l).find(Boolean);
+    if (!head) return;
+    const tier = worstTier.has(c.key) ? REG_TIERS[worstTier.get(c.key)].cls : '';
+    const cls = (tier ? 'reg-' + tier : '') + (head.tonight ? '' : ' stale');
+    html += '<tr data-row="' + i + '" class="' + cls.trim() + '"'
+      + (head.tonight ? '' : ' title="Not in build #' + esc(latestNightlyBuild() || '?') + '"') + '>'
+      + '<td class="model">' + (tier ? '⚠ ' : '') + esc(c.shortModel) + '</td>'
+      + '<td>' + esc(String(c.device || '?').toUpperCase()) + '</td>'
+      + '<td>' + esc(lenLabel(c.isl) + '/' + lenLabel(c.osl)) + '</td>'
+      + '<td class="num">' + esc(c.conc) + '</td>'
+      + '<td>' + esc(c.parallel_label) + '</td>'
+      + '<td>' + esc(c.precision || '—') + '</td>'
+      + cols.map(m => cell(m, l)).join('')
+      + '<td class="num">' + changeHtml(l[selected.key]) + '</td>'
+      + '<td class="mono">' + commitLink(head.point.vllm_commit) + '</td>'
+      + '<td>' + buildLink(head.point, null) + '</td></tr>'
+      + '<tr class="detail-row" data-detail="' + i + '"><td colspan="' + (9 + cols.length) + '">'
+      + perfDetail(c, l, head.point) + '</td></tr>';
+  });
+  return html + '</tbody></table></div></div>';
+}
+
+function perfDetail(c, latest, p) {
+  const metrics = METRICS.filter(m => latest[m.key]).map(m =>
+    '<div class="detail-item clickable" data-hist="' + esc(m.key) + '"><span class="detail-key">' + esc(m.label)
+    + '</span><span class="detail-val">' + esc(fmt(display(latest[m.key].point.value, m), m.digits))
+    + ' ' + esc(unitOf(m)) + ' ' + changeHtml(latest[m.key]) + '</span></div>').join('');
+  const item = (k, v) => '<div class="detail-item"><span class="detail-key">' + esc(k)
+    + '</span><span class="detail-val">' + v + '</span></div>';
+  const requests = p.completed_requests != null
+    ? integer(Math.round(p.completed_requests)) + ' completed'
+      + (p.failed_requests > 0 ? ', <span class="warnc">' + integer(Math.round(p.failed_requests)) + ' failed</span>' : '')
+    : '—';
+  return '<div class="detail-box"><div><h5>Metrics · click for history</h5>' + metrics + '</div>'
+    + '<div><h5>Run</h5>'
+    + item('Configuration', esc(c.label))
+    + item('Device', esc(String(c.device || '?').toUpperCase()))
+    + item('Parallelism', esc(c.parallel_label))
+    + item('Precision', esc(c.precision || '—'))
+    + item('Date', esc(fmtDate(p.t)))
+    + item('Build', buildLink(p, null))
+    + item('vLLM commit', commitLink(p.vllm_commit))
+    + item('Image', esc(p.image || '—'))
+    + item('Requests', requests)
+    + '</div></div>';
+}
+
+function bindPerfTable(host, configs) {
+  host.querySelectorAll('.perf-table tr[data-row]').forEach(row => {
+    const i = row.getAttribute('data-row');
+    activatable(row, null, event => {
+      if (event.target && event.target.closest && event.target.closest('a')) return;
+      const detail = host.querySelector('tr[data-detail="' + i + '"]');
+      if (!detail) return;
+      detail.classList.toggle('open');
+      row.classList.toggle('open');
+    });
+  });
+  host.querySelectorAll('.perf-table tr.detail-row').forEach(detail => {
+    const config = configs[Number(detail.getAttribute('data-detail'))];
+    detail.querySelectorAll('[data-hist]').forEach(el => {
+      const metric = METRIC_BY_KEY[el.getAttribute('data-hist')];
+      if (config && metric) activatable(el, 'Open history for ' + config.label + ' ' + metric.label,
+        () => openConfigHistory(config, metric));
+    });
+  });
+}
+
+/* ================================================================
+   10c. THROUGHPUT VS LATENCY
+   ================================================================ */
+// ATOM's tradeoff tab, on this payload: one curve per shape (ISL/OSL, TP,
+// precision), points are concurrency. Axes are already in the metric registry
+// (interactivity = 1/TPOT, total tok/s/GPU). Pair both from the same nightly
+// so a missing latency does not borrow throughput from another build.
+function matchPoint(haystack, needle) {
+  if (!haystack.length || !needle) return null;
+  if (needle.build_number != null) {
+    const hit = haystack.find(p => String(p.build_number) === String(needle.build_number));
+    if (hit) return hit;
+  }
+  return haystack.find(p => p.t === needle.t) || null;
+}
+
+function latestPaired(cfg, xKey, yKey) {
+  const xs = pointsIn(cfg, xKey), ys = pointsIn(cfg, yKey);
+  for (let i = xs.length - 1; i >= 0; i--) {
+    const y = matchPoint(ys, xs[i]);
+    if (y) return { x: xs[i], y: y };
+  }
+  return null;
+}
+
+function tradeoffPoint(cfg) {
+  const tputKey = 'tput_per_gpu';
+  let paired = latestPaired(cfg, 'mean_intvty', tputKey);
+  let intvty = paired ? paired.x.value : null;
+  if (!paired) {
+    paired = latestPaired(cfg, 'mean_tpot', tputKey);
+    if (paired && paired.x.value > 0) intvty = 1 / paired.x.value;
+  }
+  if (!paired || !(intvty > 0) || !isFinite(paired.y.value)) return null;
+  const tpotPaired = latestPaired(cfg, 'mean_tpot', tputKey);
+  return {
+    cfg: cfg,
+    intvty: intvty,
+    tput: paired.y.value,
+    tpot: tpotPaired ? tpotPaired.x.value : null,
+    point: paired.y,
+  };
+}
+
+function tradeoffCurveKey(c) {
+  return [c.model, c.device, c.precision, c.parallel_label, c.isl, c.osl].join('|');
+}
+
+function concLabelPlugin(id) {
+  return {
+    id: id,
+    afterDatasetsDraw(chart) {
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.font = '8px -apple-system, sans-serif';
+      chart.data.datasets.forEach((ds, di) => {
+        if (!ds._concLabels) return;
+        const meta = chart.getDatasetMeta(di);
+        ctx.fillStyle = ds.borderColor;
+        meta.data.forEach((pt, pi) => {
+          if (ds.data[pi] == null) return;
+          ctx.fillText('c' + ds._concLabels[pi], pt.x + 5, pt.y - 5);
+        });
+      });
+      ctx.restore();
+    }
+  };
+}
+
+function renderTradeoffTab() {
+  const host = document.getElementById('main');
+  const configs = shownConfigs();
+  const tputMetric = METRIC_BY_KEY.tput_per_gpu;
+  const intvtyMetric = METRIC_BY_KEY.mean_intvty;
+  const tpotMetric = METRIC_BY_KEY.mean_tpot;
+  if (!configs.length || !tputMetric) {
+    host.innerHTML = '<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
+    return;
+  }
+  const rows = configs.map(tradeoffPoint).filter(Boolean);
+  if (!rows.length) {
+    host.innerHTML = '<div class="card"><div class="empty">No configuration has both throughput and latency in this window.</div></div>';
+    return;
+  }
+  const intvtyLabel = intvtyMetric ? intvtyMetric.label : 'Interactivity';
+
+  const groups = perfGroups(rows.map(r => r.cfg)).map(g => {
+    const groupRows = rows.filter(r => perfGroupKey(r.cfg) === g.key);
+    const shapeCount = new Map();
+    groupRows.forEach(r => {
+      const shape = String(r.cfg.isl) + '/' + String(r.cfg.osl);
+      if (!shapeCount.has(shape)) shapeCount.set(shape, new Set());
+      shapeCount.get(shape).add(tradeoffCurveKey(r.cfg));
+    });
+    const curves = new Map();
+    groupRows.forEach(r => {
+      const key = tradeoffCurveKey(r.cfg);
+      if (!curves.has(key)) {
+        const c = r.cfg;
+        const collide = (shapeCount.get(String(c.isl) + '/' + String(c.osl)) || new Set()).size > 1;
+        curves.set(key, {
+          key: key,
+          label: lenLabel(c.isl) + '/' + lenLabel(c.osl)
+            + (collide ? ' · ' + (c.precision || '?') + ' ' + c.parallel_label : ''),
+          color: BASE_COLOR[c.key] || g.color,
+          points: [],
+        });
+      }
+      curves.get(key).points.push(r);
+    });
+    curves.forEach(curve => curve.points.sort((a, b) => (a.cfg.conc || 0) - (b.cfg.conc || 0)));
+    return { ...g, curves: [...curves.values()].filter(c => c.points.length) };
+  }).filter(g => g.curves.length);
+
+  let html = '<div class="card"><h3>Throughput vs latency</h3>'
+    + '<div class="card-hint">Each line is one shape (ISL/OSL); each point is a concurrency, '
+    + 'labelled <b>cN</b>. X is ' + esc(intvtyLabel.toLowerCase()) + ' (1 / mean TPOT), Y is '
+    + esc(tputMetric.label.toLowerCase()) + ' in ' + esc(unitOf(tputMetric)) + ' — both '
+    + 'higher-is-better, the same pairing ATOM plots. A red ring is a configuration that '
+    + 'regressed on ' + esc(tputMetric.label.toLowerCase()) + ' in build #'
+    + esc(latestNightlyBuild() || '?') + '. Click a point for its history.</div></div>';
+
+  groups.forEach((g, i) => {
+    html += '<div class="tradeoff-pair">'
+      + '<div class="perf-card"><h4 style="color:' + esc(g.color) + '">' + esc(g.name)
+      + ' — ' + esc(intvtyLabel) + ' vs ' + esc(tputMetric.label) + '</h4>'
+      + '<div class="perf-wrap"><canvas id="tradeoff-hero-' + i + '"></canvas></div></div>'
+      + '<div class="perf-card"><h4 style="color:' + esc(g.color) + '">' + esc(g.name)
+      + ' — Concurrency Scaling</h4>'
+      + '<div class="perf-wrap"><canvas id="tradeoff-scale-' + i + '"></canvas></div></div>'
+      + '</div>';
+  });
+
+  html += renderTradeoffHeatmaps(rows);
+  host.innerHTML = html;
+  groups.forEach((g, i) => {
+    drawTradeoffScatter(g, 'tradeoff-hero-' + i, tputMetric, intvtyMetric);
+    drawConcurrencyScaling(g, 'tradeoff-scale-' + i, tputMetric, tpotMetric);
+  });
+}
+
+function renderTradeoffHeatmaps(rows) {
+  const tputMetric = METRIC_BY_KEY.tput_per_gpu;
+  const byModel = new Map();
+  rows.forEach(r => {
+    const mk = perfGroupKey(r.cfg);
+    if (!byModel.has(mk)) {
+      byModel.set(mk, { name: r.cfg.shortModel + ' · ' + String(r.cfg.device || '?').toUpperCase(),
+        color: MODEL_COLOR[mk] || activePalette()[0], cells: new Map(), shapes: new Set(), concs: new Set() });
+    }
+    const g = byModel.get(mk);
+    const shape = lenLabel(r.cfg.isl) + '/' + lenLabel(r.cfg.osl);
+    g.shapes.add(shape);
+    g.concs.add(Number(r.cfg.conc) || 0);
+    const cellKey = shape + '|' + r.cfg.conc;
+    const prev = g.cells.get(cellKey);
+    if (!prev || r.tput > prev.tput) g.cells.set(cellKey, r);
+  });
+  const blocks = [...byModel.values()].filter(g => g.concs.size >= 2 && g.cells.size >= 3);
+  if (!blocks.length) {
+    return '<div class="card"><div class="empty">Not enough concurrency levels for a throughput heatmap '
+      + '(need 2+ conc and 3+ cells).</div></div>';
+  }
+  let html = '<div class="card"><h3>Throughput matrix</h3>'
+    + '<div class="card-hint">Newest ' + esc(tputMetric.label.toLowerCase()) + ' per shape and '
+    + 'concurrency. Greener is higher within that model and device.</div>';
+  blocks.forEach(g => {
+    const concs = [...g.concs].sort((a, b) => a - b);
+    const shapes = [...g.shapes].sort();
+    const vals = [...g.cells.values()].map(r => display(r.tput, tputMetric)).filter(v => v != null);
+    const minV = Math.min(...vals), maxV = Math.max(...vals), range = maxV - minV || 1;
+    html += '<div class="perf-card" style="margin-bottom:var(--gap-md)"><h4 style="color:'
+      + esc(g.color) + '">' + esc(g.name) + ' — ' + esc(unitOf(tputMetric)) + '</h4>'
+      + '<div class="table-scroll"><table class="heatmap-table"><thead><tr><th>ISL/OSL</th>'
+      + concs.map(c => '<th>c=' + c + '</th>').join('') + '</tr></thead><tbody>';
+    shapes.forEach(shape => {
+      html += '<tr><td class="row-label">' + esc(shape) + '</td>';
+      concs.forEach(c => {
+        const cell = g.cells.get(shape + '|' + c);
+        if (!cell) { html += '<td class="neutral">—</td>'; return; }
+        const v = display(cell.tput, tputMetric);
+        const ratio = (v - minV) / range;
+        html += '<td style="background:hsla(' + Math.round(ratio * 120)
+          + ',50%,40%,0.35)">' + esc(compact(v, tputMetric.digits)) + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div></div>';
+  });
+  return html + '</div>';
+}
+
+function drawTradeoffScatter(group, canvasId, tputMetric, intvtyMetric) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const theme = chartTheme();
+  const regColor = cssVar('--accent-red') || REG_COLOR;
+  const ringColor = cssVar('--text-primary') || '#fff';
+  const regKeys = tputMetric ? regressedKeysForMetric(state.baseline, tputMetric.key) : new Set();
+  const datasets = group.curves.map(curve => {
+    const data = curve.points.map(r => {
+      // Interactivity is derived when the registry has no series for it, in
+      // which case there is no metric to scale against.
+      const scaled = display(r.intvty, intvtyMetric || {});
+      return {
+        x: scaled == null ? r.intvty : scaled,
+        y: display(r.tput, tputMetric),
+        _r: r,
+      };
+    }).sort((a, b) => a.x - b.x);
+    return {
+      label: curve.label,
+      data: data,
+      borderColor: curve.color,
+      backgroundColor: curve.color,
+      borderWidth: 2,
+      pointRadius: ctx => regKeys.has(data[ctx.dataIndex]._r.cfg.key) ? 6 : 5,
+      pointHoverRadius: 7,
+      pointBackgroundColor: curve.color,
+      pointBorderColor: ctx => regKeys.has(data[ctx.dataIndex]._r.cfg.key) ? ringColor : curve.color,
+      pointBorderWidth: ctx => regKeys.has(data[ctx.dataIndex]._r.cfg.key) ? 2 : 0,
+      showLine: true,
+      fill: false,
+      tension: 0,
+      _concLabels: data.map(p => p._r.cfg.conc),
+    };
+  }).filter(ds => ds.data.length);
+  if (!datasets.length) return;
+  new Chart(canvas, {
+    type: 'scatter',
+    data: { datasets: datasets },
+    plugins: [concLabelPlugin('tradeoffConc-' + canvasId)],
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      layout: { padding: { top: 8, right: 18 } },
+      plugins: {
+        legend: datasets.length <= 8
+          ? { labels: { color: theme.tick, font: { size: 10 }, boxWidth: 10 } }
+          : { display: false },
+        tooltip: {
+          callbacks: {
+            title: items => {
+              const p = datasets[items[0].datasetIndex].data[items[0].dataIndex]._r;
+              return group.name + ' · ' + datasets[items[0].datasetIndex].label + ' · c=' + p.cfg.conc;
+            },
+            label: item => [
+              (intvtyMetric ? intvtyMetric.label : 'Interactivity') + ': '
+                + fmt(item.parsed.x, intvtyMetric ? intvtyMetric.digits : 1)
+                + ' ' + (intvtyMetric ? unitOf(intvtyMetric) : 'tok/s/user'),
+              tputMetric.label + ': ' + fmt(item.parsed.y, tputMetric.digits) + ' ' + unitOf(tputMetric),
+            ],
+            afterBody: items => {
+              const p = items[0].raw._r.point;
+              return ['Build #' + (p.build_number || '?') + ' · vLLM ' + shortSha(p.vllm_commit), '', 'Click for history'];
+            },
+          }
+        },
+      },
+      scales: {
+        x: {
+          title: { display: true, text: axisTitle(intvtyMetric, 'Interactivity (tok/s/user)'), color: theme.tick },
+          ticks: { color: theme.tick, font: { size: 10 } },
+          grid: { color: theme.grid },
+          grace: '5%',
+        },
+        y: {
+          // grace pads both ends; beginAtZero is what holds the floor at 0.
+          beginAtZero: true,
+          title: { display: true, text: axisTitle(tputMetric), color: theme.tick },
+          ticks: { color: theme.tick, font: { size: 10 } },
+          grid: { color: theme.grid },
+          grace: '5%',
+        },
+      },
+      onClick: (_e, els, chart) => {
+        if (!els.length) return;
+        const ds = chart.data.datasets[els[0].datasetIndex];
+        const p = ds.data[els[0].index]._r;
+        if (p) openConfigHistory(p.cfg, tputMetric);
+      },
+    },
+  });
+}
+
+function drawConcurrencyScaling(group, canvasId, tputMetric, tpotMetric) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const theme = chartTheme();
+  const dashPatterns = [[], [6, 3], [2, 2], [8, 4, 2, 4]];
+  const datasets = [];
+  const concs = new Set();
+  group.curves.forEach((curve, i) => {
+    const dash = dashPatterns[i % dashPatterns.length];
+    const tputData = curve.points.map(r => {
+      concs.add(Number(r.cfg.conc) || 0);
+      return { x: r.cfg.conc, y: display(r.tput, tputMetric), _r: r };
+    }).sort((a, b) => a.x - b.x);
+    datasets.push({
+      label: curve.label + ' Tput',
+      data: tputData,
+      borderColor: curve.color,
+      backgroundColor: curve.color,
+      borderWidth: 2,
+      borderDash: dash,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      showLine: true,
+      fill: false,
+      tension: 0,
+      yAxisID: 'y',
+    });
+    if (tpotMetric) {
+      const tpotData = curve.points.filter(r => r.tpot != null).map(r => ({
+        x: r.cfg.conc, y: display(r.tpot, tpotMetric), _r: r
+      })).sort((a, b) => a.x - b.x);
+      if (tpotData.length) {
+        datasets.push({
+          label: curve.label + ' TPOT',
+          data: tpotData,
+          borderColor: withAlpha(curve.color, 0.85),
+          backgroundColor: curve.color,
+          borderWidth: 2,
+          borderDash: dash,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          pointStyle: 'triangle',
+          showLine: true,
+          fill: false,
+          tension: 0,
+          yAxisID: 'y2',
+        });
+      }
+    }
+  });
+  if (!datasets.length) return;
+  const allConcs = [...concs].sort((a, b) => a - b);
+  const useLog = allConcs.length > 1 && Math.min(...allConcs) > 0
+    && Math.max(...allConcs) / Math.min(...allConcs) >= 4;
+  new Chart(canvas, {
+    type: 'scatter',
+    data: { datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: datasets.length <= 8
+          ? { labels: { color: theme.tick, font: { size: 10 }, boxWidth: 10, usePointStyle: true } }
+          : { display: false },
+        tooltip: {
+          callbacks: {
+            title: items => {
+              const p = items[0].raw._r;
+              return group.name + ' · ' + items[0].dataset.label.replace(/ (Tput|TPOT)$/, '')
+                + ' · c=' + p.cfg.conc;
+            },
+            label: item => item.dataset.yAxisID === 'y2'
+              ? tpotMetric.label + ': ' + fmt(item.parsed.y, tpotMetric.digits) + ' ' + unitOf(tpotMetric)
+              : tputMetric.label + ': ' + fmt(item.parsed.y, tputMetric.digits) + ' ' + unitOf(tputMetric),
+            afterBody: () => '\nClick for history',
+          }
+        },
+      },
+      scales: {
+        x: {
+          type: useLog ? 'logarithmic' : 'linear',
+          title: { display: true, text: 'Concurrency', color: theme.tick },
+          ticks: {
+            color: theme.tick,
+            font: { size: 10 },
+            callback: v => allConcs.includes(v) ? v : '',
+          },
+          afterBuildTicks: axis => { axis.ticks = allConcs.map(v => ({ value: v })); },
+          grid: { color: theme.grid },
+        },
+        y: {
+          position: 'left',
+          beginAtZero: true,
+          title: { display: true, text: axisTitle(tputMetric), color: theme.tick },
+          ticks: { color: theme.tick, font: { size: 10 } },
+          grid: { color: theme.grid },
+          grace: '5%',
+        },
+        y2: {
+          position: 'right',
+          beginAtZero: true,
+          title: { display: true, text: axisTitle(tpotMetric), color: theme.tick },
+          ticks: { color: theme.tick, font: { size: 10 } },
+          grid: { drawOnChartArea: false },
+          grace: '5%',
+        },
+      },
+      onClick: (_e, els, chart) => {
+        if (!els.length) return;
+        const p = chart.data.datasets[els[0].datasetIndex].data[els[0].index]._r;
+        if (p) openConfigHistory(p.cfg, tputMetric);
+      },
+    },
+  });
+}
+
+/* ================================================================
+   11. ACCURACY TAB
+   ================================================================ */
+function renderAccuracyTab() {
+  const host = document.getElementById('main');
+  const cutoff = windowCutoff();
+  const baseline = BASELINE_BY_ID[state.baseline];
+  const series = ACC_TASKS.map(t => {
+    const pts = t.points.filter(p => p.t >= cutoff);
+    return { ...t, windowed: pts, verdict: accuracyVerdict(pts.map(p => p.value), baseline) };
+  }).filter(t => t.windowed.length && accuracyFacetMatches(t));
+  const groups = accuracyGroups(series);
+
+  if (!groups.length) {
+    host.innerHTML = '<div class="card"><div class="empty">No accuracy results in this window.</div></div>';
+    return;
+  }
+  const threshold = accuracyPoints(baseline.accuracy_abs);
+  let html = '<div class="card"><h3>Accuracy by model</h3>'
+    + '<div class="card-hint">Scores from lm-eval, as the percentage of questions answered '
+    + 'correctly; higher is better. Each is compared against <em>the previous nightly</em>, '
+    + 'not against a reference score for the model. A change of <b>' + threshold
+    + ' or more</b> counts as improved or regressed; smaller moves are normal run-to-run '
+    + 'variation (one gsm8k question is about 0.08 pt). Click a row for history.</div>'
+    + '<div class="table-scroll"><table><thead><tr>'
+    + '<th>Model</th><th>Device</th><th>Task</th><th class="num">Score</th>'
+    +
+    // "Previous nightly", not "Baseline", which in eval work means a reference score.
+    '<th class="num">Previous nightly</th><th class="num">Change</th><th>Status</th>'
+    + '<th>Other scores</th><th class="num">Runs</th><th>Build</th>'
+    + '</tr></thead><tbody>';
+  const tonight = latestNightlyBuild();
+  groups.forEach((g, i) => {
+    const s = g.primary,
+      v = s.verdict,
+      newest = s.windowed[s.windowed.length - 1];
+    // Judged only if the newest result is tonight's, like the Accuracy card.
+    const current = reportedTonight(s.windowed, tonight);
+    const cls = !v || !v.counted || !current ? 'neutral' : (v.improved ? 'good' : 'bad');
+    html += '<tr class="clickable" data-acc="' + i + '">'
+      + '<td class="config">' + esc(g.shortModel) + '</td>'
+      + '<td>' + esc(g.device || '—') + '</td>'
+      + '<td>' + esc(g.task) + '</td>'
+      + '<td class="num">' + esc(accuracyPercent(newest.value))
+      + '<br><span class="neutral" style="font-size:11px">' + esc(accuracyMetricLabel(s.metric)) + '</span></td>'
+      + '<td class="num">' + (v ? esc(accuracyPercent(v.base)) : '—') + '</td>'
+      + '<td class="num ' + cls + ' mono">' + (v ? esc(accuracyPoints(v.delta, true)) : '—') + '</td>'
+      + '<td>' + (!current ? '<span class="pill">not in #' + esc(tonight) + '</span>'
+        : !v ? '<span class="pill">first run</span>'
+        : v.severity !== 'ok' ? '<span class="pill alert">regressed</span>'
+        : v.counted ? '<span class="pill ok">improved</span>'
+        : '<span class="pill">within ' + esc(threshold) + '</span>') + '</td>'
+      + '<td class="neutral" style="font-size:11px">' + g.others.map(o => {
+        const ov = o.verdict,
+          last = o.windowed[o.windowed.length - 1];
+        return esc(accuracyMetricLabel(o.metric)) + ' ' + esc(accuracyPercent(last.value))
+          + (ov ? ' (' + esc(accuracyPoints(ov.delta, true)) + ')' : '');
+      }).join('<br>') + '</td>'
+      + '<td class="num">' + s.windowed.length + '</td>'
+      + '<td>' + buildLink(newest, null) + '</td></tr>';
+  });
+  html += '</tbody></table></div></div>';
+  host.innerHTML = html;
+
+  host.querySelectorAll('tr[data-acc]').forEach(row => {
+    const g = groups[Number(row.getAttribute('data-acc'))];
+    if (!g) return;
+    const s = g.primary;
+    activatable(row, 'Open history for ' + g.shortModel + ' ' + g.device + ' ' + g.task, event => {
+      // Let a build link inside the row navigate instead of opening history.
+      if (event.target && event.target.closest && event.target.closest('a')) return;
+      openHistory(g.shortModel + ' · ' + (g.device || '?') + ' — ' + g.task,
+        accuracyMetricLabel(s.metric) + ' · higher is better · compared against the previous nightly',
+        ACCURACY_METRIC, s.windowed, s.verdict);
+    });
+  });
+}
+
+// Accuracy has no shape, precision or concurrency: only Device and Model apply.
+function accuracyFacetMatches(t) {
+  return ['device', 'model'].every(key => {
+    const sel = state.selected[key];
+    return sel.size === 0 || sel.has(key === 'device' ? t.device : t.shortModel);
+  });
+}
+
+// Shown as a percentage; changes in points, so +0.15 pt is not read as relative.
+const ACCURACY_METRIC = {
+  label: 'Accuracy',
+  unit: '%',
+  display_scale: 100,
+  digits: 2,
+  better: 'higher',
+  absolute: true
+};
+
+function accuracyPercent(v) { return v == null || !isFinite(v) ? '—' : (v * 100).toFixed(2) + '%'; }
+
+function accuracyPoints(delta, signed) {
+  if (delta == null || !isFinite(delta)) return '—';
+  const pts = delta * 100;
+  return (signed && pts > 0 ? '+' : '') + (+pts.toFixed(2)) + ' pt';
+}
+
+/* ================================================================
+   12. CONFIGURATIONS TAB
+   ================================================================ */
+function renderConfigsTab() {
+  const host = document.getElementById('main');
+  const configs = shownConfigs();
+  if (!configs.length) {
+    host.innerHTML = '<div class="card"><div class="empty">No AMD nightly runs match these filters.</div></div>';
+    return;
+  }
+  const baseline = BASELINE_BY_ID[state.baseline];
+  const present = METRICS.filter(m => configs.some(c => pointsIn(c, m.key).length > 0));
+
+  let html = '<div class="card"><h3>Latest value per configuration</h3>'
+    + '<div class="card-hint">Newest run in the window, with its change against the '
+    + 'previous nightly. Changes under <b>' + thresholdLabel(baseline) + '</b> stay grey, and so '
+    + 'does any cell whose newest run is not from build #' + esc(latestNightlyBuild() || '?')
+    + ' or whose run before it is not from #' + esc(previousNightlyBuild() || '?')
+    + ', since that change spans more than one night. '
+    + 'Click a cell for that metric\'s history.'
+    + '</div><div class="table-scroll"><table><thead><tr>'
+    + '<th>Configuration</th><th class="num">Runs</th>'
+    + present.map(m => '<th class="num">' + esc(m.label) + '<br><span class="neutral">' + esc(unitOf(m)) + '</span></th>').join('')
+    + '</tr></thead><tbody>';
+
+  const tonight = latestNightlyBuild(),
+    previous = previousNightlyBuild();
+  configs.forEach((c, ci) => {
+    const runs = Math.max(...present.map(m => pointsIn(c, m.key).length), 0);
+    html += '<tr><td class="config">' + esc(c.label) + '</td><td class="num">' + runs + '</td>';
+    present.forEach(m => {
+      const pts = pointsIn(c, m.key);
+      if (!pts.length) { html += '<td class="num neutral">—</td>'; return; }
+      const v = verdict(pts.map(p => p.value), m, baseline);
+      const cls = (!v || !comparedOvernight(pts, tonight, previous)) ? 'neutral'
+        : (v.severity === 'alert' ? 'bad' : v.severity === 'warn' ? 'warnc'
+          : (v.improved && v.magnitude >= baseline.warn) ? 'good' : 'neutral');
+      html += '<td class="num clickable" data-cfg="' + ci + '" data-metric="' + esc(m.key) + '">'
+        + esc(fmt(display(pts[pts.length - 1].value, m), m.digits))
+        +
+        // Two decimals under 1%, so a 0.46% drop cannot display as 0.5%.
+        (v ? ' <span class="' + cls + '" style="font-size:11px">'
+          + pct(v.ratio, Math.abs(v.ratio) < 0.01 ? 2 : 1) + '</span>' : '') + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div></div>';
+  host.innerHTML = html;
+
+  host.querySelectorAll('td[data-metric]').forEach(td => {
+    const config = configs[Number(td.getAttribute('data-cfg'))];
+    const metric = METRIC_BY_KEY[td.getAttribute('data-metric')];
+    if (!config || !metric) return;
+    activatable(td, 'Open history for ' + config.label + ' ' + metric.label,
+      () => openConfigHistory(config, metric));
+  });
+}
+
+/* ================================================================
+   13. HISTORY OVERLAY
+   ================================================================ */
+function openHistory(title, subtitle, metric, points, v) {
+  // The chooser hides the chart; restore it in case we arrived from there.
+  document.getElementById('history-chart-wrap').style.display = '';
+  document.getElementById('overlay-title').textContent = title;
+  document.getElementById('overlay-sub').textContent = subtitle;
+
+  const unit = unitOf(metric);
+  const items = [
+    { k: 'Latest', v: fmt(display(points[points.length - 1].value, metric), metric.digits) + ' ' + unit },
+    { k: 'Previous', v: v ? fmt(display(v.base, metric), metric.digits) + ' ' + unit : '—' },
+    { k: 'Change', v: !v ? '—' : (metric.absolute ? accuracyPoints(v.delta, true) : pct(v.ratio, 2)) },
+    { k: 'Runs', v: String(points.length) },
+  ];
+  document.getElementById('overlay-summary').innerHTML = items.map(i =>
+    '<div class="item"><div class="k">' + esc(i.k) + '</div><div class="v">' + esc(i.v) + '</div></div>').join('');
+
+  const rows = points.slice().reverse();
+  const table = document.getElementById('overlay-table');
+  table.innerHTML =
+    '<table><thead><tr><th>Date</th><th class="num">Value</th><th>vLLM commit</th>'
+    + '<th>Image</th><th>Build</th></tr></thead><tbody>'
+    + rows.map((p, i) => '<tr' + (p.build_url ? ' class="clickable" data-row="' + i + '"' : '') + '>'
+      + '<td>' + esc(fmtDate(p.t)) + '</td>'
+      + '<td class="num">' + esc(fmt(display(p.value, metric), metric.digits)) + '</td>'
+      + '<td class="mono">' + esc(shortSha(p.vllm_commit)) + '</td>'
+      + '<td class="mono">' + esc(p.image || '—') + '</td>'
+      + '<td>' + buildLink(p, null) + '</td></tr>').join('')
+    + '</tbody></table>';
+
+  // The whole row opens the build; the link stays for middle- and ctrl-click.
+  table.querySelectorAll('tr[data-row]').forEach(row => {
+    const point = rows[Number(row.getAttribute('data-row'))];
+    if (!point) return;
+    activatable(row, 'Open build #' + (point.build_number || '?') + ' in Buildkite', event => {
+      // The link navigates itself; handling it here too would open it twice.
+      if (event.target && event.target.closest && event.target.closest('a')) return;
+      window.open(point.build_url, '_blank', 'noopener');
+    });
+  });
+
+  const canvas = document.getElementById('history-chart');
+  if (historyChart) { historyChart.destroy();
+    historyChart = null; }
+  const theme = chartTheme();
+  const accent = cssVar(metric.better === 'higher' ? '--accent-blue' : '--ui');
+  historyChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      datasets: [{
+        label: metric.label + (unit ? ' (' + unit + ')' : ''),
+        data: points.map(p => ({ x: p.t, y: display(p.value, metric), _p: p })),
+        borderColor: accent,
+        backgroundColor: accent,
+        borderWidth: 2,
+        pointRadius: 3,
+        tension: 0,
+        fill: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          type: 'linear',
+          ticks: {
+            color: theme.tick,
+            maxTicksLimit: 12,
+            font: { size: 10 },
+            maxRotation: 0,
+            callback: t => fmtDate(t).slice(5, 10)
+          },
+          grid: { color: theme.grid }
+        },
+        y: { afterDataLimits: floorYSpan, ticks: { color: theme.tick, font: { size: 10 } }, grid: { color: theme.grid } },
+      },
+      plugins: {
+        legend: { labels: { color: cssVar('--text-secondary') } },
+        tooltip: {
+          callbacks: {
+            title: items => fmtDate(items[0].parsed.x),
+            afterBody: items => {
+              const p = points[items[0].dataIndex] || {};
+              const lines = ['vLLM commit: ' + shortSha(p.vllm_commit), 'Build: #' + (p.build_number || '?')];
+              return failedNote(p) ? lines.concat(failedNote(p)) : lines;
+            },
+          }
+        },
+      },
+    },
+  });
+  showOverlay();
+}
+// A config's history for one metric, over the window.
+function openConfigHistory(config, metric) {
+  const baseline = BASELINE_BY_ID[state.baseline];
+  const points = pointsIn(config, metric.key);
+  if (!points.length) return;
+  openHistory(config.label + ' — ' + metric.label,
+    (metric.better === 'higher' ? 'higher is better' : 'lower is better') + ' · ' + baseline.label,
+    metric, points, verdict(points.map(p => p.value), metric, baseline));
+}
+
+// Open the full history of the clicked series.
+function openSeriesHistory(candidate) {
+  // By key, not label: labels leave out TP, precision and the model's org.
+  const config = visibleConfigs().filter(c => c.key === candidate.key)[0];
+  const metric = candidate.metric;
+  if (!config) {
+    // Stale render with no matching config: show just the clicked point.
+    openHistory(candidate.label + ' — ' + metric.label,
+      fmtDate(candidate.point.t || 0), metric, [candidate.point], null);
+    return;
+  }
+  openConfigHistory(config, metric);
+}
+
+// Several series on one point: list them and let the reader choose.
+function openPointChooser(metric, candidates) {
+  if (historyChart) { historyChart.destroy();
+    historyChart = null; }
+  document.getElementById('history-chart-wrap').style.display = 'none';
+  document.getElementById('overlay-summary').innerHTML = '';
+  document.getElementById('overlay-title').textContent =
+    candidates.length + ' configurations at this point';
+  document.getElementById('overlay-sub').textContent =
+    metric.label + ' · ' + fmtDate(candidates[0].point.t || 0)
+    + ' · select one to see its history';
+
+  document.getElementById('overlay-table').innerHTML = '<div class="pick-list">'
+    + candidates.map((c, index) =>
+      '<button class="pick-item" data-pick="' + index + '">'
+      + '<span class="pick-swatch" style="background:' + esc(c.color) + '"></span>'
+      + '<span class="pick-label">' + esc(c.label) + '</span>'
+      + '<span class="pick-value">' + esc(fmt(c.value, metric.digits)) + ' '
+      + esc(unitOf(metric)) + '</span></button>').join('') + '</div>';
+
+  document.getElementById('overlay-table').querySelectorAll('button[data-pick]')
+    .forEach(button => button.addEventListener('click', () => {
+      const candidate = candidates[Number(button.getAttribute('data-pick'))];
+      if (candidate) openSeriesHistory(candidate);
+    }));
+
+  showOverlay();
+}
+
+// Move focus into the dialog on open, and back to the opener on close.
+let overlayOpener = null;
+
+function showOverlay() {
+  const overlay = document.getElementById('overlay');
+  if (!overlay.classList.contains('open')) overlayOpener = document.activeElement;
+  overlay.classList.add('open');
+  document.getElementById('overlay-close').focus();
+}
+
+function closeHistory() {
+  const overlay = document.getElementById('overlay');
+  const wasOpen = overlay.classList.contains('open');
+  overlay.classList.remove('open');
+  if (historyChart) { historyChart.destroy();
+    historyChart = null; }
+  if (wasOpen && overlayOpener && document.contains(overlayOpener)) overlayOpener.focus();
+  if (wasOpen) overlayOpener = null;
+}
+
+/* ================================================================
+   14. HASH STATE
+   ================================================================ */
+let suppressHash = false;
+
+function syncToHash() {
+  const parts = [];
+  if (state.tab !== 'performance') parts.push('tab=' + state.tab);
+  if (perfMetric().key !== defaultPerfMetric()) parts.push('metric=' + perfMetric().key);
+  if (state.baseline !== DATA.default_baseline) parts.push('base=' + state.baseline);
+  if (chartDays() !== WINDOW_DAYS) parts.push('days=' + chartDays());
+  FACETS.forEach(f => {
+    const sel = [...state.selected[f.key]];
+    if (sel.length) parts.push(f.key + '=' + sel.map(encodeURIComponent).join(','));
+  });
+  if (state.onlyRegressed) parts.push('regressed=1');
+  suppressHash = true;
+  window.location.hash = parts.join('&');
+  setTimeout(() => { suppressHash = false; }, 0);
+}
+
+function readFromHash() {
+  const raw = (window.location.hash || '').replace(/^#/, '');
+  state.tab = 'performance';
+  state.perfMetric = null;
+  state.baseline = DATA.default_baseline || 'previous';
+  state.chartDays = null;
+  FACETS.forEach(f => state.selected[f.key].clear());
+  state.onlyRegressed = false;
+  raw.split('&').forEach(chunk => {
+    const i = chunk.indexOf('=');
+    if (i < 0) return;
+    const k = chunk.slice(0, i),
+      v = chunk.slice(i + 1);
+    if (k === 'tab' && TABS.some(t => t.id === v)) state.tab = v;
+    else if (k === 'base' && BASELINE_BY_ID[v]) state.baseline = v;
+    else if (k === 'days' && /^\d+$/.test(v)) state.chartDays = Number(v);
+    else if (k === 'regressed') state.onlyRegressed = v === '1';
+    else if (k === 'metric' && METRIC_BY_KEY[v]) state.perfMetric = v;
+    else {
+      const facet = FACETS.find(f => f.key === k);
+      if (facet) {
+        v.split(',').map(safeDecode).filter(Boolean)
+          .forEach(val => state.selected[k].add(val));
+      }
+    }
+  });
+  invalidateScan();
+}
+// A truncated or hand-edited link must not take the page down with it.
+function safeDecode(value) {
+  try { return decodeURIComponent(value); } catch (_e) { return ''; }
+}
+
+/* ================================================================
+   15. RENDER ROOT
+   ================================================================ */
+function renderAll() {
+  // Close any open drill-down: it would describe the previous view.
+  closeHistory();
+  hideChartTip();
+  _chartBounds = null;
+  renderNotice();
+  renderHeaderFilters();
+  renderControls();
+  renderKpis();
+  renderCoveragePanel();
+  renderTabs();
+  // Chart.js keeps every chart it made; free the ones about to be replaced.
+  document.querySelectorAll('#main canvas').forEach(c => {
+    const chart = Chart.getChart(c);
+    if (chart) chart.destroy();
+  });
+  if (state.tab === 'performance') renderPerformanceTab();
+  else if (state.tab === 'tradeoff') renderTradeoffTab();
+  else if (state.tab === 'trends') renderTrendsTab();
+  else if (state.tab === 'accuracy') renderAccuracyTab();
+  else renderConfigsTab();
+}
+
+function relTime(ms) {
+  const diff = Date.now() - ms;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.round(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.round(diff / 3600000) + 'h ago';
+  const days = Math.round(diff / 86400000);
+  return days + (days === 1 ? ' day ago' : ' days ago');
+}
+
+// Relative, as ATOM shows it; the exact UTC time is on hover.
+function renderUpdated() {
+  const el = document.getElementById('generated-at');
+  const t = parseTime(DATA.generated_at);
+  if (!t) { el.textContent = 'Update time unknown'; return; }
+  el.textContent = 'Updated ' + relTime(t);
+  el.title = 'Generated ' + new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+}
+
+function renderChrome() {
+  renderUpdated();
+  // Keeps "Updated 5m ago" true while the page stays open.
+  setInterval(renderUpdated, 60000);
+  const url = safeUrl((DATA.pipeline || {}).url) || 'https://buildkite.com/vllm/perf-eval';
+  document.getElementById('pipeline-link').href = url;
+  document.getElementById('pipeline-link-footer').href = url;
+  const parts = ['Showing the last ' + WINDOW_DAYS + ' days'];
+  const nightlies = nightliesInWindow();
+  if (nightlies) parts.push(nightlies + (nightlies === 1 ? ' nightly' : ' nightlies'));
+  document.getElementById('retention-note').textContent = parts.join(' · ');
+}
+
+// The icon says which mode the button switches to, and the label has to say
+// the same thing. CSS swaps the icon but cannot write an aria-label.
+function syncThemeLabel() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  const label = light ? 'Switch to dark mode' : 'Switch to light mode';
+  const btn = document.getElementById('theme-toggle');
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+}
+
+function wireChrome() {
+  syncThemeLabel();
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    const light = document.documentElement.getAttribute('data-theme') === 'light';
+    if (light) {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('perf-eval-theme', 'dark');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('perf-eval-theme', 'light');
+    }
+    syncThemeLabel();
+    assignColors();
+    // Chart.js reads colours when a chart is built, so redraw on theme change.
+    renderAll();
+  });
+  document.getElementById('copy-link').addEventListener('click', () => {
+    const btn = document.getElementById('copy-link');
+    const restore = () => { btn.textContent = 'Copy link'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(window.location.href).then(
+        () => { btn.textContent = 'Copied';
+          setTimeout(restore, 1500); },
+        () => { btn.textContent = 'Copy failed';
+          setTimeout(restore, 1500); });
+    } else { btn.textContent = 'Copy failed';
+      setTimeout(restore, 1500); }
+  });
+  document.getElementById('overlay-close').addEventListener('click', closeHistory);
+  document.getElementById('overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('overlay')) closeHistory();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    closeHistory();
+    closeHeaderFilters();
+  });
+  document.addEventListener('click', closeHeaderFilters);
+  window.addEventListener('hashchange', () => {
+    if (suppressHash) return;
+    readFromHash();
+    renderAll();
+  });
+}
+
+function fail(msg) {
+  document.getElementById('main').innerHTML =
+    '<div class="card"><div class="empty">' + esc(msg) + '</div></div>';
+  document.getElementById('generated-at').textContent = 'Data unavailable';
+}
+
+// Before the fetch, so the label is right even when the payload never loads.
+syncThemeLabel();
+
+// The build step rewrites this path with a content-hash cache tag.
+fetch('perf_eval.json?v=7a60758ea701')
+  .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+  .then(payload => {
+    DATA = payload;
+    DATA.models = DATA.models || [];
+    DATA.summary = DATA.summary || {};
+    DATA.metric_meta = DATA.metric_meta || {};
+    DATA.baselines = (DATA.baselines && DATA.baselines.length) ? DATA.baselines : [
+      // Fallback for payloads without `baselines`; mirrors aggregate.py.
+      {
+        id: 'previous',
+        label: 'vs previous run',
+        kind: 'previous',
+        baseline_window: 1,
+        warn: 0.005,
+        alert: null,
+        accuracy_abs: 0.01,
+        description: 'Compares the newest nightly against the run before it.'
+      },
+    ];
+    DATA.default_baseline = DATA.default_baseline || DATA.baselines[0].id;
+    BASELINE_BY_ID = Object.fromEntries(DATA.baselines.map(b => [b.id, b]));
+
+    // aggregate.py owns the window and guarantees the payload covers it.
+    const windowDays = (DATA.retention || {}).display_window_days;
+    if (Number.isFinite(windowDays) && windowDays > 0) WINDOW_DAYS = windowDays;
+
+    // Metric order comes from the payload.
+    METRICS = Object.keys(DATA.metric_meta)
+      .filter(k => k !== 'accuracy')
+      .map(k => ({ key: k, ...DATA.metric_meta[k] }))
+      .sort((a, b) => (a.order == null ? 99 : a.order) - (b.order == null ? 99 : b.order));
+    METRIC_BY_KEY = Object.fromEntries(METRICS.map(m => [m.key, m]));
+
+    CONFIGS = buildConfigs(DATA);
+    ACC_TASKS = buildAccuracy(DATA);
+    assignColors();
+
+    readFromHash();
+    renderChrome();
+    wireChrome();
+    renderAll();
+  })
+  .catch(err => fail('Could not load perf_eval.json: ' + err.message));
+})();
+</script>
+</body>
+</html>
