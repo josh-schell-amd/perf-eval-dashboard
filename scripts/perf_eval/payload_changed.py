@@ -39,8 +39,6 @@ def _load(path: Path | None) -> dict | None:
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        # Treat an unreadable baseline as absent rather than failing the run:
-        # the consequence is one redundant deploy, not a broken collection.
         return None
     return loaded if isinstance(loaded, dict) else None
 
@@ -56,6 +54,7 @@ def main() -> int:
         print("Current payload is missing or unreadable", file=sys.stderr)
         return 1
 
+    # An unreadable live copy counts as changed, not as a failed run: deploying replaces it.
     changed = payload_changed(_load(args.previous), current)
     print("true" if changed else "false")
 
