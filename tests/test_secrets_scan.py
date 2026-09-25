@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from perf_eval import secrets_scan as ss
@@ -122,23 +124,14 @@ class TestRunLength:
 
 
 class TestAllowlist:
-    @pytest.mark.parametrize(
-        "rel",
-        [
-            "site/vendor/chart.umd.min.js",
-            "_site/index.html",
-            "node_modules/pkg/index.js",
-            "site/assets/node_modules/x.js",
-            ".venv/lib/x.py",
-        ],
-    )
-    def test_skipped(self, rel):
-        assert ss._is_allowlisted(rel) is True
+    def test_only_the_scanners_own_samples_are_skipped(self):
+        assert ss._is_allowlisted("tests/test_secrets_scan.py") is True
 
     @pytest.mark.parametrize(
         "rel",
         [
             "site/index.html",
+            "site/vendor/chart.umd.min.js",
             "scripts/perf_eval/collect_artifacts.py",
             "scripts/perf_eval/secrets_scan.py",
             ".github/workflows/collect.yml",
@@ -158,6 +151,31 @@ class TestAllowlist:
         # It no longer needs to be exempt, because the shape table contains
         # bare prefixes rather than anything token-shaped.
         assert ss._is_allowlisted("scripts/perf_eval/secrets_scan.py") is False
+
+
+class TestCandidateFiles:
+    @staticmethod
+    def _repo(root):
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        (root / ".gitignore").write_text(".venv/\n", encoding="utf-8")
+        (root / ".venv").mkdir()
+        (root / ".venv" / "lib.py").write_text("", encoding="utf-8")
+        (root / "tracked.py").write_text("", encoding="utf-8")
+        (root / "LICENSE").write_text("", encoding="utf-8")
+        (root / ".env").write_text("", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.py", "LICENSE"], cwd=root, check=True)
+
+    def test_lists_what_git_would_commit(self, tmp_path):
+        self._repo(tmp_path)
+        rels = {rel for _, rel in ss._iter_candidate_files(tmp_path)}
+        # Ignored trees are never walked; untracked files that could be added are.
+        assert rels == {".gitignore", ".env", "tracked.py", "LICENSE"}
+
+    def test_skips_a_tracked_file_deleted_from_the_working_tree(self, tmp_path):
+        self._repo(tmp_path)
+        (tmp_path / "tracked.py").unlink()
+        rels = {rel for _, rel in ss._iter_candidate_files(tmp_path)}
+        assert "tracked.py" not in rels
 
 
 class TestFindingsDoNotLeak:

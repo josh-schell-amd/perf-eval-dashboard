@@ -11,9 +11,10 @@ providers and git history are left to GitHub push protection.
 from __future__ import annotations
 
 import string
+import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -47,41 +48,7 @@ TOKEN_SHAPES: tuple[TokenShape, ...] = (
     TokenShape("HuggingFace token", "hf_", 34, BASE62),
 )
 
-# Skipped for cost, not because they are trusted: vendored bundles, build
-# output, dependency trees and caches.
-PATH_ALLOWLIST = (
-    ".git/",
-    "node_modules/",
-    "site/vendor/",  # vendored third-party bundles
-    "_site/",  # build output, contains a copy of the above
-    ".venv/",
-    ".tox/",
-    "__pycache__/",
-    ".pytest_cache/",
-    ".ruff_cache/",
-    "tests/test_secrets_scan.py",  # constructs sample tokens to test detection
-)
-
-# Source and config only, so we do not walk large binary fixtures.
-SCAN_SUFFIXES = (
-    ".py",
-    ".js",
-    ".ts",
-    ".mjs",
-    ".cjs",
-    ".html",
-    ".css",
-    ".yml",
-    ".yaml",
-    ".json",
-    ".jsonl",
-    ".sh",
-    ".toml",
-    ".md",
-    ".txt",
-    ".cfg",
-    ".ini",
-)
+PATH_ALLOWLIST = ("tests/test_secrets_scan.py",)  # constructs sample tokens to test detection
 
 
 def _run_length(text: str, start: int, alphabet: frozenset[str]) -> int:
@@ -112,23 +79,24 @@ def find_tokens(line: str) -> list[tuple[TokenShape, str]]:
 
 
 def _is_allowlisted(rel: str) -> bool:
-    # Dependency installs can live below several project-local roots, so treat
-    # node_modules as a path component rather than only a repository root.
-    if "node_modules" in PurePosixPath(rel).parts:
-        return True
-    return any(rel == entry or rel.startswith(entry) for entry in PATH_ALLOWLIST)
+    return rel.startswith(PATH_ALLOWLIST)
 
 
 def _iter_candidate_files(root: Path):
-    for path in root.rglob("*"):
-        if not path.is_file():
+    """Every file git would commit: tracked ones, plus new ones .gitignore allows."""
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=root,
+        capture_output=True,
+        check=True,
+    ).stdout.decode("utf-8")
+    for rel in listed.split("\0"):
+        if not rel or _is_allowlisted(rel):
             continue
-        rel = path.relative_to(root).as_posix()
-        if _is_allowlisted(rel):
-            continue
-        if path.suffix.lower() not in SCAN_SUFFIXES:
-            continue
-        yield path, rel
+        path = root / rel
+        # A tracked file deleted from the working tree is still listed.
+        if path.is_file():
+            yield path, rel
 
 
 def scan_text(text: str, rel: str) -> list[str]:
