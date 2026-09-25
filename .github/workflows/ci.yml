@@ -28,15 +28,17 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: |
-            constraints.txt
-            pyproject.toml
 
-      # constraints.txt pins exact versions, so a new ruff or pyright release
-      # cannot break CI with no code change.
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: '0.12.19'
+
+      # Exactly what uv.lock pins, so a new ruff or pyright release cannot
+      # break CI with no code change. --locked fails if the lock is stale.
       - name: Install dependencies
-        run: pip install -c constraints.txt -e ".[dev]"
+        run: |
+          uv sync --locked --python 3.12
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Lint
         run: ruff check .

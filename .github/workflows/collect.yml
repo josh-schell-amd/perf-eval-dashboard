@@ -62,16 +62,19 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: |
-            constraints.txt
-            pyproject.toml
 
-      # Runtime packages only, at the exact versions in constraints.txt. This
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: '0.12.19'
+
+      # Runtime packages only (--no-dev), at the versions uv.lock pins. This
       # job holds the Buildkite token and a write token, so nothing runs here
       # that the collector does not need; the test and lint tools run in CI.
       - name: Install dependencies
-        run: pip install -c constraints.txt requests pyyaml truststore
+        run: |
+          uv sync --locked --no-dev --python 3.12
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Validate workflow inputs
         env:

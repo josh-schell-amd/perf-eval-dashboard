@@ -14,7 +14,9 @@ dependencies = [
     "truststore>=0.9",
 ]
 
-[project.optional-dependencies]
+# Exact versions of everything, dependencies of dependencies included, live in
+# uv.lock. CI installs with `uv sync --locked`, which fails if the lock is stale.
+[dependency-groups]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
