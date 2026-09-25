@@ -1955,10 +1955,9 @@ function compact(v, digits) {
   return Math.abs(v) >= 10000 ? (v / 1000).toFixed(1) + 'K' : fmt(v, digits);
 }
 
-// Values above the bars, skipped when there are too many to read. `colorAt`
-// picks a colour per bar: a regression's outline vanishes on a bar only a few
-// pixels tall (c=1 beside c=128), but its value above is always legible.
-function barValuesPlugin(colorAt, format) {
+// Values above the bars, skipped when there are too many to read. Always the
+// text colour: the red outline already marks a regression.
+function barValuesPlugin(color, format) {
   return {
     id: 'barValues',
     afterDatasetsDraw(chart) {
@@ -1969,8 +1968,8 @@ function barValuesPlugin(colorAt, format) {
       ctx.font = '10px "SF Mono", Consolas, monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
+      ctx.fillStyle = color;
       meta.data.forEach((bar, i) => {
-        ctx.fillStyle = colorAt(i);
         ctx.fillText(format(chart.data.datasets[0].data[i]), bar.x, bar.y - 4);
       });
       ctx.restore();
@@ -2178,7 +2177,7 @@ function drawPerfChart(group, canvasId, metric) {
       }]
     },
     plugins: [
-      barValuesPlugin(i => regKeys.has(group.rows[i].c.key) ? regColor : valueColor, v => compact(v, metric.digits)),
+      barValuesPlugin(valueColor, v => compact(v, metric.digits)),
       avgLinePlugin(avg, 'avg ' + compact(avg, metric.digits), theme.tick),
     ],
     options: {
