@@ -23,7 +23,6 @@ from perf_eval import (  # noqa: E402
 )
 from perf_eval.normalize import (  # noqa: E402
     ACCURACY_BETTER,
-    LM_EVAL_BACKENDS,
     METRIC_META,
     is_amd_workload,
     score_rows,
@@ -285,26 +284,6 @@ def build_accuracy_tasks(eval_events: list[dict]) -> list[dict]:
     return out
 
 
-def _accuracy_model(event: dict, workload_models: dict[str, str]) -> str:
-    """The model an accuracy event measured.
-
-    Older events carry lm-eval's backend name (``local-completions``) instead;
-    those resolve from the recipe, then from lm-eval's output directory.
-    """
-    model = (event.get("model") or "").strip()
-    if model and model not in LM_EVAL_BACKENDS:
-        return model
-    workload = (event.get("workload") or "").strip()
-    if workload_models.get(workload):
-        return workload_models[workload]
-    parts = (event.get("buildkite_artifact_path") or "").strip().lstrip("./").split("/")
-    if len(parts) == 5 and "__" in parts[3]:
-        return parts[3].replace("__", "/", 1)
-    # The workload before the backend name: a backend name would fold every
-    # unresolved workload into one "model".
-    return workload or model
-
-
 def _latest_identity(events: list[dict]) -> dict:
     if not events:
         return {}
@@ -357,20 +336,14 @@ def aggregate(events: list[dict]) -> dict:
     devices: set[str] = set()
     nightlies: set[str] = set()
     expected = _expected_from_events(events)
-    workload_models = {
-        str(config.get("workload")): str(config.get("model"))
-        for config in expected["configs"]
-        if config.get("workload") and config.get("model")
-    }
 
     for event in events:
         if not _is_in_scope(event):
             continue
+        model = (event.get("model") or "").strip() or "(unknown model)"
         if event["event"] == "perf_result":
-            model = (event.get("model") or "").strip() or "(unknown model)"
             perf_by_model.setdefault(model, []).append(event)
         elif event["event"] == "accuracy_result":
-            model = _accuracy_model(event, workload_models) or "(unknown model)"
             eval_by_model.setdefault(model, []).append(event)
         if event.get("device"):
             devices.add(event["device"])

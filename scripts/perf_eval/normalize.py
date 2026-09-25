@@ -134,24 +134,6 @@ def to_float(value: Any) -> float | None:
     return parsed
 
 
-def commit_from_image(image: str) -> str:
-    """Extract a vLLM commit SHA embedded in an image tag, if present.
-
-    Mirrors the regex in perf-eval's ``parse_workload.py`` so the dashboard
-    derives the same commit the pipeline tagged the run with.
-    """
-    if not image:
-        return ""
-    _, sep, tag = image.rpartition(":")
-    if not sep:
-        return ""
-    tag = tag.split("@", 1)[0]
-    match = re.match(r"nightly-([0-9a-f]{7,40})(?:[-_.].*)?$", tag, re.IGNORECASE) or re.search(
-        r"(?:^|[-_.])([0-9a-f]{12,40})(?:$|[-_.])", tag, re.IGNORECASE
-    )
-    return match.group(1) if match else ""
-
-
 def is_amd_device(device: str | None) -> bool:
     return bool(device) and bool(_AMD_DEVICE_RE.match(str(device).strip()))
 
@@ -174,15 +156,13 @@ def is_amd_workload(
 
 def build_identity(payload: dict) -> dict:
     """Pull a compact build-identity block out of a result payload."""
-    image = (payload.get("image") or "").strip()
-    commit = (payload.get("vllm_commit") or "").strip() or commit_from_image(image)
     return {
         "build_number": to_int(payload.get("buildkite_build_number")),
         "build_url": payload.get("buildkite_build_url") or "",
         "build_commit": payload.get("buildkite_commit") or "",
         "branch": payload.get("buildkite_branch") or "",
-        "image": image,
-        "vllm_commit": commit,
+        "image": (payload.get("image") or "").strip(),
+        "vllm_commit": (payload.get("vllm_commit") or "").strip(),
     }
 
 
@@ -223,23 +203,8 @@ def transform_perf(raw: dict, *, tp: int | None) -> dict[str, float]:
     return {k: v for k, v in metrics.items() if k in METRIC_META}
 
 
-# lm-eval client backends. lm-eval's ``config.model`` holds one of these, not
-# the model under test, so it must never be read as a model id.
-LM_EVAL_BACKENDS = frozenset(
-    {
-        "local-completions",
-        "local-chat-completions",
-        "openai-completions",
-        "openai-chat-completions",
-        "vllm",
-        "sglang",
-        "hf",
-    }
-)
-
-# Keys in an lm-eval task block that are bookkeeping rather than scores.
-# ``sample_len`` is the number of questions (1319 for gsm8k).
-_NON_SCORE_METRICS = frozenset({"alias", "sample_len"})
+# The number of questions in an lm-eval task block (1319 for gsm8k), not a score.
+_SAMPLE_COUNT = "sample_len"
 
 # The metric headlined per task, in preference order, else the first score.
 # Flexible extract first: strict match also grades the answer format.
@@ -251,28 +216,11 @@ PRIMARY_METRIC_PREFERENCE = (
 )
 
 
-def model_from_eval(payload: dict) -> str:
-    """Best-effort model id from an lm-eval ``results`` payload."""
-    data = payload.get("data") or {}
-    config = data.get("config") or {}
-    args = config.get("model_args")
-    if isinstance(args, str):
-        match = re.search(r"(?:^|,)\s*(?:model|pretrained)=([^,]+)", args)
-        if match:
-            return match.group(1).strip()
-    elif isinstance(args, dict):
-        for key in ("model", "pretrained"):
-            if args.get(key):
-                return str(args[key]).strip()
-    for candidate in (config.get("model_name"), data.get("model_name")):
-        if candidate and str(candidate) not in LM_EVAL_BACKENDS:
-            return str(candidate)
-    return ""
-
-
 def is_score_metric(metric: str) -> bool:
     key = str(metric)
-    return key not in _NON_SCORE_METRICS and "stderr" not in key
+    """False for the numbers lm-eval reports beside each score: its standard
+    error (``exact_match_stderr,strict-match``) and the question count."""
+    return key != _SAMPLE_COUNT and "stderr" not in key
 
 
 def score_rows(rows: list[dict]) -> list[dict]:
@@ -335,7 +283,7 @@ def normalize_eval_payload(payload: dict) -> dict | None:
         "event": "accuracy_result",
         "received_at": utcnow_iso(),
         "nightly": bool(payload.get("nightly")),
-        "model": model_from_eval(payload) or workload,
+        "model": (payload.get("model") or "").strip(),
         "workload": workload,
         "task": (payload.get("task") or "").strip(),
         "device": device,

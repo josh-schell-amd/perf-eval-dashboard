@@ -37,20 +37,6 @@ class TestAmdScopeFilter:
         assert nz.is_amd_workload(workload="unknown", image="", device="mi355x") is True
 
 
-class TestCommitFromImage:
-    def test_nightly_tag(self):
-        commit = "93d8f834dd8acf33eb0e2a75b2711b628cb6e226"
-        assert nz.commit_from_image(f"vllm/vllm-openai-rocm:nightly-{commit}") == commit
-
-    def test_embedded_long_hex(self):
-        commit = "93d8f834dd8a"
-        assert nz.commit_from_image(f"repo/img:v1-{commit}-rocm") == commit
-
-    @pytest.mark.parametrize("image", ["", "repo/img", "repo/img:latest", "repo/img:v1.2.3"])
-    def test_no_commit(self, image):
-        assert nz.commit_from_image(image) == ""
-
-
 class TestNumericGuards:
     @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "x", None])
     def test_rejected(self, value):
@@ -152,37 +138,18 @@ class TestAccuracyRows:
         ]
 
 
-class TestModelFromEval:
-    def test_reads_the_model_from_model_args_not_the_backend(self):
-        payload = {
-            "data": {
-                "config": {
-                    "model": "local-completions",
-                    "model_args": "model=openai/gpt-oss-120b,base_url=http://x/v1/completions",
-                }
-            }
-        }
-        assert nz.model_from_eval(payload) == "openai/gpt-oss-120b"
-
-    def test_pretrained_is_still_understood(self):
-        payload = {"data": {"config": {"model": "hf", "model_args": "pretrained=org/M,dtype=auto"}}}
-        assert nz.model_from_eval(payload) == "org/M"
-
-    def test_a_backend_name_alone_is_not_a_model(self):
-        payload = {"data": {"config": {"model": "local-completions"}}}
-        assert nz.model_from_eval(payload) == ""
-
-
 class TestNormalizeEvalPayload:
     def _payload(self, **overrides):
         payload = {
             "kind": "results",
+            "model": "meta-llama/Test-8B",
             "workload": "test_8b_mi355x",
             "device": "mi355x",
             "image": "vllm/vllm-openai-rocm:nightly-abc123def456",
+            "vllm_commit": "abc123def456",
             "nightly": True,
             "data": {
-                "config": {"model_name": "meta-llama/Test-8B"},
+                "config": {"model": "local-completions"},
                 "results": {"gsm8k": {"exact_match,strict-match": 0.8}},
             },
         }
@@ -211,23 +178,6 @@ class TestNormalizeEvalPayload:
 
     def test_wrong_kind_dropped(self):
         assert nz.normalize_eval_payload(self._payload(kind="samples")) is None
-
-    def test_workload_is_model_fallback(self):
-        payload = self._payload(data={"results": {"gsm8k": {"acc,none": 0.5}}})
-        event = nz.normalize_eval_payload(payload)
-        assert event is not None
-        assert event["model"] == "test_8b_mi355x"
-
-    def test_model_args_pretrained_fallback(self):
-        payload = self._payload(
-            data={
-                "config": {"model_args": "pretrained=org/Model-9B,dtype=auto"},
-                "results": {"gsm8k": {"acc,none": 0.5}},
-            }
-        )
-        event = nz.normalize_eval_payload(payload)
-        assert event is not None
-        assert event["model"] == "org/Model-9B"
 
 
 class TestMetricRegistry:

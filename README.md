@@ -463,9 +463,9 @@ the log is about half a megabyte.
   two observations share an identity, the newer timestamp wins, not the later
   position in the log.
 - **Accuracy takes its model id from the workload recipe**, because lm-eval's
-  `config.model` names the client backend (`local-completions`). Older events
-  are repaired at aggregation. Bookkeeping keys such as `sample_len` are
-  dropped.
+  `config.model` names the client backend (`local-completions`). Standard
+  errors and the question count (`sample_len`) are dropped, since they are
+  not scores.
 
 <details>
 <summary>The published payload, <code>perf_eval.json</code></summary>

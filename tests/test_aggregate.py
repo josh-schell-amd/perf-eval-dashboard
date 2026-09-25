@@ -275,32 +275,6 @@ class TestAccuracyGrouping:
         tasks = _only_model(agg.aggregate([event]))["accuracy_tasks"]
         assert [(t["metric"], t["primary"]) for t in tasks] == [("exact_match,strict-match", True)]
 
-    def test_a_backend_name_is_resolved_from_the_recipe_expectation(self):
-        # Events stored before the collector read the model from the recipe
-        # carry lm-eval's backend name; left alone, every workload would fold
-        # into one "model" and each nightly would keep a single one of them.
-        expected = {
-            "event": "expected_configs",
-            "received_at": "2026-01-02T00:00:00Z",
-            "configs": [{"workload": "test_8b_mi355x", "model": "meta-llama/Test-8B"}],
-        }
-        event = accuracy_result(model="local-completions", workload="test_8b_mi355x")
-        models = agg.aggregate([expected, event])["models"]
-        assert [m["model"] for m in models] == ["meta-llama/Test-8B"]
-
-    def test_a_backend_name_falls_back_to_lm_evals_output_directory(self):
-        event = accuracy_result(model="local-completions", workload="other_mi355x")
-        event["buildkite_artifact_path"] = (
-            "results/other_mi355x/gsm8k/openai__gpt-oss-120b/results_2026-01-01.json"
-        )
-        models = agg.aggregate([event])["models"]
-        assert [m["model"] for m in models] == ["openai/gpt-oss-120b"]
-
-    def test_an_unresolvable_backend_name_falls_back_to_the_workload(self):
-        event = accuracy_result(model="local-completions", workload="gone_mi355x")
-        models = agg.aggregate([event])["models"]
-        assert [m["model"] for m in models] == ["gone_mi355x"]
-
     def test_two_workloads_for_one_model_and_device_are_separate_series(self):
         events = [
             accuracy_result(workload="x_tp4-mi355x", value=0.9),
@@ -311,19 +285,6 @@ class TestAccuracyGrouping:
             ("x_tp4-mi355x", 0.9),
             ("x_tp8-mi355x", 0.5),
         ]
-
-    def test_workloads_are_not_folded_into_each_other(self):
-        events = [
-            accuracy_result(model="local-completions", workload="a_mi355x", value=0.9),
-            accuracy_result(model="local-completions", workload="b_mi355x", value=0.5),
-        ]
-        events[0]["buildkite_artifact_path"] = "results/a_mi355x/gsm8k/org__A/results_1.json"
-        events[1]["buildkite_artifact_path"] = "results/b_mi355x/gsm8k/org__B/results_1.json"
-        models = agg.aggregate(events)["models"]
-        assert {m["model"]: m["accuracy_tasks"][0]["series"][0]["value"] for m in models} == {
-            "org/A": 0.9,
-            "org/B": 0.5,
-        }
 
 
 class TestWhatCountsAsANightly:

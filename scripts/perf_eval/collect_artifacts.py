@@ -34,7 +34,6 @@ from perf_eval import (  # noqa: E402
     WORKLOAD_REPO,
 )
 from perf_eval.normalize import (  # noqa: E402
-    commit_from_image,
     is_amd_workload,
     normalize_eval_payload,
     to_float,
@@ -345,9 +344,7 @@ def nightly_info(build: dict) -> dict | None:
     match = _NIGHTLY_MSG_RE.search(build.get("message") or "")
     commit = match.group(2) if match else None
     if not commit:
-        commit = (env.get("VLLM_COMMIT") or "").strip() or commit_from_image(
-            env.get("VLLM_IMAGE") or ""
-        )
+        commit = (env.get("VLLM_COMMIT") or "").strip()
     return {"vllm_commit": commit, "branch": branch or "main"}
 
 
@@ -446,6 +443,9 @@ def accuracy_event(
         "task": task,
         "device": entry.get("device") or "",
         "image": identity.get("image") or "",
+        # The recipe's model, not lm-eval's: lm-eval records its client backend
+        # (``local-completions``), and this is the string perf results carry.
+        "model": entry.get("model") or "",
         "vllm_commit": identity.get("vllm_commit") or "",
         "buildkite_build_number": identity.get("build_number"),
         "buildkite_build_url": identity.get("build_url") or "",
@@ -459,9 +459,6 @@ def accuracy_event(
         return None
     event["nightly"] = True
     event["date"] = identity.get("date") or ""
-    # The recipe's model id first: it is the same string the perf results for
-    # this workload carry, so accuracy groups under the same model.
-    event["model"] = (entry.get("model") or "").strip() or event.get("model") or workload
     return event
 
 

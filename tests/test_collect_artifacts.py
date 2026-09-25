@@ -74,7 +74,9 @@ class TestNightlyInfo:
         assert info is not None
         assert info["vllm_commit"] == COMMIT
 
-    def test_falls_back_to_the_image_tag(self):
+    def test_the_image_tag_is_not_parsed_for_a_commit(self):
+        # perf-eval always passes VLLM_COMMIT to a nightly; without it the
+        # nightly is identified by build number instead.
         info = ca.nightly_info(
             build(
                 message="manual",
@@ -82,7 +84,7 @@ class TestNightlyInfo:
             )
         )
         assert info is not None
-        assert info["vllm_commit"] == COMMIT
+        assert info["vllm_commit"] == ""
 
 
 class TestAmdImage:
