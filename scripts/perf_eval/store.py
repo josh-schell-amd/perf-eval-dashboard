@@ -141,61 +141,71 @@ def artifact_keys_from_event(event: dict) -> tuple[str, ...]:
     return tuple(key for key, _ in _artifact_rows(event))
 
 
-def _recorded(event: dict) -> datetime:
-    """``received_at`` for ordering; an unparseable one sorts oldest."""
+def _received_sort_key(event: dict) -> datetime:
+    """``received_at`` for ordering; a missing or unparseable one sorts oldest."""
     return received_at(event) or datetime.min.replace(tzinfo=UTC)
 
 
-def _add_result(
-    results: dict[tuple, tuple[int, dict, datetime]], position: int, event: dict, when: datetime
-) -> None:
-    """Fold a result into ``results`` by identity, keeping its first-seen position.
-    Older and newer are by nightly time: a backfill can append an older rebuild later."""
-    key = result_identity(event)
-    if key not in results:
-        results[key] = (position, event, when)
-        return
-    first_seen, kept, kept_when = results[key]
-    if when >= kept_when:
-        results[key] = (first_seen, merge_result_events(older=kept, newer=event), when)
-    else:
-        results[key] = (first_seen, merge_result_events(older=event, newer=kept), kept_when)
+def _recent_results(events: list[dict], cutoff: datetime) -> list[dict]:
+    """Nightly results finished since ``cutoff``, duplicates merged, in first-seen order.
+
+    Older and newer are by nightly time: a backfill can append an older rebuild later.
+    """
+    results: dict[tuple, tuple[dict, datetime]] = {}
+    for event in events:
+        if event.get("event") not in RESULT_EVENTS or event.get("nightly") is not True:
+            continue
+        when = finished_at(event)
+        if when is None or when < cutoff:
+            continue
+        key = result_identity(event)
+        if key not in results:
+            results[key] = (event, when)
+            continue
+        kept, kept_when = results[key]
+        if when >= kept_when:
+            results[key] = (merge_result_events(older=kept, newer=event), when)
+        else:
+            results[key] = (merge_result_events(older=event, newer=kept), kept_when)
+    return [event for event, _ in results.values()]
+
+
+def _newest_expected(events: list[dict]) -> dict | None:
+    """The newest expected_configs snapshot, kept however old: it is the current recipe set."""
+    newest = None
+    for event in events:
+        if event.get("event") != EXPECTED_CONFIGS_EVENT:
+            continue
+        if newest is None or _received_sort_key(event) >= _received_sort_key(newest):
+            newest = event
+    return newest
+
+
+def _recent_artifacts(events: list[dict], cutoff: datetime) -> dict[str, datetime]:
+    """When each artifact downloaded since ``cutoff`` was last downloaded."""
+    artifacts: dict[str, datetime] = {}
+    for event in events:
+        for artifact_id, seen in _artifact_rows(event):
+            if seen is not None and seen >= cutoff:
+                artifacts[artifact_id] = max(seen, artifacts.get(artifact_id, seen))
+    return artifacts
 
 
 def compact_events(events: list[dict]) -> list[dict]:
-    """The events worth keeping, in first-seen order: nightly results from the
-    last WINDOW_DAYS (duplicates merged), the newest expected_configs snapshot,
-    and one index of the artifacts downloaded in that time."""
+    """The events worth keeping: nightly results from the last WINDOW_DAYS, the
+    newest expected_configs snapshot, and an index of the other artifacts
+    downloaded in that time."""
     cutoff = datetime.now(UTC) - timedelta(days=WINDOW_DAYS)
 
-    results: dict[tuple, tuple[int, dict, datetime]] = {}
-    newest_expected: dict | None = None
-    artifacts: dict[str, datetime] = {}
-    for position, event in enumerate(events):
-        for artifact_id, seen in _artifact_rows(event):
-            if seen and seen >= cutoff and seen > artifacts.get(artifact_id, cutoff):
-                artifacts[artifact_id] = seen
+    compacted = _recent_results(events, cutoff)
+    expected = _newest_expected(events)
+    if expected is not None:
+        compacted.append(expected)
 
-        kind = event.get("event")
-        if kind == EXPECTED_CONFIGS_EVENT:
-            # The current recipe set, so it is kept however old it is.
-            if newest_expected is None or _recorded(event) >= _recorded(newest_expected):
-                newest_expected = event
-        elif kind in RESULT_EVENTS and event.get("nightly") is True:
-            when = finished_at(event)
-            if when is not None and when >= cutoff:
-                _add_result(results, position, event, when)
-        # Every other kind is dropped; artifact IDs were collected above.
-
-    compacted = [event for _, event, _ in sorted(results.values(), key=lambda row: row[0])]
-    if newest_expected is not None:
-        compacted.append(newest_expected)
-
-    # Artifacts whose result event is kept already carry their ID.
     carried = {artifact_key(event) for event in compacted}
     index = sorted(
         ["id", artifact_id, iso(seen)]
-        for artifact_id, seen in artifacts.items()
+        for artifact_id, seen in _recent_artifacts(events, cutoff).items()
         if artifact_id not in carried
     )
     if index:
@@ -263,13 +273,16 @@ def read_events_strict(store_path: Path) -> list[dict]:
         line = line.strip()
         if not line:
             continue
-        where = f"invalid perf-eval JSONL at {store_path}:{number}"
         try:
             event = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"{where}: {exc.msg}") from exc
+            raise ValueError(
+                f"invalid perf-eval JSONL at {store_path}:{number}: {exc.msg}"
+            ) from exc
         if not isinstance(event, dict):
-            raise ValueError(f"{where}: event must be a JSON object")
+            raise ValueError(
+                f"invalid perf-eval JSONL at {store_path}:{number}: event must be a JSON object"
+            )
         if event.get("event") == ARTIFACT_INDEX_EVENT:
             identities = event.get("identities")
             rows = _artifact_rows(event)
@@ -278,6 +291,9 @@ def read_events_strict(store_path: Path) -> list[dict]:
                 or len(rows) != len(identities)
                 or any(seen is None for _, seen in rows)
             ):
-                raise ValueError(f"{where}: artifact identity index is not canonical")
+                raise ValueError(
+                    f"invalid perf-eval JSONL at {store_path}:{number}: "
+                    "artifact identity index is not canonical"
+                )
         out.append(event)
     return out
