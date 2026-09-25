@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from conftest import accuracy_result, days_ago, perf_result
+from conftest import accuracy_result, days_ago, perf_result, received_days_ago
 from perf_eval import aggregate as agg
 
 
@@ -199,12 +199,86 @@ class TestGrouping:
         model = _only_model(agg.aggregate(events))
         assert [config["conc"] for config in model["perf_configs"]] == [128, 256]
 
-    def test_tp_variants_of_one_shape_are_separate_configs(self):
-        events = [perf_result(tp=4, value=40.0), perf_result(tp=8, value=60.0)]
-        model = _only_model(agg.aggregate(events))
-        assert sorted(
-            (c["tp"], c["metrics"]["tput_per_gpu"]["latest"]) for c in model["perf_configs"]
-        ) == [(4, 40.0), (8, 60.0)]
+    @staticmethod
+    def _labels(payload: dict) -> list[tuple]:
+        return sorted(
+            (c["parallel_label"], c["gpus"], c["metrics"]["tput_per_gpu"]["latest"])
+            for c in _only_model(payload)["perf_configs"]
+        )
+
+    def test_parallelism_variants_of_one_shape_are_separate_configs(self):
+        events = [
+            perf_result(parallelism={"tensor_parallel_size": 8}, value=60.0),
+            perf_result(
+                parallelism={"tensor_parallel_size": 4, "data_parallel_size": 2}, value=70.0
+            ),
+            perf_result(
+                parallelism={"tensor_parallel_size": 8, "enable_expert_parallel": True}, value=80.0
+            ),
+        ]
+        assert self._labels(agg.aggregate(events)) == [
+            ("TP4×DP2", 8, 70.0),
+            ("TP8", 8, 60.0),
+            ("TP8 · EP", 8, 80.0),
+        ]
+
+    @staticmethod
+    def _legacy(**kwargs) -> dict:
+        """A perf event stored before the parallelism map, with only ``tp``."""
+        event = perf_result(**kwargs)
+        del event["parallelism"]
+        event["tp"] = 8
+        return event
+
+    def test_an_event_with_only_tp_joins_its_series(self):
+        old = self._legacy(commit="a" * 40, date=days_ago(2), value=50.0)
+        new = perf_result(commit="b" * 40, date=days_ago(1), value=60.0)
+        model = _only_model(agg.aggregate([old, new]))
+        assert [len(c["metrics"]["tput_per_gpu"]["series"]) for c in model["perf_configs"]] == [2]
+
+    def test_an_event_with_only_tp_takes_its_recipes_expert_parallelism(self):
+        # Otherwise an EP recipe's older nightlies sit on a line of their own.
+        ep = {"tensor_parallel_size": 8, "enable_expert_parallel": True}
+        snapshot = {
+            "event": "expected_configs",
+            "received_at": received_days_ago(0),
+            "configs": [
+                {
+                    "model": "meta-llama/Test-8B",
+                    "device": "mi355x",
+                    "precision": "fp8",
+                    "parallelism": ep,
+                    "isl": 1024,
+                    "osl": 1024,
+                    "conc": 128,
+                }
+            ],
+        }
+        old = self._legacy(commit="a" * 40, date=days_ago(2), value=50.0)
+        new = perf_result(commit="b" * 40, date=days_ago(1), value=60.0, parallelism=ep)
+        model = _only_model(agg.aggregate([snapshot, old, new]))
+        assert [
+            (c["parallel_label"], len(c["metrics"]["tput_per_gpu"]["series"]))
+            for c in model["perf_configs"]
+        ] == [("TP8 · EP", 2)]
+
+    def test_a_shape_two_recipes_share_is_not_guessed(self):
+        shared = {"model": "meta-llama/Test-8B", "device": "mi355x", "precision": "fp8"}
+        shape = {"isl": 1024, "osl": 1024, "conc": 128}
+        snapshot = {
+            "event": "expected_configs",
+            "received_at": received_days_ago(0),
+            "configs": [
+                {**shared, **shape, "parallelism": {"tensor_parallel_size": 8}},
+                {
+                    **shared,
+                    **shape,
+                    "parallelism": {"tensor_parallel_size": 8, "enable_expert_parallel": True},
+                },
+            ],
+        }
+        model = _only_model(agg.aggregate([snapshot, self._legacy()]))
+        assert [c["parallel_label"] for c in model["perf_configs"]] == ["TP8"]
 
     def test_config_label_abbreviates_power_of_two_lengths(self):
         events = [perf_result(isl=8192, osl=1024, conc=128, device="mi355x")]
@@ -401,22 +475,37 @@ class TestExpectedIsPublished:
         assert agg.aggregate([snapshot])["expected"]["accuracy"] == [{"task": "gsm8k"}]
 
     def test_the_snapshot_is_published(self):
-        configs = [{"workload": "wl-mi355x", "device": "mi355x", "conc": 64}]
+        configs = [
+            {
+                "workload": "wl-mi355x",
+                "device": "mi355x",
+                "conc": 64,
+                "parallelism": {"tensor_parallel_size": 4, "enable_expert_parallel": True},
+            }
+        ]
         payload = agg.aggregate([perf_result(), self._snapshot("2026-01-05T00:00:00Z", configs)])
-        assert payload["expected"]["configs"] == configs
+        # Labelled as results are, since coverage matches the two on the label.
+        assert payload["expected"]["configs"] == [
+            {**configs[0], "parallel_label": "TP4 · EP", "gpus": 4}
+        ]
         assert payload["expected"]["recorded_at"] == "2026-01-05T00:00:00Z"
+
+    def test_a_snapshot_predating_parallelism_is_labelled_from_its_tp(self):
+        snapshot = self._snapshot("2026-01-05T00:00:00Z", [{"workload": "wl", "tp": 8}])
+        config = agg.aggregate([snapshot])["expected"]["configs"][0]
+        assert (config["parallel_label"], config["gpus"]) == ("TP8", 8)
 
     def test_the_newest_snapshot_wins(self):
         old = self._snapshot("2026-01-01T00:00:00Z", [{"workload": "old"}])
         new = self._snapshot("2026-02-01T00:00:00Z", [{"workload": "new"}])
         # Listed oldest-last to prove order in the store does not decide it.
         payload = agg.aggregate([new, old])
-        assert payload["expected"]["configs"] == [{"workload": "new"}]
+        assert [c["workload"] for c in payload["expected"]["configs"]] == ["new"]
 
     def test_malformed_entries_are_dropped_rather_than_published(self):
         snapshot = self._snapshot("2026-01-05T00:00:00Z", [{"workload": "ok"}, "nonsense", 7])
         payload = agg.aggregate([snapshot])
-        assert payload["expected"]["configs"] == [{"workload": "ok"}]
+        assert [c["workload"] for c in payload["expected"]["configs"]] == ["ok"]
 
     def test_the_snapshot_is_not_mistaken_for_a_result(self):
         snapshot = self._snapshot("2026-01-05T00:00:00Z", [{"workload": "wl"}])

@@ -37,6 +37,34 @@ class TestAmdScopeFilter:
         assert nz.is_amd_workload(workload="unknown", image="", device="mi355x") is True
 
 
+class TestParallelism:
+    @pytest.mark.parametrize(
+        "parallelism,label,gpus",
+        [
+            ({}, "TP1", 1),
+            ({"tensor_parallel_size": 8}, "TP8", 8),
+            ({"tensor_parallel_size": 4, "data_parallel_size": 2}, "TP4×DP2", 8),
+            ({"data_parallel_size": 8, "enable_expert_parallel": True}, "TP1×DP8 · EP", 8),
+            # Decode context parallel splits the TP group, so it adds no GPUs.
+            ({"tensor_parallel_size": 8, "decode_context_parallel_size": 2}, "TP8×DCP2", 8),
+            ({"tensor_parallel_size": 2, "pipeline_parallel_size": 2}, "TP2×PP2", 4),
+            (
+                {"tensor_parallel_size": 8, "future_parallel_mode": "ring"},
+                "TP8 · future_parallel_mode=ring",
+                8,
+            ),
+        ],
+    )
+    def test_label_and_gpu_count(self, parallelism, label, gpus):
+        assert nz.parallel_label(parallelism) == label
+        assert nz.gpu_count(parallelism) == gpus
+
+    def test_a_record_with_only_tp_reads_as_that_tp(self):
+        assert nz.parallelism_of({"tp": 8}) == {"tensor_parallel_size": 8}
+        assert nz.parallelism_of({"tp": 1}) == {}
+        assert nz.parallelism_of({}) == {}
+
+
 class TestNumericGuards:
     @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "x", None])
     def test_rejected(self, value):
@@ -56,7 +84,7 @@ class TestTransformPerf:
             "mean_ttft_ms": 250.0,
             "mean_tpot_ms": 20.0,
         }
-        metrics = nz.transform_perf(raw, tp=4)
+        metrics = nz.transform_perf(raw, gpus=4)
         assert metrics["tput_per_gpu"] == 200.0
         assert metrics["output_tput_per_gpu"] == 50.0
         assert metrics["input_tput_per_gpu"] == 150.0
@@ -67,24 +95,24 @@ class TestTransformPerf:
 
     def test_latency_keeps_sub_millisecond_precision(self):
         # One 0.1 ms step on a 5 ms TPOT is 2%, four times the regression threshold.
-        metrics = nz.transform_perf({"mean_tpot_ms": 5.234}, tp=1)
+        metrics = nz.transform_perf({"mean_tpot_ms": 5.234}, gpus=1)
         assert metrics["mean_tpot"] == pytest.approx(0.005234)
 
-    def test_tp_zero_or_none_is_treated_as_one(self):
+    def test_zero_or_no_gpus_is_treated_as_one(self):
         raw = {"total_token_throughput": 10.0, "output_throughput": 4.0}
-        assert nz.transform_perf(raw, tp=0)["tput_per_gpu"] == 10.0
-        assert nz.transform_perf(raw, tp=None)["tput_per_gpu"] == 10.0
+        assert nz.transform_perf(raw, gpus=0)["tput_per_gpu"] == 10.0
+        assert nz.transform_perf(raw, gpus=None)["tput_per_gpu"] == 10.0
 
     def test_zero_tpot_yields_zero_interactivity_not_division_error(self):
-        metrics = nz.transform_perf({"mean_tpot_ms": 0.0}, tp=1)
+        metrics = nz.transform_perf({"mean_tpot_ms": 0.0}, gpus=1)
         assert metrics["mean_intvty"] == 0.0
 
     def test_unknown_metrics_are_dropped(self):
-        metrics = nz.transform_perf({"some_other_ms": 5.0}, tp=1)
+        metrics = nz.transform_perf({"some_other_ms": 5.0}, gpus=1)
         assert "some_other" not in metrics
 
     def test_nan_latency_is_skipped(self):
-        metrics = nz.transform_perf({"mean_ttft_ms": float("nan")}, tp=1)
+        metrics = nz.transform_perf({"mean_ttft_ms": float("nan")}, gpus=1)
         assert "mean_ttft" not in metrics
 
 

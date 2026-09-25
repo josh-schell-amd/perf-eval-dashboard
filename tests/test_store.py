@@ -282,6 +282,21 @@ class TestIdentities:
         right = store.result_identity(perf_result(build_number=2))
         assert left == right
 
+    def test_result_identity_separates_parallelism_variants(self):
+        tp8 = perf_result(parallelism={"tensor_parallel_size": 8})
+        tp4_dp2 = perf_result(parallelism={"tensor_parallel_size": 4, "data_parallel_size": 2})
+        tp8_ep = perf_result(
+            parallelism={"tensor_parallel_size": 8, "enable_expert_parallel": True}
+        )
+        identities = {store.result_identity(event) for event in (tp8, tp4_dp2, tp8_ep)}
+        assert len(identities) == 3
+
+    def test_result_identity_reads_an_event_with_only_tp(self):
+        old = perf_result()
+        del old["parallelism"]
+        old["tp"] = 8
+        assert store.result_identity(old) == store.result_identity(perf_result())
+
     def test_artifact_key_is_the_buildkite_artifact_id(self):
         assert store.artifact_key({"buildkite_artifact_id": " x "}) == "x"
         assert store.artifact_key({"build_number": 3}) is None

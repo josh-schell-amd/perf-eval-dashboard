@@ -105,7 +105,7 @@ def fake(monkeypatch):
                     {
                         "name": "test_8b-mi355x",
                         "device": "mi355x",
-                        "tp": 4,
+                        "parallelism": {"tensor_parallel_size": 4},
                         "precision": "fp8",
                         "model": "org/Model",
                     },
@@ -389,7 +389,7 @@ def test_each_build_is_labelled_from_the_recipes_it_ran(fake, monkeypatch, tmp_p
         entry = {
             "name": "test_8b-mi355x",
             "device": "mi355x",
-            "tp": 2 if ref == old["commit"] else 4,
+            "parallelism": {"tensor_parallel_size": 2 if ref == old["commit"] else 4},
             "precision": "fp8",
             "model": "org/Model",
         }
@@ -404,7 +404,10 @@ def test_each_build_is_labelled_from_the_recipes_it_ran(fake, monkeypatch, tmp_p
         for e in store_mod.read_events_strict(store)
         if e["event"] == "perf_result"
     }
-    assert (results[1000]["tp"], results[1001]["tp"]) == (2, 4)
+    assert [results[n]["parallelism"] for n in (1000, 1001)] == [
+        {"tensor_parallel_size": 2},
+        {"tensor_parallel_size": 4},
+    ]
     # 800 tok/s in total, over the GPUs each build actually used.
     assert results[1000]["metrics"]["tput_per_gpu"] == 400.0
     assert results[1001]["metrics"]["tput_per_gpu"] == 200.0
@@ -421,7 +424,7 @@ def test_coverage_expects_what_the_latest_nightly_was_asked_to_run(fake, monkeyp
         entry = {
             "name": "test_8b-mi355x",
             "device": "mi355x",
-            "tp": tp_at[ref],
+            "parallelism": {"tensor_parallel_size": tp_at[ref]},
             "precision": "fp8",
             "model": "org/Model",
             "nightly": True,
@@ -435,7 +438,9 @@ def test_coverage_expects_what_the_latest_nightly_was_asked_to_run(fake, monkeyp
     (snapshot,) = [
         e for e in store_mod.read_events_strict(store) if e["event"] == ca.EXPECTED_CONFIGS_EVENT
     ]
-    assert [config["tp"] for config in snapshot["configs"]] == [4]
+    assert [config["parallelism"] for config in snapshot["configs"]] == [
+        {"tensor_parallel_size": 4}
+    ]
     assert snapshot["recipe_commit"] == new["commit"]
 
 
@@ -447,7 +452,12 @@ def test_recipes_are_not_refetched_when_nothing_new_ran(fake, monkeypatch, tmp_p
 
     def recipes(_token, ref):
         fetched.append(ref)
-        entry = {"name": "test_8b-mi355x", "device": "mi355x", "tp": 4, "nightly": True}
+        entry = {
+            "name": "test_8b-mi355x",
+            "device": "mi355x",
+            "parallelism": {"tensor_parallel_size": 4},
+            "nightly": True,
+        }
         return {"test_8b-mi355x": (entry, CONFIGS)}
 
     monkeypatch.setattr(ca, "fetch_workload_map", recipes)
@@ -471,7 +481,7 @@ def test_a_snapshot_predating_accuracy_is_refetched_once(fake, monkeypatch, tmp_
         entry = {
             "name": "test_8b-mi355x",
             "device": "mi355x",
-            "tp": 4,
+            "parallelism": {"tensor_parallel_size": 4},
             "nightly": True,
             "accuracy_tasks": ["gsm8k"],
         }
@@ -510,7 +520,12 @@ def test_a_snapshot_predating_accuracy_is_refetched_once(fake, monkeypatch, tmp_
 def test_an_artifact_for_a_run_the_recipe_lacks_is_skipped(fake, monkeypatch, tmp_path, caplog):
     # Without the run there is no ISL/OSL, and a result with neither is not a config.
     fake([nightly_build(1000)], artifacts_per_build=2)
-    entry = {"name": "test_8b-mi355x", "device": "mi355x", "tp": 4, "model": "org/Model"}
+    entry = {
+        "name": "test_8b-mi355x",
+        "device": "mi355x",
+        "parallelism": {"tensor_parallel_size": 4},
+        "model": "org/Model",
+    }
     monkeypatch.setattr(
         ca,
         "fetch_workload_map",
@@ -563,7 +578,7 @@ def test_a_collection_with_nothing_new_leaves_the_payload_unchanged(fake, monkey
         {
             "name": "test_8b-mi355x",
             "device": "mi355x",
-            "tp": 4,
+            "parallelism": {"tensor_parallel_size": 4},
             "precision": "fp8",
             "model": "org/Model",
             "nightly": True,

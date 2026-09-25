@@ -138,22 +138,49 @@ class TestClassifyArtifact:
         assert ca.classify_artifact(path) is None
 
 
-class TestParseTp:
+class TestParseParallelism:
     @pytest.mark.parametrize(
         "serve_args,expected",
         [
-            ("--tensor-parallel-size 8", 8),
-            ("--tensor-parallel-size=8", 8),
-            ("-tp 4", 4),
-            ("--tp 2", 2),
-            ("--tensor-parallel-size 4 --data-parallel-size 2", 8),
-            ("", 1),
-            ("--tensor-parallel-size abc", 1),
-            ("--tensor-parallel-size", 1),
+            ("--tensor-parallel-size 8", {"tensor_parallel_size": 8}),
+            ("--tensor-parallel-size=8", {"tensor_parallel_size": 8}),
+            ("-tp 4", {"tensor_parallel_size": 4}),
+            ("--tp 2", {"tensor_parallel_size": 2}),
+            (
+                "--tensor-parallel-size 4 --data-parallel-size 2",
+                {"tensor_parallel_size": 4, "data_parallel_size": 2},
+            ),
+            (
+                "--data-parallel-size 8 --enable-expert-parallel --trust-remote-code",
+                {"data_parallel_size": 8, "enable_expert_parallel": True},
+            ),
+            (
+                "-pp 2 -dcp 2 -pcp 2",
+                {
+                    "pipeline_parallel_size": 2,
+                    "decode_context_parallel_size": 2,
+                    "prefill_context_parallel_size": 2,
+                },
+            ),
+            # Defaults are left out, so writing one out does not start a new series.
+            ("--tensor-parallel-size 1 --no-enable-expert-parallel", {}),
+            ("", {}),
+            ("--tensor-parallel-size abc", {}),
+            ("--tensor-parallel-size", {}),
         ],
     )
-    def test_effective_parallel_degree(self, serve_args, expected):
-        assert ca.parse_tp(serve_args) == expected
+    def test_every_parallelism_flag_is_recorded(self, serve_args, expected):
+        assert ca.parse_parallelism(serve_args) == expected
+
+    def test_a_parallelism_flag_this_code_has_never_seen_is_recorded(self):
+        parsed = ca.parse_parallelism("--tensor-parallel-size 8 --future-parallel-mode ring")
+        assert parsed == {"tensor_parallel_size": 8, "future_parallel_mode": "ring"}
+
+    def test_data_parallel_launch_settings_are_not_configuration(self):
+        serve_args = (
+            "--data-parallel-size 2 --data-parallel-address 10.0.0.1 --data-parallel-rpc-port 13345"
+        )
+        assert ca.parse_parallelism(serve_args) == {"data_parallel_size": 2}
 
 
 class TestPrecisionFromModel:
@@ -193,7 +220,7 @@ class TestWorkloadEntry:
             }
         )
         assert entry["device"] == "mi355x"
-        assert entry["tp"] == 8
+        assert entry["parallelism"] == {"tensor_parallel_size": 8}
         assert entry["precision"] == "fp8"
         # Keyed on the expanded run name. perf-eval suffixes every run with
         # -conc-<value>, even a single value, and the artifact is named after
@@ -211,7 +238,11 @@ class TestWorkloadEntry:
                 "vllm_bench": {"metadata": {"device": "mi300x", "tp": 4, "precision": "mxfp4"}},
             }
         )
-        assert (entry["device"], entry["tp"], entry["precision"]) == ("mi300x", 4, "mxfp4")
+        assert (entry["device"], entry["parallelism"], entry["precision"]) == (
+            "mi300x",
+            {"tensor_parallel_size": 4},
+            "mxfp4",
+        )
 
     def test_unnamed_configs_are_skipped(self):
         _, configs = ca.workload_entry(
@@ -391,7 +422,7 @@ class TestExpectedConfigs:
             "model",
             "device",
             "precision",
-            "tp",
+            "parallelism",
             "isl",
             "osl",
             "conc",
@@ -458,6 +489,22 @@ class TestPerfEvent:
         assert event["metrics"]["tput_per_gpu"] == 200.0
         assert event["conc"] == 128
         assert event["vllm_commit"] == COMMIT
+
+    def test_throughput_is_divided_by_every_gpu_the_server_uses(self):
+        # vLLM's world size: TP x PP x PCP x DP. Expert parallel reuses them.
+        parallelism = {
+            "tensor_parallel_size": 2,
+            "pipeline_parallel_size": 2,
+            "data_parallel_size": 2,
+            "enable_expert_parallel": True,
+        }
+        raw = {"total_token_throughput": 800.0, "output_throughput": 200.0}
+        event = ca.perf_event(
+            raw, entry=self._entry(parallelism=parallelism), config={}, identity=self._identity()
+        )
+        assert event is not None
+        assert event["parallelism"] == parallelism
+        assert event["metrics"]["tput_per_gpu"] == 100.0
 
     def test_request_counts_are_recorded(self):
         raw = {"total_token_throughput": 800.0, "completed": 500, "failed": 12}
@@ -546,6 +593,11 @@ class TestEventKey:
             "conc": 1,
         }
         assert ca.event_key({**base, "tp": 4}) != ca.event_key({**base, "tp": 8})
+        tp8 = {**base, "parallelism": {"tensor_parallel_size": 8}}
+        tp4_dp2 = {**base, "parallelism": {"tensor_parallel_size": 4, "data_parallel_size": 2}}
+        assert ca.event_key(tp8) != ca.event_key(tp4_dp2)
+        # An event stored with only ``tp`` is the same result as its map form.
+        assert ca.event_key(tp8) == ca.event_key({**base, "tp": 8})
 
     def test_accuracy_key_folds_task_rows(self):
         event = {

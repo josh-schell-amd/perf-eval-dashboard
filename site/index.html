@@ -193,9 +193,13 @@
     .hint-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; font-size: 11px; color: var(--text-tertiary); margin-bottom: var(--gap-md); }
     .hint-key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
     .hint-key i { width: 11px; height: 11px; border-radius: 2px; flex: none; border: 1px solid var(--ui); background: var(--ui-dim); }
-    .hint-key i.shade { border-color: transparent; background: linear-gradient(90deg, var(--ui-dim), var(--ui)); }
     .hint-key i.reg { border: 2px solid var(--accent-red); }
     .hint-key i.absent { opacity: 0.35; }
+    .hint-key i.edge { border-color: transparent; }
+    .hint-key i.edge.minor { background: var(--accent-yellow); }
+    .hint-key i.edge.moderate { background: var(--accent-orange); }
+    .hint-key i.edge.major { background: var(--accent-red); }
+    .hint-key i.heat { width: 28px; border-color: transparent; background: linear-gradient(90deg, #6dbf80, #e3c75a, #f25c4e); }
     .empty { text-align: center; padding: 60px 20px; color: var(--text-tertiary); font-size: 14px; }
 
     /* ============================================================
@@ -670,12 +674,13 @@ function buildConfigs(payload) {
       if (!Object.keys(metrics).length) return;
       const sm = shortModel(model.model);
       out.push({
-        key: [model.model, cfg.device, cfg.precision, cfg.tp, cfg.isl, cfg.osl, cfg.conc].join('|'),
+        key: configKeyOf({ ...cfg, model: model.model }),
         model: model.model,
         shortModel: sm,
         device: cfg.device || '',
         precision: cfg.precision || '',
-        tp: cfg.tp,
+        parallel_label: cfg.parallel_label || '—',
+        gpus: cfg.gpus,
         isl: cfg.isl,
         osl: cfg.osl,
         conc: cfg.conc,
@@ -686,11 +691,11 @@ function buildConfigs(payload) {
       });
     });
   });
-  // A recipe change (TP, precision) starts a new series; name both apart.
+  // A recipe change (parallelism, precision) starts a new series; name both apart.
   const seen = new Map();
   out.forEach(c => seen.set(c.label, (seen.get(c.label) || 0) + 1));
   out.forEach(c => {
-    if (seen.get(c.label) > 1) c.label += ' · ' + (c.precision || '?') + ' · TP' + c.tp;
+    if (seen.get(c.label) > 1) c.label += ' · ' + (c.precision || '?') + ' · ' + c.parallel_label;
   });
   return out.sort(compareConfigs);
 }
@@ -702,7 +707,8 @@ function compareConfigs(a, b) {
   return a.shortModel.localeCompare(b.shortModel)
     || String(a.device).localeCompare(String(b.device))
     || num(a.isl, b.isl) || num(a.osl, b.osl) || num(a.conc, b.conc)
-    || String(a.precision).localeCompare(String(b.precision)) || num(a.tp, b.tp);
+    || String(a.precision).localeCompare(String(b.precision))
+    || num(a.gpus, b.gpus) || String(a.parallel_label).localeCompare(String(b.parallel_label));
 }
 
 function buildAccuracy(payload) {
@@ -1029,7 +1035,7 @@ function nightOverNight() {
 // `expected`) report? Expected comes from the recipes, not recent data, so a
 // workload broken for weeks, or never working, stays missing.
 function configKeyOf(parts) {
-  return [parts.model, parts.device, parts.precision, parts.tp, parts.isl, parts.osl, parts.conc].join('|');
+  return [parts.model, parts.device, parts.precision, parts.parallel_label, parts.isl, parts.osl, parts.conc].join('|');
 }
 
 function coverage() {
@@ -1893,7 +1899,7 @@ function perfGroups(configs) {
     const count = new Map();
     g.configs.forEach(c => count.set(shapeLabel(c), (count.get(shapeLabel(c)) || 0) + 1));
     g.labels = g.configs.map(c => shapeLabel(c)
-      + (count.get(shapeLabel(c)) > 1 ? ' · ' + (c.precision || '?') + ' TP' + c.tp : ''));
+      + (count.get(shapeLabel(c)) > 1 ? ' · ' + (c.precision || '?') + ' ' + c.parallel_label : ''));
   });
   return [...groups.values()];
 }
@@ -2029,14 +2035,11 @@ function renderPerformanceTab() {
     + '</div>';
   let html = '<div class="card"><div class="section-head"><h3>' + esc(metric.label)
     + ' — by model</h3>' + picker + '</div>'
-    + '<div class="card-hint tight">Newest run per configuration, last ' + integer(WINDOW_DAYS)
-    + ' days. Click a bar for its history.</div>'
-    // The comparison's caveats live in each bar's tooltip, not in this legend.
+    // Concurrency is already on the axis (c=). Caveats live in the bar tooltip.
     + '<div class="hint-keys">'
-    + '<span class="hint-key"><i class="shade"></i>higher concurrency</span>'
     + '<span class="hint-key"><i class="reg"></i><b>' + thresholdLabel(BASELINE_BY_ID[state.baseline])
     + '+</b> worse vs #' + esc(previousNightlyBuild() || '?') + '</span>'
-    + '<span class="hint-key"><i class="absent"></i>no run in #' + esc(latestNightlyBuild() || '?')
+    + '<span class="hint-key"><i class="absent"></i>not in #' + esc(latestNightlyBuild() || '?')
     + '</span></div>';
   html += groups.length
     ? '<div class="perf-grid">' + groups.map((g, i) =>
@@ -2249,16 +2252,20 @@ function renderPerfTable(configs) {
   };
 
   let html = '<div class="card"><div class="section-head"><h3>Detail table</h3></div>'
-    + '<div class="card-hint">Newest run per configuration. Change is ' + esc(selected.label)
-    + ' against the run before, and is judged only when that run is the previous nightly, #'
-    + esc(previousNightlyBuild() || '?') + '; otherwise it stays grey. A coloured edge means the '
-    + 'configuration regressed on some metric in build #' + esc(latestNightlyBuild() || '?')
-    + ', and faded rows did not run in it. '
-    + 'Click a row for every metric and the run behind it.</div>'
+    // Row tint is the worst regression on any metric. Latency fill is a
+    // separate scale: position in this table, not those cutoffs.
+    + '<div class="hint-keys">'
+    + '<span class="hint-key"><i class="edge minor"></i>worst metric, ' + REG_TIERS[0].label + '</span>'
+    + '<span class="hint-key"><i class="edge moderate"></i>' + REG_TIERS[1].label + '</span>'
+    + '<span class="hint-key"><i class="edge major"></i>' + REG_TIERS[2].label + '</span>'
+    + '<span class="hint-key"><i class="heat"></i>latency, fastest to slowest here</span>'
+    + '<span class="hint-key"><i class="absent"></i>not in #' + esc(latestNightlyBuild() || '?') + '</span>'
+    + '</div>'
     + '<div class="table-scroll"><table class="perf-table"><thead><tr>'
-    + '<th>Model</th><th>Device</th><th>ISL/OSL</th><th class="num">Conc</th><th class="num">TP</th><th>Precision</th>'
+    + '<th>Model</th><th>Device</th><th>ISL/OSL</th><th class="num">Conc</th><th>Parallel</th><th>Precision</th>'
     + cols.map(m => '<th class="num">' + esc(m.label) + (unitOf(m) ? '<br><span class="neutral">' + esc(unitOf(m)) + '</span>' : '') + '</th>').join('')
-    + '<th class="num">Change<br><span class="neutral">' + esc(selected.label) + '</span></th>'
+    + '<th class="num">Change<br><span class="neutral">' + esc(selected.label)
+    + ' vs #' + esc(previousNightlyBuild() || '?') + '</span></th>'
     + '<th>vLLM</th><th>Build</th></tr></thead><tbody>';
 
   configs.forEach((c, i) => {
@@ -2273,7 +2280,7 @@ function renderPerfTable(configs) {
       + '<td>' + esc(String(c.device || '?').toUpperCase()) + '</td>'
       + '<td>' + esc(lenLabel(c.isl) + '/' + lenLabel(c.osl)) + '</td>'
       + '<td class="num">' + esc(c.conc) + '</td>'
-      + '<td class="num">' + esc(c.tp == null ? '—' : c.tp) + '</td>'
+      + '<td>' + esc(c.parallel_label) + '</td>'
       + '<td>' + esc(c.precision || '—') + '</td>'
       + cols.map(m => cell(m, l)).join('')
       + '<td class="num">' + changeHtml(l[selected.key]) + '</td>'
@@ -2300,7 +2307,7 @@ function perfDetail(c, latest, p) {
     + '<div><h5>Run</h5>'
     + item('Configuration', esc(c.label))
     + item('Device', esc(String(c.device || '?').toUpperCase()))
-    + item('TP', esc(c.tp == null ? '—' : c.tp))
+    + item('Parallelism', esc(c.parallel_label))
     + item('Precision', esc(c.precision || '—'))
     + item('Date', esc(fmtDate(p.t)))
     + item('Build', buildLink(p, null))
@@ -2376,7 +2383,7 @@ function tradeoffPoint(cfg) {
 }
 
 function tradeoffCurveKey(c) {
-  return [c.model, c.device, c.precision, c.tp, c.isl, c.osl].join('|');
+  return [c.model, c.device, c.precision, c.parallel_label, c.isl, c.osl].join('|');
 }
 
 function concLabelPlugin(id) {
@@ -2434,7 +2441,7 @@ function renderTradeoffTab() {
         curves.set(key, {
           key: key,
           label: lenLabel(c.isl) + '/' + lenLabel(c.osl)
-            + (collide ? ' · ' + (c.precision || '?') + ' TP' + c.tp : ''),
+            + (collide ? ' · ' + (c.precision || '?') + ' ' + c.parallel_label : ''),
           color: BASE_COLOR[c.key] || g.color,
           points: [],
         });

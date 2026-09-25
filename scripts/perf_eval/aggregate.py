@@ -24,8 +24,13 @@ from perf_eval import (  # noqa: E402
 from perf_eval.normalize import (  # noqa: E402
     ACCURACY_BETTER,
     METRIC_META,
+    gpu_count,
     is_amd_workload,
+    parallel_key,
+    parallel_label,
+    parallelism_of,
     score_rows,
+    to_int,
 )
 from perf_eval.store import (  # noqa: E402
     EXPECTED_CONFIGS_EVENT,
@@ -168,14 +173,23 @@ def _strip_internal(series: list[dict]) -> list[dict]:
     ]
 
 
+def _parallel_fields(parallelism: dict) -> dict:
+    """The page keys configs and labels them on ``parallel_label``."""
+    return {
+        "parallelism": parallelism,
+        "parallel_label": parallel_label(parallelism),
+        "gpus": gpu_count(parallelism),
+    }
+
+
 def build_perf_configs(perf_events: list[dict]) -> list[dict]:
-    """Per-config metric series, a config being device, TP, precision and shape."""
+    """Per-config metric series, a config being device, parallelism, precision and shape."""
     configs: dict[tuple, dict] = {}
     for event in perf_events:
         device = (event.get("device") or "").strip()
         isl, osl, conc = event.get("isl"), event.get("osl"), event.get("conc")
-        tp, precision = event.get("tp"), event.get("precision") or ""
-        key = (device, tp, precision, isl, osl, conc)
+        parallelism, precision = parallelism_of(event), event.get("precision") or ""
+        key = (device, parallel_key(parallelism), precision, isl, osl, conc)
         config = configs.setdefault(
             key,
             {
@@ -183,7 +197,7 @@ def build_perf_configs(perf_events: list[dict]) -> list[dict]:
                 "isl": isl,
                 "osl": osl,
                 "conc": conc,
-                "tp": tp,
+                **_parallel_fields(parallelism),
                 "precision": precision,
                 "label": _config_label(device, isl, osl, conc),
                 "_metric_points": {},
@@ -232,7 +246,8 @@ def build_perf_configs(perf_events: list[dict]) -> list[dict]:
             c.get("conc") or 0,
             c.get("isl") or 0,
             c.get("osl") or 0,
-            c.get("tp") or 0,
+            c["gpus"],
+            c["parallel_label"],
             c["precision"],
         )
     )
@@ -306,13 +321,49 @@ def _expected_from_events(events: list[dict]) -> dict:
             newest, newest_at = event, observed_at
     if newest is None:
         return {"recorded_at": "", "configs": [], "accuracy": []}
-    configs = [config for config in newest.get("configs") or [] if isinstance(config, dict)]
+    configs = [
+        {**config, **_parallel_fields(parallelism_of(config))}
+        for config in newest.get("configs") or []
+        if isinstance(config, dict)
+    ]
     # Snapshots taken before accuracy was recipe-derived have no `accuracy`.
     accuracy = [task for task in newest.get("accuracy") or [] if isinstance(task, dict)]
     return {
         "recorded_at": newest.get("received_at") or "",
         "configs": configs,
         "accuracy": accuracy,
+    }
+
+
+def _tp_shape(record: dict, tp: int) -> tuple:
+    return (
+        (record.get("model") or "").strip(),
+        (record.get("device") or "").strip(),
+        record.get("precision") or "",
+        tp,
+        record.get("isl"),
+        record.get("osl"),
+        record.get("conc"),
+    )
+
+
+def _recipe_parallelism(expected_configs: list[dict]) -> dict[tuple, dict]:
+    """The recipes' parallelism, keyed on what a perf event stored before the
+    parallelism map existed does carry: TP and the shape.
+
+    Without it, those events of an expert-parallel recipe would sit on a line of
+    their own. A shape two recipes share, differing only past TP, is left alone.
+    """
+    options: dict[tuple, list[dict]] = {}
+    for config in expected_configs:
+        if isinstance(config.get("parallelism"), dict):
+            parallelism = config["parallelism"]
+            tp = parallelism.get("tensor_parallel_size", 1)
+            options.setdefault(_tp_shape(config, tp), []).append(parallelism)
+    return {
+        shape: found[0]
+        for shape, found in options.items()
+        if len({parallel_key(parallelism) for parallelism in found}) == 1
     }
 
 
@@ -336,12 +387,17 @@ def aggregate(events: list[dict]) -> dict:
     devices: set[str] = set()
     nightlies: set[str] = set()
     expected = _expected_from_events(events)
+    recipe_parallelism = _recipe_parallelism(expected["configs"])
 
     for event in events:
         if not _is_in_scope(event):
             continue
         model = (event.get("model") or "").strip() or "(unknown model)"
         if event["event"] == "perf_result":
+            if "parallelism" not in event:
+                shape = _tp_shape(event, to_int(event.get("tp")) or 1)
+                if shape in recipe_parallelism:
+                    event = {**event, "parallelism": recipe_parallelism[shape]}
             perf_by_model.setdefault(model, []).append(event)
         elif event["event"] == "accuracy_result":
             eval_by_model.setdefault(model, []).append(event)

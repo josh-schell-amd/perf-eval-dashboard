@@ -222,14 +222,15 @@ comparing the two dashboards number for number.
 
 | ATOM | Here | Relationship |
 |---|---|---|
-| Total Throughput (tok/s) | `tput_per_gpu`, "Total Throughput" | ours = ATOM ÷ TP |
-| Output Throughput (tok/s) | `output_tput_per_gpu`, "Output Throughput" | ours = ATOM ÷ TP |
+| Total Throughput (tok/s) | `tput_per_gpu`, "Total Throughput" | ours = ATOM ÷ GPUs |
+| Output Throughput (tok/s) | `output_tput_per_gpu`, "Output Throughput" | ours = ATOM ÷ GPUs |
 | Interac., `1000 / TPOT` (tok/s/user) | `mean_intvty`, "Interactivity" | identical |
 | TPOT, TTFT (ms) | `mean_tpot`, `mean_ttft` (stored in s) | identical |
 
-`transform_perf` divides by TP once at ingest, so every value here is already
-per-GPU, which is what makes two devices comparable. ATOM reports what the
-harness emitted and divides by GPU count only in its tradeoff charts. The
+`transform_perf` divides once at ingest by the GPUs the server uses, vLLM's
+world size TP × PP × PCP × DP, so every value here is already per-GPU, which
+is what makes two devices comparable. ATOM reports what the harness emitted
+and divides by GPU count only in its tradeoff charts. The
 `/GPU` lives in the **unit**, not the label, and axis titles and tooltips read
 both out of `metric_meta`, so they cannot go stale when a metric is renamed.
 
@@ -450,11 +451,18 @@ the log is about half a megabyte.
 
 ### Data identity
 
-- **A series is what ran:** model, device, precision, TP, ISL/OSL and
-  concurrency. Changing any of those starts a new line, and a regression is
-  only ever measured within one line. Renaming a run with the same values
+- **A series is what ran:** model, device, precision, parallelism, ISL/OSL
+  and concurrency. Changing any of those starts a new line, and a regression
+  is only ever measured within one line. Renaming a run with the same values
   continues it; a removed config's line stops and ages out, and is not
   reported missing.
+- **Parallelism is every `--*parallel*` flag in the recipe's `serve_args`**,
+  keyed by vLLM's name with defaults left out, e.g.
+  `{"tensor_parallel_size": 4, "enable_expert_parallel": true}`, shown as
+  `TP4 · EP`. A flag perf-eval starts using is recorded and separates configs
+  without a code change; only a new dimension that multiplies GPUs needs one.
+  Events stored before the map existed carry only `tp`, and take the rest from
+  the recipe with the same shape.
 - **Each build is read against the recipes at the perf-eval commit it ran,**
   never against `main`, so a recipe change landing after a nightly does not
   relabel it.
@@ -487,7 +495,8 @@ and thresholds come from data.
   "expected": {
     "recorded_at": "2026-01-01T00:00:00Z",
     "configs":  [{ "workload": "wl-mi355x", "run": "8k-in-1k-out-conc-128", "model": "org/Model",
-                   "device": "mi355x", "precision": "fp8", "tp": 8,
+                   "device": "mi355x", "precision": "fp8",
+                   "parallelism": { "tensor_parallel_size": 8 }, "parallel_label": "TP8", "gpus": 8,
                    "isl": 8192, "osl": 1024, "conc": 128 }],
     "accuracy": [{ "workload": "wl-mi355x", "model": "org/Model",
                    "device": "mi355x", "task": "gsm8k" }]
@@ -498,7 +507,8 @@ and thresholds come from data.
     "nightly_count": 12,
     "latest": { "date": "...", "vllm_commit": "...", "image": "...", "build_url": "..." },
     "perf_configs": [{
-      "device": "mi355x", "isl": 8192, "osl": 1024, "conc": 128, "tp": 8,
+      "device": "mi355x", "isl": 8192, "osl": 1024, "conc": 128,
+      "parallelism": { "tensor_parallel_size": 8 }, "parallel_label": "TP8", "gpus": 8,
       "label": "8K in / 1K out @ conc 128 (MI355X)",
       "metrics": {
         "tput_per_gpu": {
@@ -654,7 +664,7 @@ runtime `TypeError`. It is now a single bound lookup via a walrus.
 The other ~20 findings were in tests that subscripted an `X | None` result
 directly; adding `assert result is not None` gives a readable failure instead
 of `TypeError: 'NoneType' object is not subscriptable`. Two signatures also
-changed to match what they accept: `transform_perf(tp: int | None)`, and the
+changed to match what they accept: `transform_perf(gpus: int | None)`, and the
 fixtures' `nightly: object`.
 
 </details>

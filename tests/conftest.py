@@ -49,7 +49,7 @@ def perf_result(
     isl: int = 1024,
     osl: int = 1024,
     conc: int = 128,
-    tp: int = 8,
+    parallelism: dict | None = None,
 ) -> dict:
     return {
         "event": "perf_result",
@@ -58,7 +58,7 @@ def perf_result(
         "model": model,
         "device": device,
         "precision": "fp8",
-        "tp": tp,
+        "parallelism": {"tensor_parallel_size": 8} if parallelism is None else parallelism,
         "isl": isl,
         "osl": osl,
         "conc": conc,

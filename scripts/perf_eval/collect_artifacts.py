@@ -34,9 +34,13 @@ from perf_eval import (  # noqa: E402
     WORKLOAD_REPO,
 )
 from perf_eval.normalize import (  # noqa: E402
+    gpu_count,
     is_amd_workload,
     normalize_eval_payload,
+    parallel_key,
+    parallelism_of,
     to_float,
+    to_int,
     transform_perf,
     utcnow_iso,
 )
@@ -160,33 +164,61 @@ def _truthy(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes"}
 
 
-def parse_tp(serve_args: str) -> int:
-    """Effective parallel degree (TP * DP) from serve_args; defaults to 1.
+# vLLM's short forms, plus the --tp/--dp spellings perf-eval's parse_tp accepts.
+_PARALLEL_ALIASES = {
+    "-tp": "--tensor-parallel-size",
+    "--tp": "--tensor-parallel-size",
+    "-pp": "--pipeline-parallel-size",
+    "-dp": "--data-parallel-size",
+    "--dp": "--data-parallel-size",
+    "-dcp": "--decode-context-parallel-size",
+    "-pcp": "--prefill-context-parallel-size",
+}
+# Where and how data-parallel ranks start, not what the server runs.
+_PARALLEL_LAUNCH_FLAGS = frozenset(
+    {
+        "--data-parallel-rank",
+        "--data-parallel-start-rank",
+        "--data-parallel-size-local",
+        "--data-parallel-address",
+        "--data-parallel-rpc-port",
+        "--data-parallel-backend",
+        "--data-parallel-hybrid-lb",
+        "--data-parallel-external-lb",
+        "--data-parallel-multi-port-external-lb",
+        "--max-parallel-loading-workers",
+    }
+)
 
-    Mirrors perf-eval's ``parse_workload.parse_tp`` so per-GPU throughput is
-    computed identically to what the pipeline posts to its own dashboard.
+
+def parse_parallelism(serve_args: str) -> dict:
+    """Every parallelism flag in serve_args, by vLLM's name, defaults left out.
+
+    Any ``--*parallel*`` flag counts, so one a recipe starts using is recorded,
+    and separates configs, without a change here.
     """
     tokens = (serve_args or "").split()
-
-    def find(*names: str) -> int | None:
-        for index, token in enumerate(tokens):
-            if "=" in token:
-                key, _, value = token.partition("=")
-                if key in names:
-                    try:
-                        return int(value)
-                    except ValueError:
-                        return None
-            elif token in names and index + 1 < len(tokens):
-                try:
-                    return int(tokens[index + 1])
-                except ValueError:
-                    return None
-        return None
-
-    tp = find("--tensor-parallel-size", "-tp", "--tp") or 1
-    dp = find("--data-parallel-size", "-dp", "--dp") or 1
-    return tp * dp
+    found: dict = {}
+    for index, token in enumerate(tokens):
+        flag, has_value, value = token.partition("=")
+        flag = _PARALLEL_ALIASES.get(flag, flag)
+        negated = flag.startswith("--no-")
+        if negated:
+            flag = "--" + flag[len("--no-") :]
+        if not flag.startswith("--") or "parallel" not in flag or flag in _PARALLEL_LAUNCH_FLAGS:
+            continue
+        if not has_value and index + 1 < len(tokens) and not tokens[index + 1].startswith("-"):
+            value, has_value = tokens[index + 1], True
+        name = flag[2:].replace("-", "_")
+        if name.endswith("_size"):
+            size = to_int(value) if has_value else None
+            if size is not None and size != 1:
+                found[name] = size
+        elif has_value:
+            found[name] = value
+        elif not negated:
+            found[name] = True
+    return found
 
 
 def precision_from_model(model: str) -> str:
@@ -248,11 +280,18 @@ def workload_entry(data: dict) -> tuple[dict, dict]:
                 "osl": config.get("output_len"),
                 "conc": concurrency,
             }
+    parallelism = parse_parallelism(serve_args)
+    # perf-eval's escape hatch for a TP that serve_args does not show.
+    meta_tp = to_int(meta.get("tp"))
+    if meta_tp is not None:
+        parallelism.pop("tensor_parallel_size", None)
+        if meta_tp != 1:
+            parallelism["tensor_parallel_size"] = meta_tp
     entry = {
         "name": (data.get("name") or "").strip(),
         "gpu": gpu,
         "device": (meta.get("device") or gpu.lower()).strip(),
-        "tp": meta.get("tp") if meta.get("tp") is not None else parse_tp(serve_args),
+        "parallelism": parallelism,
         "precision": (meta.get("precision") or precision_from_model(model)).strip(),
         "model": model,
         # Only scheduled nightlies are in scope, so only they are expected.
@@ -307,7 +346,7 @@ def expected_configs(workloads: dict[str, tuple[dict, dict]]) -> list[dict]:
                     "model": entry.get("model") or "",
                     "device": entry.get("device") or "",
                     "precision": entry.get("precision") or "",
-                    "tp": entry.get("tp"),
+                    "parallelism": parallelism_of(entry),
                     "isl": config.get("isl"),
                     "osl": config.get("osl"),
                     "conc": config.get("conc"),
@@ -397,7 +436,8 @@ def perf_event(
             identity.get("build_number"),
         )
         return None
-    metrics = transform_perf(raw, tp=entry.get("tp") or 1)
+    parallelism = parallelism_of(entry)
+    metrics = transform_perf(raw, gpus=gpu_count(parallelism))
     if not metrics:
         return None
     conc = config.get("conc")
@@ -410,7 +450,7 @@ def perf_event(
         "model": (raw.get("model_id") or entry.get("model") or "").strip(),
         "device": device,
         "precision": entry.get("precision") or "",
-        "tp": entry.get("tp"),
+        "parallelism": parallelism,
         "isl": config.get("isl"),
         "osl": config.get("osl"),
         "conc": conc,
@@ -465,13 +505,13 @@ def accuracy_event(
 def event_key(event: dict) -> tuple:
     """Stable dedupe identity so re-runs never double-append the same result."""
     if event.get("event") == "perf_result":
-        # With TP and precision: two recipes can run one model at one shape.
+        # With parallelism and precision: two recipes can run one model at one shape.
         return (
             "perf",
             event.get("build_number"),
             (event.get("model") or "").strip(),
             event.get("device"),
-            event.get("tp"),
+            parallel_key(parallelism_of(event)),
             event.get("precision") or "",
             event.get("isl"),
             event.get("osl"),

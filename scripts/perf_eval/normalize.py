@@ -166,6 +166,62 @@ def build_identity(payload: dict) -> dict:
     }
 
 
+# vLLM's world size (vllm/config/parallel.py): each of these multiplies the GPUs
+# a server uses. Decode context and expert parallelism reuse those GPUs.
+_GPU_FACTORS = (
+    "tensor_parallel_size",
+    "pipeline_parallel_size",
+    "prefill_context_parallel_size",
+    "data_parallel_size",
+)
+_SIZE_LABELS = {
+    "tensor_parallel_size": "TP",
+    "pipeline_parallel_size": "PP",
+    "prefill_context_parallel_size": "PCP",
+    "decode_context_parallel_size": "DCP",
+    "data_parallel_size": "DP",
+}
+_FLAG_LABELS = {"enable_expert_parallel": "EP"}
+
+
+def parallelism_of(record: dict) -> dict:
+    """A result's or expected config's parallelism, by vLLM flag name, defaults left out.
+
+    Records written before the map existed carry only ``tp``.
+    """
+    if isinstance(record.get("parallelism"), dict):
+        return record["parallelism"]
+    tp = to_int(record.get("tp")) or 1
+    return {"tensor_parallel_size": tp} if tp > 1 else {}
+
+
+def parallel_key(parallelism: dict) -> tuple:
+    return tuple(sorted(parallelism.items()))
+
+
+def gpu_count(parallelism: dict) -> int:
+    count = 1
+    for factor in _GPU_FACTORS:
+        count *= max(to_int(parallelism.get(factor)) or 1, 1)
+    return count
+
+
+def parallel_label(parallelism: dict) -> str:
+    """``TP8``, or ``TP4×DP2 · EP``; a flag with no short name shows as itself."""
+    sizes = [f"TP{parallelism.get('tensor_parallel_size', 1)}"] + [
+        f"{label}{parallelism[name]}"
+        for name, label in _SIZE_LABELS.items()
+        if name != "tensor_parallel_size" and name in parallelism
+    ]
+    flags = [label for name, label in _FLAG_LABELS.items() if parallelism.get(name) is True]
+    others = [
+        name if value is True else f"{name}={value}"
+        for name, value in sorted(parallelism.items())
+        if name not in _SIZE_LABELS and name not in _FLAG_LABELS
+    ]
+    return " · ".join(["×".join(sizes), *flags, *others])
+
+
 def perf_metrics(payload: dict) -> dict[str, float]:
     """Extract the registry metrics present in an already-canonical payload."""
     out: dict[str, float] = {}
@@ -176,19 +232,21 @@ def perf_metrics(payload: dict) -> dict[str, float]:
     return out
 
 
-def transform_perf(raw: dict, *, tp: int | None) -> dict[str, float]:
+def transform_perf(raw: dict, *, gpus: int | None) -> dict[str, float]:
     """Turn a raw ``vllm bench serve`` result into per-GPU metrics.
 
-    Mirrors perf-eval's ``ingest_perf.transform``. Only ``METRIC_META`` metrics
-    are kept, so a new upstream field cannot widen the published schema.
+    Mirrors perf-eval's ``ingest_perf.transform``, except that it divides by TP x DP
+    and this by every GPU the server uses (``gpu_count``); they differ only once a
+    recipe uses PP or PCP. Only ``METRIC_META`` metrics are kept, so a new upstream
+    field cannot widen the published schema.
     """
-    tp = max(int(tp or 1), 1)
+    gpus = max(int(gpus or 1), 1)
     total = to_float(raw.get("total_token_throughput")) or 0.0
     output = to_float(raw.get("output_throughput")) or 0.0
     metrics: dict[str, float] = {
-        "tput_per_gpu": total / tp,
-        "output_tput_per_gpu": output / tp,
-        "input_tput_per_gpu": (total - output) / tp,
+        "tput_per_gpu": total / gpus,
+        "output_tput_per_gpu": output / gpus,
+        "input_tput_per_gpu": (total - output) / gpus,
     }
     for key, value in raw.items():
         if not isinstance(key, str) or not key.endswith("_ms"):

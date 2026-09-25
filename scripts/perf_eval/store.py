@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from perf_eval import WINDOW_DAYS
+from perf_eval.normalize import parallel_key, parallelism_of
 
 log = logging.getLogger(__name__)
 
@@ -67,8 +68,8 @@ def nightly_identity(event: dict) -> str:
 def result_identity(event: dict) -> tuple:
     """What makes two result events the same result, for dedupe.
 
-    A perf result is one config (TP, precision, ISL/OSL, concurrency); an
-    accuracy result is one workload, whose tasks are rows inside it.
+    A perf result is one config (parallelism, precision, ISL/OSL, concurrency);
+    an accuracy result is one workload, whose tasks are rows inside it.
     """
     kind = event.get("event")
     base = (
@@ -79,7 +80,7 @@ def result_identity(event: dict) -> tuple:
     )
     if kind == "perf_result":
         return base + (
-            event.get("tp"),
+            parallel_key(parallelism_of(event)),
             event.get("precision"),
             event.get("isl"),
             event.get("osl"),
