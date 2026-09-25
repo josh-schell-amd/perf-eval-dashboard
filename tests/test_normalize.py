@@ -231,20 +231,20 @@ class TestNormalizeEvalPayload:
 
 
 class TestMetricRegistry:
-    def test_every_metric_declares_direction_label_and_unit(self):
+    def test_every_metric_declares_better_label_and_unit(self):
         for key, meta in nz.METRIC_META.items():
-            assert meta["direction"] in {"higher", "lower"}, key
+            assert meta["better"] in {"higher", "lower"}, key
             assert meta["label"], key
             assert "unit" in meta, key
 
     def test_throughput_is_higher_better_and_latency_lower_better(self):
-        assert nz.METRIC_META["tput_per_gpu"]["direction"] == "higher"
-        assert nz.METRIC_META["mean_ttft"]["direction"] == "lower"
-        assert nz.METRIC_META["mean_tpot"]["direction"] == "lower"
-        assert nz.METRIC_META["mean_intvty"]["direction"] == "higher"
+        assert nz.METRIC_META["tput_per_gpu"]["better"] == "higher"
+        assert nz.METRIC_META["mean_ttft"]["better"] == "lower"
+        assert nz.METRIC_META["mean_tpot"]["better"] == "lower"
+        assert nz.METRIC_META["mean_intvty"]["better"] == "higher"
 
     def test_accuracy_is_higher_better(self):
-        assert nz.ACCURACY_DIRECTION == "higher"
+        assert nz.ACCURACY_BETTER == "higher"
 
     def test_per_gpu_throughput_says_so_in_its_unit(self):
         # transform_perf divides by TP, so these are TP times smaller than the

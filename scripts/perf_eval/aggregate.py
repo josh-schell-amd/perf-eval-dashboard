@@ -22,7 +22,7 @@ from perf_eval import (  # noqa: E402
     WINDOW_DAYS,
 )
 from perf_eval.normalize import (  # noqa: E402
-    ACCURACY_DIRECTION,
+    ACCURACY_BETTER,
     LM_EVAL_BACKENDS,
     METRIC_META,
     is_amd_workload,
@@ -116,12 +116,12 @@ def _config_label(device: str, isl, osl, conc) -> str:
     return f"{fmt_len(isl)} in / {fmt_len(osl)} out @ conc {conc} ({(device or '').upper()})"
 
 
-def _status(direction: str, latest: float, previous: float | None, *, rel: bool) -> dict:
+def _status(better: str, latest: float, previous: float | None, *, rel: bool) -> dict:
     """Compute delta and red/green status for the latest-vs-previous nightly."""
     out = {
         "latest": latest,
         "previous": previous,
-        "direction": direction,
+        "better": better,
         "delta": None,
         "delta_pct": None,
         "status": "neutral",
@@ -146,7 +146,7 @@ def _status(direction: str, latest: float, previous: float | None, *, rel: bool)
     if not moved:
         return out
 
-    improved = delta > 0 if direction == "higher" else delta < 0
+    improved = delta > 0 if better == "higher" else delta < 0
     out["status"] = "good" if improved else "bad"
     return out
 
@@ -211,11 +211,11 @@ def build_perf_configs(perf_events: list[dict]) -> list[dict]:
         metric_points = config.pop("_metric_points")
         metrics_out = {}
         for metric, points in metric_points.items():
-            meta = METRIC_META.get(metric, {"direction": "higher"})
+            meta = METRIC_META.get(metric, {"better": "higher"})
             series = _series_from_points(points)
             latest = series[-1]["value"]
             previous = series[-2]["value"] if len(series) >= 2 else None
-            block = _status(meta["direction"], latest, previous, rel=True)
+            block = _status(meta["better"], latest, previous, rel=True)
             block.update(
                 {
                     "label": meta.get("label", metric),
@@ -278,7 +278,7 @@ def build_accuracy_tasks(eval_events: list[dict]) -> list[dict]:
         series = _series_from_points(entry.pop("_points"))
         latest = series[-1]["value"]
         previous = series[-2]["value"] if len(series) >= 2 else None
-        entry.update(_status(ACCURACY_DIRECTION, latest, previous, rel=False))
+        entry.update(_status(ACCURACY_BETTER, latest, previous, rel=False))
         entry["series"] = _strip_internal(series)
         out.append(entry)
     out.sort(key=lambda t: (not t["primary"], t["device"], t["workload"], t["task"], t["metric"]))
@@ -410,7 +410,7 @@ def aggregate(events: list[dict]) -> dict:
     metric_meta["accuracy"] = {
         "label": "Accuracy",
         "unit": "",
-        "direction": ACCURACY_DIRECTION,
+        "better": ACCURACY_BETTER,
         "digits": 4,
         "order": len(METRIC_META),
     }

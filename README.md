@@ -471,8 +471,8 @@ the log is about half a megabyte.
 <summary>The published payload, <code>perf_eval.json</code></summary>
 
 This is the contract between the collectors and the page. `metric_meta`
-carries `direction`, so the page colours a new metric correctly without a
-frontend change, and `baselines` declares the comparison rule so its labels
+carries `better` (whether higher or lower values are better), so the page
+colours a new metric correctly without a frontend change, and `baselines` declares the comparison rule so its labels
 and thresholds come from data.
 
 ```jsonc
@@ -480,7 +480,7 @@ and thresholds come from data.
   "generated_at": "2026-01-01T00:00:00Z",
   "scope":      { "hardware": "amd", "runs": "nightly", "description": "..." },
   "pipeline":   { "org": "vllm", "slug": "perf-eval", "url": "..." },
-  "metric_meta": { "tput_per_gpu": { "label": "...", "unit": "tok/s/GPU", "direction": "higher" } },
+  "metric_meta": { "tput_per_gpu": { "label": "...", "unit": "tok/s/GPU", "better": "higher" } },
   "thresholds": { "perf_rel": 0.005, "accuracy_abs": 0.01 },
   // What the recipes say should run, for Coverage. The page cannot reach
   // GitHub, so the collector snapshots it into the store.
@@ -503,7 +503,7 @@ and thresholds come from data.
       "metrics": {
         "tput_per_gpu": {
           "latest": 1234.5, "previous": 1200.0, "delta": 34.5, "delta_pct": 2.875,
-          "direction": "higher", "status": "good", "label": "...", "unit": "tok/s/GPU",
+          "better": "higher", "status": "good", "label": "...", "unit": "tok/s/GPU",
           "series": [{ "date": "...", "value": 1200.0, "vllm_commit": "...", "build_url": "...",
                        "completed_requests": 512, "failed_requests": 0 }]
         }

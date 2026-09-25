@@ -865,7 +865,7 @@ function verdict(values, metric, baseline) {
   const base = values[values.length - 2];
   if (base == null || !isFinite(base) || base === 0) return null;
   const ratio = (latest - base) / Math.abs(base);
-  const improved = metric.direction === 'higher' ? ratio > 0 : ratio < 0;
+  const improved = metric.better === 'higher' ? ratio > 0 : ratio < 0;
   const magnitude = Math.abs(ratio);
   let severity = 'ok';
   // ratio !== 0 keeps a flat value neutral if the threshold is ever zero.
@@ -1021,7 +1021,7 @@ function nightOverNight() {
   return {
     ratio: med,
     configs: ratios.length,
-    improved: metric.direction === 'higher' ? med > 0 : med < 0
+    improved: metric.better === 'higher' ? med > 0 : med < 0
   };
 }
 
@@ -1682,7 +1682,7 @@ function renderTrendCharts() {
     return '<div class="mini-card' + (regCount ? ' has-reg' : '') + '">'
       + '<div class="mini-head"><span class="mini-title">' + esc(m.label) + '</span>'
       + '<span class="mini-unit">' + esc(unitOf(m)) + '</span>'
-      + '<span class="mini-dir">' + (m.direction === 'higher' ? 'higher is better' : 'lower is better') + '</span>'
+      + '<span class="mini-dir">' + (m.better === 'higher' ? 'higher is better' : 'lower is better') + '</span>'
       + (regCount ? '<span class="mini-reg">' + regCount + ' regressed</span>' : '')
       + '</div><div class="mini-wrap"><canvas id="trend-' + esc(m.key) + '"></canvas></div></div>';
   }).join('') + '</div>';
@@ -2235,13 +2235,13 @@ function renderPerfTable(configs) {
     if (!entry) return '<td class="num neutral">—</td>';
     const text = esc(fmt(display(entry.point.value, m), m.digits));
     const rg = ranges[m.key];
-    if (m.direction === 'higher' && /tput/.test(m.key)) {
+    if (m.better === 'higher' && /tput/.test(m.key)) {
       const w = rg.max > 0 ? entry.point.value / rg.max * 100 : 0;
       return '<td class="num data-bar"><div class="data-bar-fill" style="width:' + w.toFixed(1)
         + '%;background:' + (m.key === 'tput_per_gpu' ? 'rgba(109,191,128,0.14)' : 'rgba(136,153,184,0.14)')
         + '"></div><span class="data-bar-text">' + text + '</span></td>';
     }
-    if (m.direction === 'lower') {
+    if (m.better === 'lower') {
       const r = rg.max > rg.min ? (entry.point.value - rg.min) / (rg.max - rg.min) : 0;
       return '<td class="num" style="background:' + heat(r) + '">' + text + '</td>';
     }
@@ -2826,7 +2826,7 @@ const ACCURACY_METRIC = {
   unit: '%',
   display_scale: 100,
   digits: 2,
-  direction: 'higher',
+  better: 'higher',
   absolute: true
 };
 
@@ -2943,7 +2943,7 @@ function openHistory(title, subtitle, metric, points, v) {
   if (historyChart) { historyChart.destroy();
     historyChart = null; }
   const theme = chartTheme();
-  const accent = cssVar(metric.direction === 'higher' ? '--accent-blue' : '--ui');
+  const accent = cssVar(metric.better === 'higher' ? '--accent-blue' : '--ui');
   historyChart = new Chart(canvas, {
     type: 'line',
     data: {
@@ -3000,7 +3000,7 @@ function openConfigHistory(config, metric) {
   const points = pointsIn(config, metric.key);
   if (!points.length) return;
   openHistory(config.label + ' — ' + metric.label,
-    (metric.direction === 'higher' ? 'higher is better' : 'lower is better') + ' · ' + baseline.label,
+    (metric.better === 'higher' ? 'higher is better' : 'lower is better') + ' · ' + baseline.label,
     metric, points, verdict(points.map(p => p.value), metric, baseline));
 }
 

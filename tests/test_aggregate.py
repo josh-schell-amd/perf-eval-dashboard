@@ -128,7 +128,7 @@ class TestStatusThresholds:
             perf_result(commit="b" * 40, metrics={"mean_ttft": 0.05}, date="2026-01-02 00:00:00"),
         ]
         block = _metric(agg.aggregate(events), "mean_ttft")
-        assert block["direction"] == "lower"
+        assert block["better"] == "lower"
         assert block["status"] == "good"
 
     def test_first_nightly_is_neutral_with_no_previous(self):
@@ -543,7 +543,7 @@ class TestMetricDisplayMetadata:
             assert isinstance(meta.get("digits"), int), key
 
     def test_accuracy_is_included_with_an_order(self, metric_meta):
-        assert metric_meta["accuracy"]["direction"] == "higher"
+        assert metric_meta["accuracy"]["better"] == "higher"
         assert "order" in metric_meta["accuracy"]
 
 

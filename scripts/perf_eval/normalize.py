@@ -25,25 +25,25 @@ METRIC_META: dict[str, dict] = {
     "tput_per_gpu": {
         "label": "Total Throughput",
         "unit": "tok/s/GPU",
-        "direction": "higher",
+        "better": "higher",
         "digits": 1,
     },
     "output_tput_per_gpu": {
         "label": "Output Throughput",
         "unit": "tok/s/GPU",
-        "direction": "higher",
+        "better": "higher",
         "digits": 1,
     },
     "mean_intvty": {
         "label": "Interactivity",
         "unit": "tok/s/user",
-        "direction": "higher",
+        "better": "higher",
         "digits": 1,
     },
     "mean_ttft": {
         "label": "Mean TTFT",
         "unit": "s",
-        "direction": "lower",
+        "better": "lower",
         "display_unit": "ms",
         "display_scale": 1000,
         "digits": 0,
@@ -51,7 +51,7 @@ METRIC_META: dict[str, dict] = {
     "p99_ttft": {
         "label": "P99 TTFT",
         "unit": "s",
-        "direction": "lower",
+        "better": "lower",
         "display_unit": "ms",
         "display_scale": 1000,
         "digits": 0,
@@ -59,7 +59,7 @@ METRIC_META: dict[str, dict] = {
     "mean_tpot": {
         "label": "Mean TPOT",
         "unit": "s",
-        "direction": "lower",
+        "better": "lower",
         "display_unit": "ms",
         "display_scale": 1000,
         "digits": 2,
@@ -67,7 +67,7 @@ METRIC_META: dict[str, dict] = {
     "mean_itl": {
         "label": "Mean ITL",
         "unit": "s",
-        "direction": "lower",
+        "better": "lower",
         "display_unit": "ms",
         "display_scale": 1000,
         "digits": 2,
@@ -75,7 +75,7 @@ METRIC_META: dict[str, dict] = {
     "median_ttft": {
         "label": "Median TTFT",
         "unit": "s",
-        "direction": "lower",
+        "better": "lower",
         "display_unit": "ms",
         "display_scale": 1000,
         "digits": 0,
@@ -83,7 +83,7 @@ METRIC_META: dict[str, dict] = {
     "median_tpot": {
         "label": "Median TPOT",
         "unit": "s",
-        "direction": "lower",
+        "better": "lower",
         "display_unit": "ms",
         "display_scale": 1000,
         "digits": 2,
@@ -91,7 +91,7 @@ METRIC_META: dict[str, dict] = {
     "p99_tpot": {
         "label": "P99 TPOT",
         "unit": "s",
-        "direction": "lower",
+        "better": "lower",
         "display_unit": "ms",
         "display_scale": 1000,
         "digits": 2,
@@ -99,13 +99,13 @@ METRIC_META: dict[str, dict] = {
     "input_tput_per_gpu": {
         "label": "Input Throughput",
         "unit": "tok/s/GPU",
-        "direction": "higher",
+        "better": "higher",
         "digits": 1,
     },
 }
 
 # Accuracy is always "higher is better" and lives on a 0..1 scale.
-ACCURACY_DIRECTION = "higher"
+ACCURACY_BETTER = "higher"
 
 
 def utcnow_iso() -> str:
